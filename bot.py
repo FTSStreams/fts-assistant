@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+import os
 import asyncio
 
 # Set up the bot with required intents
@@ -18,6 +19,10 @@ async def on_ready():
         print(f"{bot.user.name} is now online and ready!")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
+
+@bot.event
+async def on_disconnect():
+    print("Bot has disconnected from Discord.")
 
 # Define the slash command to clear messages
 @bot.tree.command(name="clear", description="Clears a specified number of messages")
@@ -41,3 +46,6 @@ async def clear(interaction: discord.Interaction, amount: int):
 
     # Send the final confirmation
     await interaction.followup.send(f"Deleted {deleted_count} messages.")
+
+# Run the bot using the token from Heroku's config vars
+bot.run(os.getenv("DISCORD_TOKEN"))
