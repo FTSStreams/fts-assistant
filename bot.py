@@ -6,19 +6,24 @@ import os
 intents = discord.Intents.default()
 intents.message_content = True  # Allows the bot to read message content
 
-# Define bot with command prefix
-bot = commands.Bot(command_prefix="/", intents=intents)
+# Define the bot
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f'{bot.user.name} is now online and ready!')
+    try:
+        # Sync commands to make them available as slash commands
+        await bot.tree.sync()
+        print(f"{bot.user.name} is now online and ready!")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
 
-# Clear command
-@bot.command(name='clear', help="Clears a specified number of messages.")
+# Define the slash command to clear messages
+@bot.tree.command(name="clear", description="Clears a specified number of messages")
 @commands.has_role("Streamer")  # Only users with the 'Streamer' role can use this
-async def clear(ctx, amount: int):
-    await ctx.channel.purge(limit=amount)
-    await ctx.send(f"Deleted {amount} messages.", delete_after=5)
+async def clear(interaction: discord.Interaction, amount: int):
+    await interaction.channel.purge(limit=amount)
+    await interaction.response.send_message(f"Deleted {amount} messages.", ephemeral=True)
 
-# Run the bot using the token from environment variables
+# Run the bot using the token from Heroku's config vars
 bot.run(os.getenv("DISCORD_TOKEN"))
