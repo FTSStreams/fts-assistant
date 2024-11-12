@@ -59,7 +59,7 @@ async def clear(interaction: discord.Interaction, amount: int):
 @tasks.loop(hours=24)
 async def flash_giveaway_scheduler():
     # Wait for a random time within the next 24 hours
-    await asyncio.sleep(random.randint(30, 120))  # Random delay up to 24 hours
+    await asyncio.sleep(random.randint(60, 120))  # Random delay up to 24 hours
     await start_flash_giveaway()
 
 async def start_flash_giveaway():
@@ -76,12 +76,12 @@ async def start_flash_giveaway():
     embed.set_footer(text="Good luck!")
     embed.set_thumbnail(url="https://example.com/image.png")  # Optional: Add a thumbnail for flair
 
-    # Send the giveaway message and add the reaction
-    message = await channel.send(embed=embed)
+    # Send the giveaway message, tagging everyone, and add the reaction
+    message = await channel.send(content="@everyone", embed=embed)
     await message.add_reaction(giveaway_emoji)
 
     # Wait for the giveaway to end (10 minutes)
-    await asyncio.sleep(600)
+    await asyncio.sleep(30)
     await end_giveaway(message, giveaway_prize)
 
 # End Giveaway Function
