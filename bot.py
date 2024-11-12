@@ -59,7 +59,7 @@ async def clear(interaction: discord.Interaction, amount: int):
 @tasks.loop(hours=24)
 async def flash_giveaway_scheduler():
     # Wait for a random time within the next 24 hours
-    await asyncio.sleep(random.randint(0, 86400))  # Random delay up to 24 hours
+    await asyncio.sleep(random.randint(30, 120))  # Random delay up to 24 hours
     await start_flash_giveaway()
 
 async def start_flash_giveaway():
