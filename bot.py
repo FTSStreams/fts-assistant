@@ -1,6 +1,7 @@
 import discord
+from discord import app_commands
 from discord.ext import commands
-import os
+import asyncio
 
 # Set up the bot with required intents
 intents = discord.Intents.default()
@@ -22,8 +23,21 @@ async def on_ready():
 @bot.tree.command(name="clear", description="Clears a specified number of messages")
 @commands.has_role("Streamer")  # Only users with the 'Streamer' role can use this
 async def clear(interaction: discord.Interaction, amount: int):
-    await interaction.channel.purge(limit=amount)
-    await interaction.response.send_message(f"Deleted {amount} messages.", ephemeral=True)
+    # Defer response to avoid timeout
+    await interaction.response.defer(ephemeral=True)
 
-# Run the bot using the token from Heroku's config vars
-bot.run(os.getenv("DISCORD_TOKEN"))
+    # Set a limit to prevent extremely large purges
+    max_clear_limit = 50
+    amount = min(amount, max_clear_limit)
+
+    # Break up into smaller chunks if the amount is large
+    deleted_count = 0
+    while amount > 0:
+        delete_count = min(amount, 10)  # Delete in chunks of up to 10
+        deleted_messages = await interaction.channel.purge(limit=delete_count)
+        deleted_count += len(deleted_messages)
+        amount -= delete_count
+        await asyncio.sleep(1)  # Short pause to avoid rate limits
+
+    # Send the final confirmation
+    await interaction.followup.send(f"Deleted {deleted_count} messages.")
