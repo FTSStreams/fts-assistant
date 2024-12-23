@@ -1,7 +1,6 @@
-import asyncio
 import discord
-from discord import app_commands
 from discord.ext import commands, tasks
+import asyncio
 import os
 import time
 import random
@@ -61,19 +60,7 @@ giveaway_prize = "$5.00 RainBet Credit"
 
 @bot.event
 async def on_ready():
-    try:
-        # Sync commands to make them available as slash commands
-        await bot.tree.sync()
-        print(f"{bot.user.name} is now online and ready!")
-    except Exception as e:
-        print(f"Failed to sync commands: {e}")
-
-    # Start the flash giveaway scheduler
-    flash_giveaway_scheduler.start()
-
-@bot.event
-async def on_disconnect():
-    print("Bot has disconnected from Discord.")
+    print(f"{bot.user.name} is now online and ready!")
 
 # Event: When a user sends a message
 @bot.event
@@ -130,7 +117,6 @@ async def leaderboard(interaction: discord.Interaction, page: int = 1):
 @bot.tree.command(name="resetpoints", description="Reset all points in the system")
 @commands.has_role("Streamer")  # Restrict to users with the 'Streamer' role
 async def resetpoints(interaction: discord.Interaction):
-    # Reset all points
     reset_all_points()
     await interaction.response.send_message("All points have been reset.", ephemeral=True)
 
