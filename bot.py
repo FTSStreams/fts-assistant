@@ -41,8 +41,18 @@ def update_points(user_id, points_to_add):
     """, (user_id, points_to_add))
     conn.commit()
 
+# Function to get the leaderboard
+def get_leaderboard(limit=10, offset=0):
+    cur.execute("SELECT user_id, points FROM points ORDER BY points DESC LIMIT %s OFFSET %s", (limit, offset))
+    return cur.fetchall()
+
+# Function to reset all points
+def reset_all_points():
+    cur.execute("TRUNCATE TABLE points")
+    conn.commit()
+
 # Cooldown tracking
-cooldowns = {}  # Dictionary to store the last point-earning timestamp for each user
+cooldowns = {}
 
 # Emoji for the giveaway
 giveaway_emoji = '🆚'
@@ -93,70 +103,90 @@ async def checkpoints(interaction: discord.Interaction):
     user_points = get_points(user_id)
     await interaction.response.send_message(f"You have **{user_points} points**.", ephemeral=True)
 
+# Command: Display the leaderboard
+@bot.tree.command(name="leaderboard", description="Display the points leaderboard")
+async def leaderboard(interaction: discord.Interaction, page: int = 1):
+    limit = 10  # Number of entries per page
+    offset = (page - 1) * limit
+    leaderboard_data = get_leaderboard(limit, offset)
+
+    if not leaderboard_data:
+        await interaction.response.send_message("No leaderboard data available.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title="Points Leaderboard",
+        description=f"Page {page}",
+        color=discord.Color.gold()
+    )
+    for rank, (user_id, points) in enumerate(leaderboard_data, start=offset + 1):
+        user = await bot.fetch_user(int(user_id))
+        embed.add_field(name=f"#{rank} - {user.name}", value=f"{points} points", inline=False)
+
+    await interaction.response.send_message(embed=embed)
+
+# Command: Reset all points (restricted to the bot owner)
+@bot.tree.command(name="resetpoints", description="Reset all points in the system")
+async def resetpoints(interaction: discord.Interaction):
+    if interaction.user.id != bot.owner_id:  # Restrict to bot owner
+        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+        return
+
+    reset_all_points()
+    await interaction.response.send_message("All points have been reset.", ephemeral=True)
+
 # Command: Clear messages
 @bot.tree.command(name="clear", description="Clears a specified number of messages")
 @commands.has_role("Streamer")  # Only users with the 'Streamer' role can use this
 async def clear(interaction: discord.Interaction, amount: int):
-    # Defer response to avoid timeout
     await interaction.response.defer(ephemeral=True)
 
-    # Set a limit to prevent extremely large purges
     max_clear_limit = 50
     amount = min(amount, max_clear_limit)
 
-    # Break up into smaller chunks if the amount is large
     deleted_count = 0
     while amount > 0:
-        delete_count = min(amount, 10)  # Delete in chunks of up to 10
+        delete_count = min(amount, 10)
         deleted_messages = await interaction.channel.purge(limit=delete_count)
         deleted_count += len(deleted_messages)
         amount -= delete_count
-        await asyncio.sleep(1)  # Short pause to avoid rate limits
+        await asyncio.sleep(1)
 
-    # Send the final confirmation
     await interaction.followup.send(f"Deleted {deleted_count} messages.")
 
 # Flash Giveaway Scheduler
 @tasks.loop(hours=72)
 async def flash_giveaway_scheduler():
-    # Wait for a random time within the next 72 hours
     await asyncio.sleep(random.randint(0, 259200))  # Random delay up to 72 hours
     await start_flash_giveaway()
 
 async def start_flash_giveaway():
-    # Choose the channel to post the giveaway in (replace with your channel ID)
     channel_id = 1051896276255522938  # Replace with your channel ID
     channel = bot.get_channel(channel_id)
 
-    # Fancy embed for the giveaway
     embed = discord.Embed(
         title="🎉 FLASH GIVEAWAY 🎉",
         description=f"Prize: **{giveaway_prize}**\nReact with {giveaway_emoji} to join!\n\nHurry! You have 10 minutes to enter.",
         color=discord.Color.gold()
     )
     embed.set_footer(text="Good luck!")
-    embed.set_thumbnail(url="https://example.com/image.png")  # Optional: Add a thumbnail for flair
+    embed.set_thumbnail(url="https://example.com/image.png")  # Optional
 
-    # Send the giveaway message, tagging everyone, and add the reaction
     message = await channel.send(content="@everyone", embed=embed)
     await message.add_reaction(giveaway_emoji)
 
-    # Wait for the giveaway to end (10 minutes)
     await asyncio.sleep(600)
     await end_giveaway(message, giveaway_prize)
 
-# End Giveaway Function
 async def end_giveaway(message, prize):
-    # Fetch the message to get updated reactions
     message = await message.channel.fetch_message(message.id)
     reaction = discord.utils.get(message.reactions, emoji=giveaway_emoji)
     
-    if reaction and reaction.count > 1:  # Ensure there's at least one participant
+    if reaction and reaction.count > 1:
         users = [user async for user in reaction.users() if not user.bot]
         winner = random.choice(users)
         await message.channel.send(f"The giveaway for **{prize}** is over! Winner: {winner.mention}. Please make a ticket to claim your balance.")
     else:
         await message.channel.send("No one joined the giveaway.")
 
-# Run the bot using the token from Heroku's config vars
 bot.run(os.getenv("DISCORD_TOKEN"))
