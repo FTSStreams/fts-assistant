@@ -4,6 +4,7 @@ from discord.ext import commands, tasks
 import os
 import asyncio
 import random
+import json
 
 # Set up the bot with required intents
 intents = discord.Intents.default()
@@ -11,6 +12,24 @@ intents.message_content = True  # Allows the bot to read message content
 
 # Define the bot
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# Path to the points JSON file
+POINTS_FILE = "points.json"
+
+# Load or initialize points data
+def load_points():
+    if os.path.exists(POINTS_FILE):
+        with open(POINTS_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+# Save points data to file
+def save_points(data):
+    with open(POINTS_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+
+# Load existing points
+points = load_points()
 
 # Emoji for the giveaway
 giveaway_emoji = '🆚'
@@ -31,6 +50,30 @@ async def on_ready():
 @bot.event
 async def on_disconnect():
     print("Bot has disconnected from Discord.")
+
+# Event: When a user sends a message
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return  # Ignore bot messages
+
+    user_id = str(message.author.id)
+
+    # Increment the user's points
+    points[user_id] = points.get(user_id, 0) + 1
+    save_points(points)  # Save updated points to file
+
+    print(f"Awarded 1 point to {message.author.name}. Total: {points[user_id]} points.")
+
+    # Ensure bot commands still work
+    await bot.process_commands(message)
+
+# Command: Check points
+@bot.tree.command(name="checkpoints", description="Check your total points")
+async def checkpoints(interaction: discord.Interaction):
+    user_id = str(interaction.user.id)
+    user_points = points.get(user_id, 0)
+    await interaction.response.send_message(f"You have **{user_points} points**.", ephemeral=True)
 
 # Define the slash command to clear messages
 @bot.tree.command(name="clear", description="Clears a specified number of messages")
