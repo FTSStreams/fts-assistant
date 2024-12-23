@@ -125,13 +125,11 @@ async def leaderboard(interaction: discord.Interaction, page: int = 1):
 
     await interaction.response.send_message(embed=embed)
 
-# Command: Reset all points (restricted to the bot owner)
+# Command: Reset all points (restricted to the 'Streamer' role)
 @bot.tree.command(name="resetpoints", description="Reset all points in the system")
+@commands.has_role("Streamer")  # Restrict to users with the 'Streamer' role
 async def resetpoints(interaction: discord.Interaction):
-    if interaction.user.id != bot.owner_id:  # Restrict to bot owner
-        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
-        return
-
+    # Reset all points
     reset_all_points()
     await interaction.response.send_message("All points have been reset.", ephemeral=True)
 
