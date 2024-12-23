@@ -139,6 +139,12 @@ async def clear(interaction: discord.Interaction, amount: int):
 
     await interaction.followup.send(f"Deleted {deleted_count} messages.")
 
+# Command: Manually sync commands
+@bot.tree.command(name="sync", description="Manually sync commands with Discord")
+async def sync(interaction: discord.Interaction):
+    await bot.tree.sync()
+    await interaction.response.send_message("Commands synced successfully!", ephemeral=True)
+
 # Flash Giveaway Scheduler
 @tasks.loop(hours=72)
 async def flash_giveaway_scheduler():
