@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 import os
-import asyncio
+import time
 import random
 import psycopg2
 
@@ -41,6 +41,9 @@ def update_points(user_id, points_to_add):
     """, (user_id, points_to_add))
     conn.commit()
 
+# Cooldown tracking
+cooldowns = {}  # Dictionary to store the last point-earning timestamp for each user
+
 # Emoji for the giveaway
 giveaway_emoji = '🆚'
 giveaway_prize = "$5.00 RainBet Credit"
@@ -68,14 +71,19 @@ async def on_message(message):
         return  # Ignore bot messages
 
     user_id = str(message.author.id)
+    now = time.time()
+    cooldown_time = 30  # 30 seconds
 
-    # Increment the user's points
+    # Check if the user is on cooldown
+    if user_id in cooldowns and now - cooldowns[user_id] < cooldown_time:
+        return  # User is still on cooldown; ignore the message
+
+    # Award points and update cooldown
     update_points(user_id, 1)
     total_points = get_points(user_id)
+    cooldowns[user_id] = now  # Update the last point-earned timestamp
 
     print(f"Awarded 1 point to {message.author.name}. Total: {total_points} points.")
-
-    # Ensure bot commands still work
     await bot.process_commands(message)
 
 # Command: Check points
