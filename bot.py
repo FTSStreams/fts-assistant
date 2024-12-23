@@ -4,7 +4,7 @@ from discord.ext import commands, tasks
 import os
 import asyncio
 import random
-import json
+import psycopg2
 
 # Set up the bot with required intents
 intents = discord.Intents.default()
@@ -13,23 +13,33 @@ intents.message_content = True  # Allows the bot to read message content
 # Define the bot
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Path to the points JSON file
-POINTS_FILE = "points.json"
+# Connect to the database
+DATABASE_URL = os.getenv("DATABASE_URL")  # Heroku provides this automatically
+conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+cur = conn.cursor()
 
-# Load or initialize points data
-def load_points():
-    if os.path.exists(POINTS_FILE):
-        with open(POINTS_FILE, "r") as f:
-            return json.load(f)
-    return {}
+# Create the points table if it doesn't exist
+cur.execute("""
+CREATE TABLE IF NOT EXISTS points (
+    user_id TEXT PRIMARY KEY,
+    points INTEGER NOT NULL
+)
+""")
+conn.commit()
 
-# Save points data to file
-def save_points(data):
-    with open(POINTS_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+# Function to get points for a user
+def get_points(user_id):
+    cur.execute("SELECT points FROM points WHERE user_id = %s", (user_id,))
+    result = cur.fetchone()
+    return result[0] if result else 0
 
-# Load existing points
-points = load_points()
+# Function to update points for a user
+def update_points(user_id, points_to_add):
+    cur.execute("""
+    INSERT INTO points (user_id, points) VALUES (%s, %s)
+    ON CONFLICT (user_id) DO UPDATE SET points = points.points + EXCLUDED.points
+    """, (user_id, points_to_add))
+    conn.commit()
 
 # Emoji for the giveaway
 giveaway_emoji = '🆚'
@@ -60,10 +70,10 @@ async def on_message(message):
     user_id = str(message.author.id)
 
     # Increment the user's points
-    points[user_id] = points.get(user_id, 0) + 1
-    save_points(points)  # Save updated points to file
+    update_points(user_id, 1)
+    total_points = get_points(user_id)
 
-    print(f"Awarded 1 point to {message.author.name}. Total: {points[user_id]} points.")
+    print(f"Awarded 1 point to {message.author.name}. Total: {total_points} points.")
 
     # Ensure bot commands still work
     await bot.process_commands(message)
@@ -72,10 +82,10 @@ async def on_message(message):
 @bot.tree.command(name="checkpoints", description="Check your total points")
 async def checkpoints(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
-    user_points = points.get(user_id, 0)
+    user_points = get_points(user_id)
     await interaction.response.send_message(f"You have **{user_points} points**.", ephemeral=True)
 
-# Define the slash command to clear messages
+# Command: Clear messages
 @bot.tree.command(name="clear", description="Clears a specified number of messages")
 @commands.has_role("Streamer")  # Only users with the 'Streamer' role can use this
 async def clear(interaction: discord.Interaction, amount: int):
@@ -107,7 +117,7 @@ async def flash_giveaway_scheduler():
 
 async def start_flash_giveaway():
     # Choose the channel to post the giveaway in (replace with your channel ID)
-    channel_id = 1051896276255522938
+    channel_id = 1051896276255522938  # Replace with your channel ID
     channel = bot.get_channel(channel_id)
 
     # Fancy embed for the giveaway
