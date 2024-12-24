@@ -89,33 +89,48 @@ OUTCOMES = [
 
 @bot.tree.command(name="slot-wanted", description="Bet your points on the Wanted slot machine!")
 async def slot_wanted(interaction: discord.Interaction, amount: int):
+    print(f"DEBUG: slot-wanted invoked with amount = {amount}")  # Debugging log
     user_id = str(interaction.user.id)
     current_points = get_points(user_id)
+
+    # Validate bet amount
     if amount <= 0:
+        print(f"DEBUG: Invalid amount {amount}")
         await interaction.response.send_message("Please enter a valid bet greater than 0.", ephemeral=True)
         return
+
     if current_points < amount:
+        print(f"DEBUG: Insufficient points. User has {current_points}, tried to bet {amount}")
         await interaction.response.send_message("You don't have enough points to make this bet.", ephemeral=True)
         return
+
+    # Generate slot result
     rand = random.uniform(0, 100)
     cumulative_probability = 0
     result = None
+
     for outcome in OUTCOMES:
         cumulative_probability += outcome["odds"]
         if rand <= cumulative_probability:
             result = outcome
             break
+
+    print(f"DEBUG: Slot result: {result}")  # Debugging log
+
+    # Generate random emojis for the slot display
     slot_emojis = random.choices(EMOJIS, k=3)
-    if result["name"] != "No Match":
+    if result["name"] != "No Match":  # Ensure 3 of a kind for winning outcomes
         slot_emojis = [EMOJIS[OUTCOMES.index(result) - 1]] * 3
+
+    # Handle payouts or losses
     if result["payout"] == 0:
-        update_points(user_id, -amount)
+        update_points(user_id, -amount)  # Deduct bet
         await interaction.response.send_message(
             f"🎰 {' | '.join(slot_emojis)}\nUnlucky! Better luck next time! You lost {amount} points."
         )
     else:
         winnings = amount * result["payout"]
-        update_points(user_id, winnings - amount)
+        update_points(user_id, winnings - amount)  # Add net winnings
         await interaction.response.send_message(
             f"🎰 {' | '.join(slot_emojis)}\n{result['name']}! You win {winnings} points! (Multiplier: {result['payout']}x)"
         )
