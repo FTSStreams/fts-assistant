@@ -90,7 +90,6 @@ async def slot_wanted(interaction: discord.Interaction, amount: int):
     user_id = str(interaction.user.id)
     current_points = get_points(user_id)
 
-    # Validate bet amount
     if amount <= 0:
         await interaction.response.send_message("Please enter a valid bet greater than 0.", ephemeral=True)
         return
@@ -99,7 +98,6 @@ async def slot_wanted(interaction: discord.Interaction, amount: int):
         await interaction.response.send_message("You don't have enough points to make this bet.", ephemeral=True)
         return
 
-    # Determine the outcome
     rand = random.uniform(0, 100)
     cumulative_probability = 0
     result = None
@@ -110,22 +108,20 @@ async def slot_wanted(interaction: discord.Interaction, amount: int):
             result = outcome
             break
 
-    # Generate slot display
     slot_emojis = random.choices(EMOJIS, k=3)
-    if result["name"] != "No Match":  # Ensure 3 of a kind for winning outcomes
+    if result["name"] != "No Match":
         slot_emojis = [EMOJIS[OUTCOMES.index(result) - 1]] * 3
 
-    # Handle payouts
     if result["payout"] == 0:
-        update_points(user_id, -amount)  # Deduct bet
+        update_points(user_id, -amount)
         await interaction.response.send_message(
-            f"🎰 {' | '.join(slot_emojis)}\nUnlucky! Better luck next time! You lost {amount} points."
+            f"🎰 {' | '.join(slot_emojis)}\nUnlucky! You lost {amount} points."
         )
     else:
         winnings = amount * result["payout"]
-        update_points(user_id, winnings - amount)  # Add net winnings
+        update_points(user_id, winnings - amount)
         await interaction.response.send_message(
-            f"🎰 {' | '.join(slot_emojis)}\n{result['name']}! You win {winnings} points! (Multiplier: {result['payout']}x)"
+            f"🎰 {' | '.join(slot_emojis)}\n{result['name']}! You win {winnings} points!"
         )
 
 # Checkpoints Command
@@ -154,7 +150,66 @@ async def leaderboard(interaction: discord.Interaction, page: int = 1):
 
     await interaction.response.send_message(embed=embed)
 
-# Add Points for Sending Messages
+# Add Points Command
+@bot.tree.command(name="addpoints", description="Add points to a user")
+async def addpoints(interaction: discord.Interaction, user: discord.Member, amount: int):
+    user_id = str(user.id)
+    if amount <= 0:
+        await interaction.response.send_message("Enter a valid amount greater than 0.", ephemeral=True)
+        return
+    update_points(user_id, amount)
+    updated_points = get_points(user_id)
+    await interaction.response.send_message(
+        f"Added {amount} points to {user.mention}. They now have {updated_points} points.",
+        ephemeral=False
+    )
+
+# Remove Points Command
+@bot.tree.command(name="removepoints", description="Remove points from a user")
+async def removepoints(interaction: discord.Interaction, user: discord.Member, amount: int):
+    user_id = str(user.id)
+    current_points = get_points(user_id)
+    if amount <= 0 or amount > current_points:
+        await interaction.response.send_message(
+            f"Invalid amount. {user.mention} only has {current_points} points.", ephemeral=True
+        )
+        return
+    update_points(user_id, -amount)
+    updated_points = get_points(user_id)
+    await interaction.response.send_message(
+        f"Removed {amount} points from {user.mention}. They now have {updated_points} points.",
+        ephemeral=False
+    )
+
+# Reset Points Command
+@bot.tree.command(name="resetpoints", description="Reset all points in the system")
+async def resetpoints(interaction: discord.Interaction):
+    cur.execute("TRUNCATE TABLE points")
+    conn.commit()
+    await interaction.response.send_message("All points have been reset.", ephemeral=True)
+
+# Coinflip Command
+@bot.tree.command(name="coinflip", description="Bet your points on heads or tails!")
+async def coinflip(interaction: discord.Interaction, amount: int):
+    user_id = str(interaction.user.id)
+    current_points = get_points(user_id)
+
+    if amount <= 0 or current_points < amount:
+        await interaction.response.send_message("Invalid bet amount.", ephemeral=True)
+        return
+
+    choices = ["Heads", "Tails"]
+    result = random.choice(choices)
+
+    # Handle the outcome
+    if result == "Heads":
+        update_points(user_id, amount)
+        await interaction.response.send_message(f"The coin landed on **Heads**! You win {amount} points!")
+    else:
+        update_points(user_id, -amount)
+        await interaction.response.send_message(f"The coin landed on **Tails**! You lost {amount} points.")
+
+# Points for Sending Messages
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -162,8 +217,6 @@ async def on_message(message):
 
     user_id = str(message.author.id)
     update_points(user_id, 1)  # Add 1 point per message
-    print(f"Added 1 point to {message.author.name} (ID: {user_id})")  # Debugging
-
     await bot.process_commands(message)  # Ensure commands still work
 
 # Manual Sync Command
