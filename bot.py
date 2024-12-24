@@ -165,14 +165,18 @@ class CoinflipDropdown(discord.ui.Select):
         result = random.choice(["heads", "tails"])
 
         if self.values[0] == result:
-            update_points(str(interaction.user.id), self.amount * 2)
+            # User wins: Return original bet + profit
+            update_points(str(interaction.user.id), self.amount)
             await interaction.response.send_message(
-                f"🎉 You won! The coin landed on **{result.capitalize()}**. You now have {get_points(str(interaction.user.id))} points!"
+                f"🎉 You won! The coin landed on **{result.capitalize()}**. "
+                f"You gained {self.amount} points and now have {get_points(str(interaction.user.id))} points!"
             )
         else:
+            # User loses: Deduct the bet amount
             update_points(str(interaction.user.id), -self.amount)
             await interaction.response.send_message(
-                f"😢 You lost! The coin landed on **{result.capitalize()}**. You now have {get_points(str(interaction.user.id))} points."
+                f"😢 You lost! The coin landed on **{result.capitalize()}**. "
+                f"You now have {get_points(str(interaction.user.id))} points."
             )
 
 
@@ -186,6 +190,7 @@ async def coinflip(interaction: discord.Interaction, amount: int):
     user_id = str(interaction.user.id)
     current_points = get_points(user_id)
 
+    # Validate the bet amount
     if amount <= 0:
         await interaction.response.send_message("Please enter a valid amount greater than 0.", ephemeral=True)
         return
@@ -194,6 +199,7 @@ async def coinflip(interaction: discord.Interaction, amount: int):
         await interaction.response.send_message("You don't have enough points to make this bet.", ephemeral=True)
         return
 
+    # Show the coinflip dropdown
     view = CoinflipView(amount, interaction.user.id)
     await interaction.response.send_message(
         f"You bet **{amount} points**. Choose Heads or Tails to start!",
