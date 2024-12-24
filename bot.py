@@ -60,6 +60,12 @@ giveaway_prize = "$5.00 RainBet Credit"
 
 @bot.event
 async def on_ready():
+    try:
+        synced_commands = await bot.tree.sync()
+        print(f"Commands synced successfully: {len(synced_commands)} commands")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
+
     print(f"{bot.user.name} is now online and ready!")
 
 # Event: When a user sends a message
@@ -142,8 +148,8 @@ async def clear(interaction: discord.Interaction, amount: int):
 # Command: Manually sync commands
 @bot.tree.command(name="sync", description="Manually sync commands with Discord")
 async def sync(interaction: discord.Interaction):
-    await bot.tree.sync()
-    await interaction.response.send_message("Commands synced successfully!", ephemeral=True)
+    synced_commands = await bot.tree.sync()
+    await interaction.response.send_message(f"Commands synced successfully! {len(synced_commands)} commands available.", ephemeral=True)
 
 # Flash Giveaway Scheduler
 @tasks.loop(hours=72)
