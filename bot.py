@@ -70,70 +70,10 @@ async def end_giveaway(message):
     else:
         await message.channel.send("No one joined the giveaway.")
 
-# Slot-Wanted Command
-EMOJIS = [
-    "<:outlaw:1320915199619764328>",
-    "<:bullshead:1320915198663589888>",
-    "<:whiskybottle:1320915512967823404>",
-    "<:moneybag:1320915200471466014>",
-    "<:revolver:1107173516752719992>"
-]
-OUTCOMES = [
-    {"name": "No Match", "odds": 72, "payout": 0},
-    {"name": "3 Outlaws", "odds": 12, "payout": 2},
-    {"name": "3 Bull's Heads", "odds": 8, "payout": 3},
-    {"name": "3 Whisky Bottles", "odds": 5, "payout": 5},
-    {"name": "3 Money Bags", "odds": 2, "payout": 7},
-    {"name": "3 Revolvers", "odds": 1, "payout": 10}
-]
-
+# Slot-Wanted Command (Simplified)
 @bot.tree.command(name="slot-wanted", description="Bet your points on the Wanted slot machine!")
 async def slot_wanted(interaction: discord.Interaction, amount: int):
-    print(f"DEBUG: slot-wanted invoked with amount = {amount}")  # Debugging log
-    user_id = str(interaction.user.id)
-    current_points = get_points(user_id)
-
-    # Validate bet amount
-    if amount <= 0:
-        print(f"DEBUG: Invalid amount {amount}")
-        await interaction.response.send_message("Please enter a valid bet greater than 0.", ephemeral=True)
-        return
-
-    if current_points < amount:
-        print(f"DEBUG: Insufficient points. User has {current_points}, tried to bet {amount}")
-        await interaction.response.send_message("You don't have enough points to make this bet.", ephemeral=True)
-        return
-
-    # Generate slot result
-    rand = random.uniform(0, 100)
-    cumulative_probability = 0
-    result = None
-
-    for outcome in OUTCOMES:
-        cumulative_probability += outcome["odds"]
-        if rand <= cumulative_probability:
-            result = outcome
-            break
-
-    print(f"DEBUG: Slot result: {result}")  # Debugging log
-
-    # Generate random emojis for the slot display
-    slot_emojis = random.choices(EMOJIS, k=3)
-    if result["name"] != "No Match":  # Ensure 3 of a kind for winning outcomes
-        slot_emojis = [EMOJIS[OUTCOMES.index(result) - 1]] * 3
-
-    # Handle payouts or losses
-    if result["payout"] == 0:
-        update_points(user_id, -amount)  # Deduct bet
-        await interaction.response.send_message(
-            f"🎰 {' | '.join(slot_emojis)}\nUnlucky! Better luck next time! You lost {amount} points."
-        )
-    else:
-        winnings = amount * result["payout"]
-        update_points(user_id, winnings - amount)  # Add net winnings
-        await interaction.response.send_message(
-            f"🎰 {' | '.join(slot_emojis)}\n{result['name']}! You win {winnings} points! (Multiplier: {result['payout']}x)"
-        )
+    await interaction.response.send_message("The slot is slotting...")
 
 # Checkpoints Command
 @bot.tree.command(name="checkpoints", description="Check your total points")
@@ -195,41 +135,6 @@ async def resetpoints(interaction: discord.Interaction):
     cur.execute("TRUNCATE TABLE points")
     conn.commit()
     await interaction.response.send_message("All points have been reset.", ephemeral=True)
-
-# Coinflip Command
-@bot.tree.command(name="coinflip", description="Bet your points on heads or tails!")
-async def coinflip(interaction: discord.Interaction, amount: int):
-    user_id = str(interaction.user.id)
-    current_points = get_points(user_id)
-    if amount <= 0 or current_points < amount:
-        await interaction.response.send_message("Invalid bet amount.", ephemeral=True)
-        return
-    choices = ["Heads", "Tails"]
-    result = random.choice(choices)
-    view = discord.ui.View(timeout=None)
-    button_heads = discord.ui.Button(label="Heads", style=discord.ButtonStyle.primary)
-    button_tails = discord.ui.Button(label="Tails", style=discord.ButtonStyle.primary)
-    async def handle_heads(interaction: discord.Interaction):
-        await handle_coinflip_result(interaction, "Heads", result, amount, user_id)
-    async def handle_tails(interaction: discord.Interaction):
-        await handle_coinflip_result(interaction, "Tails", result, amount, user_id)
-    button_heads.callback = handle_heads
-    button_tails.callback = handle_tails
-    view.add_item(button_heads)
-    view.add_item(button_tails)
-    await interaction.response.send_message(
-        f"Place your bet! {amount} points. Choose Heads or Tails:",
-        view=view
-    )
-
-async def handle_coinflip_result(interaction, choice, result, amount, user_id):
-    if choice == result:
-        winnings = amount
-        update_points(user_id, winnings)
-        await interaction.response.send_message(f"🎉 You won! The coin landed on {result}. You earned {winnings} points!")
-    else:
-        update_points(user_id, -amount)
-        await interaction.response.send_message(f"😢 You lost! The coin landed on {result}. You lost {amount} points.")
 
 # Manual Sync Command
 @bot.tree.command(name="sync", description="Manually sync commands.")
