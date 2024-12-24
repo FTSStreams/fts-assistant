@@ -146,20 +146,60 @@ async def clear(interaction: discord.Interaction, amount: int):
 
     await interaction.followup.send(f"Deleted {deleted_count} messages.")
 
-# Command: Manually sync commands
-@bot.tree.command(name="sync", description="Manually sync commands with Discord")
-async def sync(interaction: discord.Interaction):
-    try:
-        synced_commands = await bot.tree.sync()
-        await interaction.response.send_message(
-            f"Commands synced successfully! {len(synced_commands)} commands available.", ephemeral=True
-        )
-        print(f"Commands synced successfully: {len(synced_commands)} commands")
-    except Exception as e:
-        await interaction.response.send_message(
-            f"Failed to sync commands: {e}", ephemeral=True
-        )
-        print(f"Failed to sync commands: {e}")
+# Coinflip Dropdown
+class CoinflipDropdown(discord.ui.Select):
+    def __init__(self, amount, user_id):
+        self.amount = amount
+        self.user_id = user_id
+        options = [
+            SelectOption(label="Heads", description="Bet on Heads", value="heads"),
+            SelectOption(label="Tails", description="Bet on Tails", value="tails"),
+        ]
+        super().__init__(placeholder="Choose Heads or Tails", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This is not your bet!", ephemeral=True)
+            return
+
+        result = random.choice(["heads", "tails"])
+
+        if self.values[0] == result:
+            update_points(str(interaction.user.id), self.amount * 2)
+            await interaction.response.send_message(
+                f"🎉 You won! The coin landed on **{result.capitalize()}**. You now have {get_points(str(interaction.user.id))} points!"
+            )
+        else:
+            update_points(str(interaction.user.id), -self.amount)
+            await interaction.response.send_message(
+                f"😢 You lost! The coin landed on **{result.capitalize()}**. You now have {get_points(str(interaction.user.id))} points."
+            )
+
+
+class CoinflipView(discord.ui.View):
+    def __init__(self, amount, user_id):
+        super().__init__()
+        self.add_item(CoinflipDropdown(amount, user_id))
+
+@bot.tree.command(name="coinflip", description="Bet on a coinflip to double your points!")
+async def coinflip(interaction: discord.Interaction, amount: int):
+    user_id = str(interaction.user.id)
+    current_points = get_points(user_id)
+
+    if amount <= 0:
+        await interaction.response.send_message("Please enter a valid amount greater than 0.", ephemeral=True)
+        return
+
+    if current_points < amount:
+        await interaction.response.send_message("You don't have enough points to make this bet.", ephemeral=True)
+        return
+
+    view = CoinflipView(amount, interaction.user.id)
+    await interaction.response.send_message(
+        f"You bet **{amount} points**. Choose Heads or Tails to start!",
+        view=view,
+        ephemeral=True
+    )
 
 # Flash Giveaway Scheduler
 @tasks.loop(hours=72)
