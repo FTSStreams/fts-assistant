@@ -88,14 +88,14 @@ async def update_roobet_leaderboard():
     embed = discord.Embed(
         title="🏆 **Roobet Monthly Leaderboard** 🏆",
         description=(
-            f"**Leaderboard Period:**\nFrom: <t:1735707600:f>\nTo: <t:1738385940:f>\n\n"
+            f"**Leaderboard Period:**\nFrom: <t:1735707600:f>\nTo: <t:1738385940:f>\n"
+            f"⏰ **Last Updated:** <t:{current_unix_time}:f>\n\n"
             "📜 **Leaderboard Rules & Disclosure**:\n"
             "• Games with an RTP of **97% or less** contribute **100%** to your weighted wager.\n"
             "• Games with an RTP **above 97%** contribute **50%** to your weighted wager.\n"
             "• Games with an RTP **98% and above** contribute **10%** to your weighted wager.\n"
             "• **Only Slots and House Games count** (Dice is excluded).\n\n"
             "💵 **All amounts displayed are in USD.**\n\n"
-            f"⏰ **Last Updated:** <t:{current_unix_time}:f>\n\n"
         ),
         color=discord.Color.gold()
     )
