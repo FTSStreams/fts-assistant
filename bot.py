@@ -14,6 +14,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Roobet API configuration
 ROOBET_API_URL = "https://roobetconnect.com/affiliate/v2/stats"
 ROOBET_API_TOKEN = os.getenv("ROOBET_API_TOKEN")
+ROOBET_USER_ID = os.getenv("ROOBET_USER_ID")  # Roobet UID for affiliate stats
 LEADERBOARD_CHANNEL_ID = 1324462489404051487  # Monthly leaderboard channel
 
 # Prizes distribution
@@ -25,6 +26,7 @@ def fetch_roobet_leaderboard(start_date, end_date):
         "Authorization": f"Bearer {ROOBET_API_TOKEN}"
     }
     params = {
+        "userId": ROOBET_USER_ID,
         "startDate": start_date,
         "endDate": end_date
     }
@@ -32,7 +34,7 @@ def fetch_roobet_leaderboard(start_date, end_date):
     if response.status_code == 200:
         return response.json()
     else:
-        print(f"DEBUG: Failed to fetch leaderboard data. Status code: {response.status_code}")
+        print(f"DEBUG: Failed to fetch leaderboard data. Status code: {response.status_code}, Response: {response.text}")
         return []
 
 # Format and send leaderboard to the channel
@@ -48,6 +50,13 @@ async def update_roobet_leaderboard():
     end_date = "2025-01-31T23:59:59"
     leaderboard_data = fetch_roobet_leaderboard(start_date, end_date)
 
+    # Debugging API response
+    print(f"DEBUG: API Response: {leaderboard_data}")
+
+    if not leaderboard_data:
+        await channel.send("No data available for the leaderboard.")
+        return
+
     # Sort by weighted wager
     leaderboard_data.sort(key=lambda x: x.get("weightedWagered", 0), reverse=True)
 
@@ -58,7 +67,15 @@ async def update_roobet_leaderboard():
         wagered = entry.get("wagered", 0)
         weighted_wagered = entry.get("weightedWagered", 0)
         prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
-        embed.add_field(name=f"#{i + 1} - {username}", value=f"Wagered: ${wagered:.2f}\nWeighted: ${weighted_wagered:.2f}\nPrize: ${prize}", inline=False)
+
+        # Debugging leaderboard entry
+        print(f"DEBUG: Rank {i + 1}: Username={username}, Wagered={wagered}, Weighted={weighted_wagered}, Prize={prize}")
+
+        embed.add_field(
+            name=f"#{i + 1} - {username}",
+            value=f"Wagered: ${wagered:.2f}\nWeighted: ${weighted_wagered:.2f}\nPrize: ${prize}",
+            inline=False
+        )
 
     # Send or edit the leaderboard message
     async for message in channel.history(limit=10):
@@ -75,11 +92,16 @@ async def before_leaderboard_loop():
 # Sync-Commands Command
 @bot.tree.command(name="sync-commands", description="Manually sync commands.")
 async def sync_commands(interaction: discord.Interaction):
-    synced = await bot.tree.sync()
-    await interaction.response.send_message(
-        f"Commands synced successfully: {[command.name for command in synced]}",
-        ephemeral=True
-    )
+    try:
+        synced = await bot.tree.sync()
+        await interaction.response.send_message(
+            f"Commands synced successfully: {[command.name for command in synced]}",
+            ephemeral=True
+        )
+    except discord.errors.InteractionResponded:
+        print("DEBUG: Interaction already responded to.")
+    except Exception as e:
+        print(f"DEBUG: Failed to sync commands: {e}")
 
 # Bot Ready Event
 @bot.event
