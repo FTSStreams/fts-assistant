@@ -83,15 +83,18 @@ async def update_roobet_leaderboard():
     leaderboard_data = fetch_roobet_leaderboard(start_date, end_date)
     leaderboard_data.sort(key=lambda x: x.get("weightedWagered", 0), reverse=True)
 
+    current_unix_time = int(datetime.utcnow().timestamp())  # Current time in UNIX
+
     embed = discord.Embed(
         title="🏆 **Roobet Monthly Leaderboard** 🏆",
         description=(
             f"**Leaderboard Period:**\nFrom: <t:1735707600:f>\nTo: <t:1738385940:f>\n\n"
-            "📜 **Leaderboard Rules**:\n"
-            "• RTP ≤ 97%: **100% of wagers**.\n"
-            "• RTP > 97%: **50% of wagers**.\n"
-            "• RTP ≥ 98%: **10% of wagers**.\n"
-            "• **Slots/House Games only (No Dice).**"
+            "📜 **Leaderboard Rules & Disclosure**:\n"
+            "• Games with an RTP of **97% or less** contribute **100%** of wagers.\n"
+            "• Games with an RTP **above 97%** contribute **50%** of wagers.\n"
+            "• Games with an RTP **98% and above** contribute **10%** of wagers.\n"
+            "• **Only Slots and House Games** count (Dice is excluded).\n\n"
+            "💵 **All amounts displayed are in USD.**"
         ),
         color=discord.Color.gold()
     )
@@ -107,10 +110,12 @@ async def update_roobet_leaderboard():
             value=(
                 f"💰 **Wagered**: ${wagered:,.2f}\n"
                 f"✨ **Weighted Wagered**: ${weighted_wagered:,.2f}\n"
-                f"🎁 **Prize**: **${prize}**"
+                f"🎁 **Prize**: **${prize} USD**"
             ),
             inline=False
         )
+
+    embed.set_footer(text=f"Last Updated: <t:{current_unix_time}:R>")
 
     async for message in channel.history(limit=10):
         if message.author == bot.user and message.embeds:
