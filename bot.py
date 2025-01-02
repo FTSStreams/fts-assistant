@@ -83,7 +83,7 @@ async def update_roobet_leaderboard():
     leaderboard_data = fetch_roobet_leaderboard(start_date, end_date)
     leaderboard_data.sort(key=lambda x: x.get("weightedWagered", 0), reverse=True)
 
-    current_unix_time = int(datetime.utcnow().timestamp())  # Current time in UNIX
+    current_unix_time = int(datetime.utcnow().timestamp())
 
     embed = discord.Embed(
         title="🏆 **Roobet Monthly Leaderboard** 🏆",
@@ -116,7 +116,6 @@ async def update_roobet_leaderboard():
             inline=False
         )
 
-    # Updated footer
     embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending.")
 
     async for message in channel.history(limit=10):
@@ -131,6 +130,23 @@ async def before_leaderboard_loop():
     await bot.wait_until_ready()
 
 # Commands
+@bot.tree.command(name="coinflip", description="Bet your points on heads or tails!")
+async def coinflip(interaction: discord.Interaction, amount: int):
+    user_id = str(interaction.user.id)
+    current_points = get_points(user_id)
+
+    if amount <= 0 or current_points < amount:
+        await interaction.response.send_message("Invalid bet amount.", ephemeral=True)
+        return
+
+    outcome = random.choice(["Heads", "Tails"])
+    if outcome == "Heads":
+        update_points(user_id, amount)
+        await interaction.response.send_message(f"The coin landed on **Heads**! You won {amount} points!")
+    else:
+        update_points(user_id, -amount)
+        await interaction.response.send_message(f"The coin landed on **Tails**! You lost {amount} points.")
+
 @bot.tree.command(name="my-points", description="Check your total points")
 async def my_points(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
