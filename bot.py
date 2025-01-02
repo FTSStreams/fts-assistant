@@ -68,7 +68,12 @@ def update_points(user_id, points_to_add):
 # Roobet leaderboard
 def fetch_roobet_leaderboard(start_date, end_date):
     headers = {"Authorization": f"Bearer {ROOBET_API_TOKEN}"}
-    params = {"userId": ROOBET_USER_ID, "startDate": start_date, "endDate": end_date}
+    params = {
+    "userId": ROOBET_USER_ID,
+    "startDate": start_date,
+    "endDate": end_date,
+    "timestamp": datetime.utcnow().isoformat()  # Unique timestamp to bypass caching
+}
 
     response = requests.get(ROOBET_API_URL, headers=headers, params=params)
 
