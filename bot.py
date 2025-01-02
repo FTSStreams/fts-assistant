@@ -160,8 +160,4 @@ async def reset_points(interaction: discord.Interaction):
 async def spin_wanted(interaction: discord.Interaction, amount: int):
     await interaction.response.send_message("Spin results coming soon!")
 
-@bot.tree.command(name="sync-commands", description="Manually sync commands.")
-async def sync_commands(interaction: discord.Interaction):
-    await interaction.response.send_message("Commands synced successfully!")
-
 bot.run(os.getenv("DISCORD_TOKEN"))
