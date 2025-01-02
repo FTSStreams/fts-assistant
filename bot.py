@@ -38,7 +38,7 @@ def update_points(user_id, points_to_add):
     """, (user_id, points_to_add))
     conn.commit()
 
-# Slot-Wanted Command
+# Spin-Wanted Command
 EMOJIS = [
     "<:outlaw:1320915199619764328>",
     "<:bullshead:1320915198663589888>",
@@ -55,8 +55,8 @@ OUTCOMES = [
     {"name": "3 Revolvers", "odds": 1, "payout": 10}
 ]
 
-@bot.tree.command(name="slot-wanted", description="Bet your points on the Wanted slot machine!")
-async def slot_wanted(interaction: discord.Interaction, amount: int):
+@bot.tree.command(name="spin-wanted", description="Bet your points on the Wanted slot machine!")
+async def spin_wanted(interaction: discord.Interaction, amount: int):
     user_id = str(interaction.user.id)
     current_points = get_points(user_id)
 
@@ -94,16 +94,16 @@ async def slot_wanted(interaction: discord.Interaction, amount: int):
             f"\U0001F3B0 {' | '.join(slot_emojis)}\n{result['name']}! You win {winnings} points!"
         )
 
-# Checkpoints Command
-@bot.tree.command(name="checkpoints", description="Check your total points")
-async def checkpoints(interaction: discord.Interaction):
+# My-Points Command
+@bot.tree.command(name="my-points", description="Check your total points")
+async def my_points(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
     user_points = get_points(user_id)
     await interaction.response.send_message(f"You have **{user_points} points**.", ephemeral=True)
 
-# Leaderboard Command
-@bot.tree.command(name="leaderboard", description="Display the points leaderboard")
-async def leaderboard(interaction: discord.Interaction, page: int = 1):
+# Points-Leaderboard Command
+@bot.tree.command(name="points-leaderboard", description="Display the points leaderboard")
+async def points_leaderboard(interaction: discord.Interaction, page: int = 1):
     limit = 10
     offset = (page - 1) * limit
     cur.execute("SELECT user_id, points FROM points ORDER BY points DESC LIMIT %s OFFSET %s", (limit, offset))
@@ -120,9 +120,9 @@ async def leaderboard(interaction: discord.Interaction, page: int = 1):
 
     await interaction.response.send_message(embed=embed)
 
-# Add Points Command
-@bot.tree.command(name="addpoints", description="Add points to a user")
-async def addpoints(interaction: discord.Interaction, user: discord.Member, amount: int):
+# Add-Points Command
+@bot.tree.command(name="add-points", description="Add points to a user")
+async def add_points(interaction: discord.Interaction, user: discord.Member, amount: int):
     user_id = str(user.id)
     if amount <= 0:
         await interaction.response.send_message("Enter a valid amount greater than 0.", ephemeral=True)
@@ -134,9 +134,9 @@ async def addpoints(interaction: discord.Interaction, user: discord.Member, amou
         ephemeral=False
     )
 
-# Remove Points Command
-@bot.tree.command(name="removepoints", description="Remove points from a user")
-async def removepoints(interaction: discord.Interaction, user: discord.Member, amount: int):
+# Remove-Points Command
+@bot.tree.command(name="remove-points", description="Remove points from a user")
+async def remove_points(interaction: discord.Interaction, user: discord.Member, amount: int):
     user_id = str(user.id)
     current_points = get_points(user_id)
     if amount <= 0 or amount > current_points:
@@ -151,9 +151,9 @@ async def removepoints(interaction: discord.Interaction, user: discord.Member, a
         ephemeral=False
     )
 
-# Reset Points Command
-@bot.tree.command(name="resetpoints", description="Reset all points in the system")
-async def resetpoints(interaction: discord.Interaction):
+# Reset-Points Command
+@bot.tree.command(name="reset-points", description="Reset all points in the system")
+async def reset_points(interaction: discord.Interaction):
     cur.execute("TRUNCATE TABLE points")
     conn.commit()
     await interaction.response.send_message("All points have been reset.", ephemeral=True)
@@ -189,9 +189,9 @@ async def on_message(message):
     update_points(user_id, 1)  # Add 1 point per message
     await bot.process_commands(message)  # Ensure commands still work
 
-# Manual Sync Command
-@bot.tree.command(name="sync", description="Manually sync commands.")
-async def sync(interaction: discord.Interaction):
+# Sync-Commands Command
+@bot.tree.command(name="sync-commands", description="Manually sync commands.")
+async def sync_commands(interaction: discord.Interaction):
     synced = await bot.tree.sync()
     await interaction.response.send_message(
         f"Commands synced successfully: {[command.name for command in synced]}",
