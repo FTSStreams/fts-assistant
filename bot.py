@@ -115,7 +115,8 @@ async def update_roobet_leaderboard():
             inline=False
         )
 
-    embed.set_footer(text=f"Last Updated: <t:{current_unix_time}:R>")
+    # Fix for Last Updated timestamp
+    embed.set_footer(text=f"Last Updated: <t:{current_unix_time}:f>")
 
     async for message in channel.history(limit=10):
         if message.author == bot.user and message.embeds:
