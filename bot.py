@@ -95,7 +95,7 @@ async def update_roobet_leaderboard():
             "• Games with an RTP **98% and above** contribute **10%** to your weighted wager.\n"
             "• **Only Slots and House Games count** (Dice is excluded).\n\n"
             "💵 **All amounts displayed are in USD.**\n\n"
-            f"⏰ **Last Updated:** <t:{current_unix_time}:f>\n"
+            f"⏰ **Last Updated:** <t:{current_unix_time}:f>\n\n"
         ),
         color=discord.Color.gold()
     )
