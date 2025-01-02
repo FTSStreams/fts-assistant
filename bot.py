@@ -132,7 +132,7 @@ async def update_roobet_leaderboard():
             inline=False
         )
 
-    embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending.")
+    embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending. Leaderboard updates every 15 minutes. Please allow up to 2 update cycles for correct updated wager.")
 
     async for message in channel.history(limit=10):
         if message.author == bot.user and message.embeds:
