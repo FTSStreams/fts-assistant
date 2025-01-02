@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 import asyncio
 import os
 import random
@@ -37,36 +37,6 @@ def update_points(user_id, points_to_add):
     ON CONFLICT (user_id) DO UPDATE SET points = points.points + EXCLUDED.points
     """, (user_id, points_to_add))
     conn.commit()
-
-# Flash Giveaway
-@tasks.loop(hours=72)
-async def flash_giveaway_scheduler():
-    await asyncio.sleep(random.randint(0, 259200))
-    await start_flash_giveaway()
-
-async def start_flash_giveaway():
-    channel_id = 1051896276255522938  # Replace with your channel ID
-    channel = bot.get_channel(channel_id)
-    embed = discord.Embed(
-        title="🎉 FLASH GIVEAWAY 🎉",
-        description="Prize: **$5.00 RainBet Credit**\nReact with 🆚 to join!\n\nHurry! You have 10 minutes to enter.",
-        color=discord.Color.gold()
-    )
-    embed.set_footer(text="Good luck!")
-    message = await channel.send(content="@everyone", embed=embed)
-    await message.add_reaction("🆚")
-    await asyncio.sleep(600)
-    await end_giveaway(message)
-
-async def end_giveaway(message):
-    message = await message.channel.fetch_message(message.id)
-    reaction = discord.utils.get(message.reactions, emoji="🆚")
-    if reaction and reaction.count > 1:
-        users = [user async for user in reaction.users() if not user.bot]
-        winner = random.choice(users)
-        await message.channel.send(f"The giveaway is over! Winner: {winner.mention}.")
-    else:
-        await message.channel.send("No one joined the giveaway.")
 
 # Slot-Wanted Command
 EMOJIS = [
@@ -115,13 +85,13 @@ async def slot_wanted(interaction: discord.Interaction, amount: int):
     if result["payout"] == 0:
         update_points(user_id, -amount)
         await interaction.response.send_message(
-            f"🎰 {' | '.join(slot_emojis)}\nUnlucky! You lost {amount} points."
+            f"\U0001F3B0 {' | '.join(slot_emojis)}\nUnlucky! You lost {amount} points."
         )
     else:
         winnings = amount * result["payout"]
         update_points(user_id, winnings - amount)
         await interaction.response.send_message(
-            f"🎰 {' | '.join(slot_emojis)}\n{result['name']}! You win {winnings} points!"
+            f"\U0001F3B0 {' | '.join(slot_emojis)}\n{result['name']}! You win {winnings} points!"
         )
 
 # Checkpoints Command
