@@ -102,7 +102,7 @@ async def update_roobet_leaderboard():
     current_unix_time = int(datetime.utcnow().timestamp())
 
     embed = discord.Embed(
-        title="🏆 **Roobet Monthly Leaderboard** 🏆",
+        title="🏆 **$1,500 USD Roobet Monthly Leaderboard** 🏆",
         description=(
             f"**Leaderboard Period:**\nFrom: <t:1735707600:f>\nTo: <t:1738385940:f>\n\n"
             f"⏰ **Last Updated:** <t:{current_unix_time}:f>\n\n"
