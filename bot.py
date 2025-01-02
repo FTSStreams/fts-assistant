@@ -94,7 +94,8 @@ async def update_roobet_leaderboard():
             "• Games with an RTP **above 97%** contribute **50%** of wagers.\n"
             "• Games with an RTP **98% and above** contribute **10%** of wagers.\n"
             "• **Only Slots and House Games** count (Dice is excluded).\n\n"
-            "💵 **All amounts displayed are in USD.**"
+            "💵 **All amounts displayed are in USD.**\n\n"
+            f"⏰ **Last Updated:** <t:{current_unix_time}:f>"
         ),
         color=discord.Color.gold()
     )
@@ -115,8 +116,8 @@ async def update_roobet_leaderboard():
             inline=False
         )
 
-    # Fix for Last Updated timestamp
-    embed.set_footer(text=f"Last Updated: <t:{current_unix_time}:f>")
+    # Updated footer
+    embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending.")
 
     async for message in channel.history(limit=10):
         if message.author == bot.user and message.embeds:
