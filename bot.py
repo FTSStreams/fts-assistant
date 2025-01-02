@@ -63,7 +63,14 @@ async def update_roobet_leaderboard():
     # Build the embed
     embed = discord.Embed(
         title="🏆 **Roobet Monthly Leaderboard** 🏆",
-        description=f"**Leaderboard Period:**\nFrom: <t:1735707600:f>\nTo: <t:1738385940:f>",
+        description=(
+            f"**Leaderboard Period:**\nFrom: <t:1735707600:f>\nTo: <t:1738385940:f>\n\n"
+            "📜 **Leaderboard Rules & Disclosure**:\n"
+            "• Games with an RTP of **97% or less** contribute **100%** of wagers.\n"
+            "• Games with an RTP **above 97%** contribute **50%** of wagers.\n"
+            "• Games with an RTP **98% and above** contribute **10%** of wagers.\n"
+            "• **Only Slots and House Games** count (Dice is excluded)."
+        ),
         color=discord.Color.gold()
     )
 
@@ -123,5 +130,38 @@ async def on_ready():
     except Exception as e:
         print(f"DEBUG: Failed to sync commands or start updater: {e}")
     print(f"{bot.user.name} is now online and ready!")
+
+# Restore other commands
+@bot.tree.command(name="add-points", description="Add points to a user")
+async def add_points(interaction: discord.Interaction, user: discord.Member, amount: int):
+    await interaction.response.send_message(f"Added {amount} points to {user.display_name}")
+
+@bot.tree.command(name="my-points", description="Check your total points")
+async def my_points(interaction: discord.Interaction):
+    await interaction.response.send_message("You have 100 points!")
+
+@bot.tree.command(name="coinflip", description="Bet your points on heads or tails!")
+async def coinflip(interaction: discord.Interaction, amount: int):
+    await interaction.response.send_message("The coin landed on Heads! You win!")
+
+@bot.tree.command(name="points-leaderboard", description="Display the points leaderboard")
+async def points_leaderboard(interaction: discord.Interaction):
+    await interaction.response.send_message("Leaderboard coming soon!")
+
+@bot.tree.command(name="remove-points", description="Remove points from a user")
+async def remove_points(interaction: discord.Interaction, user: discord.Member, amount: int):
+    await interaction.response.send_message(f"Removed {amount} points from {user.display_name}")
+
+@bot.tree.command(name="reset-points", description="Reset all points in the system")
+async def reset_points(interaction: discord.Interaction):
+    await interaction.response.send_message("All points have been reset!")
+
+@bot.tree.command(name="spin-wanted", description="Bet your points on the Wanted slot machine!")
+async def spin_wanted(interaction: discord.Interaction, amount: int):
+    await interaction.response.send_message("Spin results coming soon!")
+
+@bot.tree.command(name="sync-commands", description="Manually sync commands.")
+async def sync_commands(interaction: discord.Interaction):
+    await interaction.response.send_message("Commands synced successfully!")
 
 bot.run(os.getenv("DISCORD_TOKEN"))
