@@ -69,10 +69,21 @@ def update_points(user_id, points_to_add):
 def fetch_roobet_leaderboard(start_date, end_date):
     headers = {"Authorization": f"Bearer {ROOBET_API_TOKEN}"}
     params = {"userId": ROOBET_USER_ID, "startDate": start_date, "endDate": end_date}
+
     response = requests.get(ROOBET_API_URL, headers=headers, params=params)
+
+    # Debugging API call
+    print(f"DEBUG: Request Params: {params}")
+    print(f"DEBUG: API Response Status Code: {response.status_code}")
+
+    try:
+        print(f"DEBUG: API Response Data: {response.json()}")
+    except Exception as e:
+        print(f"DEBUG: Error parsing JSON response: {e}, Raw response: {response.text}")
+
     return response.json() if response.status_code == 200 else []
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=1)
 async def update_roobet_leaderboard():
     channel = bot.get_channel(LEADERBOARD_CHANNEL_ID)
     if not channel:
