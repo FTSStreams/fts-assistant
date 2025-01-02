@@ -61,7 +61,12 @@ async def update_roobet_leaderboard():
     leaderboard_data.sort(key=lambda x: x.get("weightedWagered", 0), reverse=True)
 
     # Build the embed
-    embed = discord.Embed(title="Roobet Monthly Leaderboard", description=f"From {start_date} to {end_date}", color=discord.Color.gold())
+    embed = discord.Embed(
+        title="🏆 **Roobet Monthly Leaderboard** 🏆",
+        description=f"Leaderboard for the period: <t:{int(discord.utils.time_snowflake(start_date))}:F> to <t:{int(discord.utils.time_snowflake(end_date))}:F>",
+        color=discord.Color.gold()
+    )
+
     for i, entry in enumerate(leaderboard_data[:10]):
         username = entry.get("username", "Unknown")
         wagered = entry.get("wagered", 0)
@@ -72,8 +77,12 @@ async def update_roobet_leaderboard():
         print(f"DEBUG: Rank {i + 1}: Username={username}, Wagered={wagered}, Weighted={weighted_wagered}, Prize={prize}")
 
         embed.add_field(
-            name=f"#{i + 1} - {username}",
-            value=f"Wagered: ${wagered:.2f}\nWeighted: ${weighted_wagered:.2f}\nPrize: ${prize}",
+            name=f"**#{i + 1}** - {username}",
+            value=(
+                f"💰 **Wagered**: ${wagered:,.2f}\n"
+                f"✨ **Weighted Wagered**: ${weighted_wagered:,.2f}\n"
+                f"🎁 **Prize**: **${prize}**"
+            ),
             inline=False
         )
 
