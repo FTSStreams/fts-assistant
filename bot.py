@@ -63,7 +63,7 @@ async def update_roobet_leaderboard():
     # Build the embed
     embed = discord.Embed(
         title="🏆 **Roobet Monthly Leaderboard** 🏆",
-        description=f"Leaderboard for the period: <t:{int(discord.utils.time_snowflake(start_date))}:F> to <t:{int(discord.utils.time_snowflake(end_date))}:F>",
+        description=f"**Leaderboard Period:**\nFrom: <t:1735707600:f>\nTo: <t:1738385940:f>",
         color=discord.Color.gold()
     )
 
