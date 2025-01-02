@@ -88,7 +88,7 @@ async def update_roobet_leaderboard():
     embed = discord.Embed(
         title="🏆 **Roobet Monthly Leaderboard** 🏆",
         description=(
-            f"**Leaderboard Period:**\nFrom: <t:1735707600:f>\nTo: <t:1738385940:f>\n"
+            f"**Leaderboard Period:**\nFrom: <t:1735707600:f>\nTo: <t:1738385940:f>\n\n"
             f"⏰ **Last Updated:** <t:{current_unix_time}:f>\n\n"
             "📜 **Leaderboard Rules & Disclosure**:\n"
             "• Games with an RTP of **97% or less** contribute **100%** to your weighted wager.\n"
