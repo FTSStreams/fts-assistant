@@ -88,19 +88,27 @@ def fetch_roobet_leaderboard(start_date, end_date):
 
     return response.json() if response.status_code == 200 else []
 
-@tasks.loop(minutes=10)
+@tasks.loop(minutes=15)
 async def update_roobet_leaderboard():
     channel = bot.get_channel(LEADERBOARD_CHANNEL_ID)
     if not channel:
+        print("DEBUG: Leaderboard channel not found.")
         return
 
     start_date = "2025-01-01T00:00:00"
     end_date = "2025-01-31T23:59:59"
     leaderboard_data = fetch_roobet_leaderboard(start_date, end_date)
+
+    if not leaderboard_data:
+        print("DEBUG: No data received from API.")
+        await channel.send("No leaderboard data available at the moment.")
+        return
+
+    # Sort leaderboard by weighted wagered
     leaderboard_data.sort(key=lambda x: x.get("weightedWagered", 0), reverse=True)
+    print(f"DEBUG: Sorted Leaderboard Data: {leaderboard_data}")
 
     current_unix_time = int(datetime.utcnow().timestamp())
-
     embed = discord.Embed(
         title="🏆 **$1,500 USD Roobet Monthly Leaderboard** 🏆",
         description=(
@@ -118,26 +126,26 @@ async def update_roobet_leaderboard():
 
     for i, entry in enumerate(leaderboard_data[:10]):
         username = entry.get("username", "Unknown")
-    if len(username) > 3:
-        username = username[:-3] + "***"
-    else:
-        username = "***"
+        if len(username) > 3:
+            username = username[:-3] + "***"
+        else:
+            username = "***"
 
-    wagered = entry.get("wagered", 0)
-    weighted_wagered = entry.get("weightedWagered", 0)
-    prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
+        wagered = entry.get("wagered", 0)
+        weighted_wagered = entry.get("weightedWagered", 0)
+        prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
 
-    embed.add_field(
-        name=f"**#{i + 1} - {username}**",
-        value=(
-            f"💰 **Wagered**: ${wagered:,.2f}\n"
-            f"✨ **Weighted Wagered**: ${weighted_wagered:,.2f}\n"
-            f"🎁 **Prize**: **${prize} USD**"
-        ),
-        inline=False
-    )
+        embed.add_field(
+            name=f"**#{i + 1} - {username}**",
+            value=(
+                f"💰 **Wagered**: ${wagered:,.2f}\n"
+                f"✨ **Weighted Wagered**: ${weighted_wagered:,.2f}\n"
+                f"🎁 **Prize**: **${prize} USD**"
+            ),
+            inline=False
+        )
 
-    embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending. Leaderboard updates every 15 minutes. Please allow up to 2 update cycles for correct updated wager.")
+    embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending.")
 
     async for message in channel.history(limit=10):
         if message.author == bot.user and message.embeds:
