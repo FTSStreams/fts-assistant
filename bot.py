@@ -117,7 +117,7 @@ async def update_roobet_leaderboard():
     )
 
     for i, entry in enumerate(leaderboard_data[:10]):
-    username = entry.get("username", "Unknown")
+        username = entry.get("username", "Unknown")
     if len(username) > 3:
         username = username[:-3] + "***"
     else:
