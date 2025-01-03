@@ -119,9 +119,9 @@ async def update_roobet_leaderboard():
     for i, entry in enumerate(leaderboard_data[:10]):
     username = entry.get("username", "Unknown")
     if len(username) > 3:
-        username = username[:-3] + "***"  # Censor the last three characters
+        username = username[:-3] + "***"
     else:
-        username = "***"  # If the username is less than or equal to 3 characters
+        username = "***"
 
     wagered = entry.get("wagered", 0)
     weighted_wagered = entry.get("weightedWagered", 0)
@@ -136,7 +136,6 @@ async def update_roobet_leaderboard():
         ),
         inline=False
     )
-
 
     embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending. Leaderboard updates every 15 minutes. Please allow up to 2 update cycles for correct updated wager.")
 
