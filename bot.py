@@ -6,13 +6,13 @@ import random
 import psycopg2
 import requests
 from datetime import datetime, timedelta
-from discord.ui import Button, View, Select
-from discord import ButtonStyle, SelectOption
+from discord.ui import View, Button
+from discord import ButtonStyle
 
 # Set up the bot with required intents
 intents = discord.Intents.default()
 intents.message_content = True  # Allows the bot to read message content
-bot = commands.Bot(command_prefix=None, intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Connect to the database
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -184,7 +184,6 @@ async def before_leaderboard_loop():
     await bot.wait_until_ready()
 
 # Commands
-
 @bot.tree.command(name="coinflip", description="Bet your points on heads or tails!")
 async def coinflip(interaction: discord.Interaction, amount: int):
     user_id = str(interaction.user.id)
@@ -197,12 +196,10 @@ async def coinflip(interaction: discord.Interaction, amount: int):
     outcome = random.choice(["Heads", "Tails"])
     if outcome == "Heads":
         update_points(user_id, amount)
-        message = f"The coin landed on **{outcome}**! You won {amount} points!"
+        await interaction.response.send_message(f"The coin landed on **Heads**! You won {amount} points!")
     else:
         update_points(user_id, -amount)
-        message = f"The coin landed on **{outcome}**! You lost {amount} points!"
-
-    await interaction.response.send_message(message)
+        await interaction.response.send_message(f"The coin landed on **Tails**! You lost {amount} points.")
 
 @bot.tree.command(name="my-points", description="Check your total points")
 async def my_points(interaction: discord.Interaction):
@@ -326,70 +323,10 @@ async def sync_commands(interaction: discord.Interaction):
 
 # New Shop Commands
 
-class ShopView(View):
-    def __init__(self, items):
-        super().__init__(timeout=60.0)
-        self.items = items
-        options = [SelectOption(label=item['name'], value=str(item['item_id'])) for item in items]
-        self.add_item(Select(placeholder="Select an item to buy", options=options, custom_id="buy_select"))
-        self.add_item(Button(style=ButtonStyle.green, label="Buy Now", custom_id="buy_now", disabled=True))
-        self.add_item(Button(style=ButtonStyle.red, label="Cancel", custom_id="cancel"))
-
-    @discord.ui.select(placeholder="Select an item to buy", custom_id="buy_select")
-    async def select_callback(self, interaction: discord.Interaction, select: Select):
-        for button in self.children:
-            if button.custom_id == "buy_now":
-                button.disabled = False
-        await interaction.response.edit_message(view=self)
-
-    @discord.ui.button(label="Buy Now", style=ButtonStyle.green, custom_id="buy_now", disabled=True)
-    async def buy_now(self, interaction: discord.Interaction, button: Button):
-        user_id = str(interaction.user.id)
-        current_points = get_points(user_id)
-        selected_item_id = int(interaction.message.components[0].children[0].values[0])
-        
-        # Find the selected item
-        selected_item = next((item for item in self.items if item['item_id'] == selected_item_id), None)
-        if selected_item is None:
-            await interaction.response.send_message("Item not found.", ephemeral=True)
-            return
-
-        if current_points < selected_item['price']:
-            await interaction.response.send_message(f"You don't have enough points to buy **{selected_item['name']}**.", ephemeral=True)
-            return
-
-        if selected_item['quantity'] <= 0:
-            await interaction.response.send_message(f"**{selected_item['name']}** is out of stock.", ephemeral=True)
-            return
-
-        # Deduct points
-        update_points(user_id, -selected_item['price'])
-
-        # Reduce shop quantity
-        cur.execute("UPDATE shop_items SET quantity = quantity - 1 WHERE item_id = %s", (selected_item_id,))
-        conn.commit()
-
-        # Add to user's inventory
-        cur.execute("""
-        INSERT INTO inventory (user_id, item_id, quantity) 
-        VALUES (%s, %s, 1) 
-        ON CONFLICT (user_id, item_id) 
-        DO UPDATE SET quantity = inventory.quantity + 1
-        """, (user_id, selected_item_id))
-        conn.commit()
-
-        await interaction.response.send_message(f"You've bought **{selected_item['name']}** for {selected_item['price']} points. It's now in your inventory!")
-        self.stop()
-
-    @discord.ui.button(label="Cancel", style=ButtonStyle.red, custom_id="cancel")
-    async def cancel(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_message("Purchase cancelled.", ephemeral=True)
-        self.stop()
-
 @bot.tree.command(name="shop", description="Displays all items in the shop")
 async def shop(interaction: discord.Interaction):
     cur.execute("SELECT item_id, name, price, quantity FROM shop_items")
-    items = [{'item_id': row[0], 'name': row[1], 'price': row[2], 'quantity': row[3]} for row in cur.fetchall()]
+    items = cur.fetchall()
     
     if not items:
         await interaction.response.send_message("The shop is currently empty.", ephemeral=True)
@@ -397,7 +334,7 @@ async def shop(interaction: discord.Interaction):
 
     shop_list = []
     for item in items:
-        shop_list.append(f"**#{item['item_id']}** - **{item['name']}**: ${item['price']}, Quantity: {item['quantity']}")
+        shop_list.append(f"**#{item[0]}** - **{item[1]}**: ${item[2]}, Quantity: {item[3]}")
 
     await interaction.response.send_message("\n".join(shop_list) or "No items in the shop yet.", ephemeral=True)
 
@@ -418,7 +355,7 @@ async def inventory(interaction: discord.Interaction, user: discord.Member = Non
     user_id = str(user_check.id)
     
     cur.execute("""
-    SELECT shop_items.name, inventory.quantity, shop_items.price 
+    SELECT shop_items.name, inventory.quantity 
     FROM inventory 
     JOIN shop_items ON inventory.item_id = shop_items.item_id 
     WHERE inventory.user_id = %s
@@ -429,48 +366,78 @@ async def inventory(interaction: discord.Interaction, user: discord.Member = Non
         await interaction.response.send_message(f"{user_check.mention}'s inventory is empty.")
         return
 
-    embed = discord.Embed(title=f"{user_check.mention}'s Inventory", color=discord.Color.blue())
-    for item_name, quantity, price in items:
-        embed.add_field(name=f"**{item_name}**", value=f"Quantity: {quantity} | Price: ${price}", inline=False)
-
-    await interaction.response.send_message(embed=embed)
+    inv_list = [f"**{item[0]}**: {item[1]}" for item in items]
+    await interaction.response.send_message(f"{user_check.mention}'s Inventory:\n" + "\n".join(inv_list))
 
 @bot.tree.command(name="buy", description="Buy an item from the shop")
-async def buy(interaction: discord.Interaction):
-    cur.execute("SELECT item_id, name, price, quantity FROM shop_items")
-    items = [{'item_id': row[0], 'name': row[1], 'price': row[2], 'quantity': row[3]} for row in cur.fetchall()]
+async def buy(interaction: discord.Interaction, product_number: int):
+    user_id = str(interaction.user.id)
+    current_points = get_points(user_id)
     
-    if not items:
-        await interaction.response.send_message("The shop is currently empty.", ephemeral=True)
+    # Fetch item details
+    cur.execute("SELECT item_id, name, price, quantity FROM shop_items WHERE item_id = %s", (product_number,))
+    item = cur.fetchone()
+
+    if not item:
+        await interaction.response.send_message("Item not found in the shop.", ephemeral=True)
         return
 
-    view = ShopView(items)
-    await interaction.response.send_message("Choose an item to buy:", view=view)
+    item_id, item_name, price, quantity = item
+
+    if current_points < price:
+        await interaction.response.send_message(f"You don't have enough points to buy **{item_name}**.", ephemeral=True)
+        return
+
+    if quantity <= 0:
+        await interaction.response.send_message(f"**{item_name}** is out of stock.", ephemeral=True)
+        return
+
+    # Deduct points
+    update_points(user_id, -price)
+
+    # Reduce shop quantity
+    cur.execute("UPDATE shop_items SET quantity = quantity - 1 WHERE item_id = %s", (item_id,))
+    conn.commit()
+
+    # Add to user's inventory
+    cur.execute("""
+    INSERT INTO inventory (user_id, item_id, quantity) 
+    VALUES (%s, %s, 1) 
+    ON CONFLICT (user_id, item_id) 
+    DO UPDATE SET quantity = inventory.quantity + 1
+    """, (user_id, item_id))
+    conn.commit()
+
+    await interaction.response.send_message(f"You've bought **{item_name}** for {price} points. It's now in your inventory!")
+
+# New command for removing items from inventory with buttons
 
 class RemoveItemView(View):
-    def __init__(self, user_id):
+    def __init__(self, user_id, items):
         super().__init__(timeout=60.0)
-        self.user_id = user_id
-        cur.execute("""
-        SELECT shop_items.name, inventory.quantity, shop_items.item_id 
-        FROM inventory 
-        JOIN shop_items ON inventory.item_id = shop_items.item_id 
-        WHERE inventory.user_id = %s
-        """, (user_id,))
-        for item_name, quantity, item_id in cur.fetchall():
-            button = Button(label=f"{item_name} (x{quantity})", style=ButtonStyle.gray, custom_id=str(item_id))
+        for item_name, quantity in items:
+            button = Button(label=f"{item_name} (x{quantity})", style=ButtonStyle.gray, custom_id=item_name)
             button.callback = self.remove_item
             self.add_item(button)
+        self.user_id = user_id
 
     async def remove_item(self, interaction: discord.Interaction):
-        item_id = int(interaction.data['custom_id'])
+        item_name = interaction.data['custom_id']
+        cur.execute("SELECT item_id FROM shop_items WHERE name = %s", (item_name,))
+        item = cur.fetchone()
+        if not item:
+            await interaction.response.send_message(f"Error: Could not find item **{item_name}** in the shop.", ephemeral=True)
+            return
+
+        item_id = item[0]
         cur.execute("SELECT quantity FROM inventory WHERE user_id = %s AND item_id = %s", (self.user_id, item_id))
         quantity = cur.fetchone()
 
         if not quantity:
-            await interaction.response.send_message("Item not found in inventory.", ephemeral=True)
+            await interaction.response.send_message(f"**{item_name}** not found in the user's inventory.", ephemeral=True)
             return
 
+                # Remove one item from inventory
         new_quantity = quantity[0] - 1
         if new_quantity > 0:
             cur.execute("""
@@ -485,7 +452,7 @@ class RemoveItemView(View):
             """, (self.user_id, item_id))
         conn.commit()
         
-        await interaction.response.send_message(f"Removed one item from the inventory.", ephemeral=True)
+        await interaction.response.send_message(f"Removed one **{item_name}** from the inventory.", ephemeral=True)
 
 @bot.tree.command(name="remove-from-inventory", description="Remove item from a user's inventory (Bot Owner Only)")
 async def remove_from_inventory(interaction: discord.Interaction, user: discord.Member):
@@ -497,7 +464,7 @@ async def remove_from_inventory(interaction: discord.Interaction, user: discord.
     
     # Fetch user's inventory
     cur.execute("""
-    SELECT shop_items.name, inventory.quantity, shop_items.item_id 
+    SELECT shop_items.name, inventory.quantity 
     FROM inventory 
     JOIN shop_items ON inventory.item_id = shop_items.item_id 
     WHERE inventory.user_id = %s
@@ -508,7 +475,7 @@ async def remove_from_inventory(interaction: discord.Interaction, user: discord.
         await interaction.response.send_message(f"{user.mention}'s inventory is empty.")
         return
 
-    view = RemoveItemView(user_id)
+    view = RemoveItemView(user_id, items)
     await interaction.response.send_message(f"Choose which item to remove from {user.mention}'s inventory:", view=view)
 
 @bot.event
