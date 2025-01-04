@@ -201,12 +201,12 @@ class CoinFlipView(View):
         return True
 
     def add_heads_button(self):
-        @button(label="HEADS", style=ButtonStyle.green, custom_id=f"heads-{self.user_id}-{self.amount}")
+        @Button(label="HEADS", style=ButtonStyle.green, custom_id=f"heads-{self.user_id}-{self.amount}")  # Changed here
         async def heads(self, interaction: discord.Interaction, button: discord.ui.Button):
             await self.flip(interaction, "Heads")
 
     def add_tails_button(self):
-        @button(label="TAILS", style=ButtonStyle.red, custom_id=f"tails-{self.user_id}-{self.amount}")
+        @Button(label="TAILS", style=ButtonStyle.red, custom_id=f"tails-{self.user_id}-{self.amount}")  # Changed here
         async def tails(self, interaction: discord.Interaction, button: discord.ui.Button):
             await self.flip(interaction, "Tails")
 
