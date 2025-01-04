@@ -26,6 +26,29 @@ CREATE TABLE IF NOT EXISTS points (
 """)
 conn.commit()
 
+# New: Create shop and inventory tables
+cur.execute("""
+CREATE TABLE IF NOT EXISTS shop_items (
+    item_id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    price INTEGER NOT NULL,
+    quantity INTEGER NOT NULL
+)
+""")
+conn.commit()
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS inventory (
+    user_id TEXT NOT NULL,
+    item_id INTEGER NOT NULL,
+    quantity INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES points(user_id),
+    FOREIGN KEY (item_id) REFERENCES shop_items(item_id),
+    PRIMARY KEY (user_id, item_id)
+)
+""")
+conn.commit()
+
 # Roobet API configuration
 ROOBET_API_URL = "https://roobetconnect.com/affiliate/v2/stats"
 ROOBET_API_TOKEN = os.getenv("ROOBET_API_TOKEN")
@@ -182,16 +205,22 @@ async def my_points(interaction: discord.Interaction):
     user_points = get_points(user_id)
     await interaction.response.send_message(f"You have **{user_points} points**.", ephemeral=True)
 
-@bot.tree.command(name="add-points", description="Add points to a user")
+@bot.tree.command(name="add-points", description="Add points to a user (Admin only)")
 async def add_points(interaction: discord.Interaction, user: discord.Member, amount: int):
+    if interaction.user.id != int(os.getenv("BOT_OWNER_ID", 0)):
+        await interaction.response.send_message("You do not have permission to add points.", ephemeral=True)
+        return
     if amount <= 0:
         await interaction.response.send_message("Amount must be greater than zero.", ephemeral=True)
         return
     update_points(str(user.id), amount)
     await interaction.response.send_message(f"Added {amount} points to {user.mention}.")
 
-@bot.tree.command(name="remove-points", description="Remove points from a user")
+@bot.tree.command(name="remove-points", description="Remove points from a user (Admin only)")
 async def remove_points(interaction: discord.Interaction, user: discord.Member, amount: int):
+    if interaction.user.id != int(os.getenv("BOT_OWNER_ID", 0)):
+        await interaction.response.send_message("You do not have permission to remove points.", ephemeral=True)
+        return
     current_points = get_points(str(user.id))
     if amount <= 0 or amount > current_points:
         await interaction.response.send_message(f"Invalid amount. {user.mention} has {current_points} points.", ephemeral=True)
@@ -199,8 +228,12 @@ async def remove_points(interaction: discord.Interaction, user: discord.Member, 
     update_points(str(user.id), -amount)
     await interaction.response.send_message(f"Removed {amount} points from {user.mention}.")
 
-@bot.tree.command(name="reset-points", description="Reset all points")
+@bot.tree.command(name="reset-points", description="Reset all points (Bot Owner Only)")
 async def reset_points(interaction: discord.Interaction):
+    if interaction.user.id != int(os.getenv("BOT_OWNER_ID", 0)):
+        await interaction.response.send_message("You do not have permission to reset points.", ephemeral=True)
+        return
+
     cur.execute("TRUNCATE TABLE points")
     conn.commit()
     await interaction.response.send_message("All points have been reset.")
@@ -275,13 +308,105 @@ async def spin_wanted(interaction: discord.Interaction, amount: int):
             f"🎰 {' | '.join(slot_emojis)}\n{result['name']}! You win {winnings} points!"
         )
 
-@bot.tree.command(name="sync-commands", description="Manually sync commands.")
+@bot.tree.command(name="sync-commands", description="Manually sync commands (Admin only)")
 async def sync_commands(interaction: discord.Interaction):
+    if interaction.user.id != int(os.getenv("BOT_OWNER_ID", 0)):
+        await interaction.response.send_message("You do not have permission to sync commands.", ephemeral=True)
+        return
     synced = await bot.tree.sync()
     await interaction.response.send_message(
         f"Commands synced successfully: {[command.name for command in synced]}",
         ephemeral=True
     )
+
+# New Shop Commands
+
+@bot.tree.command(name="shop", description="Displays all items in the shop")
+async def shop(interaction: discord.Interaction):
+    cur.execute("SELECT item_id, name, price, quantity FROM shop_items")
+    items = cur.fetchall()
+    
+    if not items:
+        await interaction.response.send_message("The shop is currently empty.", ephemeral=True)
+        return
+
+    shop_list = []
+    for item in items:
+        shop_list.append(f"**#{item[0]}** - **{item[1]}**: ${item[2]}, Quantity: {item[3]}")
+
+    await interaction.response.send_message("\n".join(shop_list) or "No items in the shop yet.", ephemeral=True)
+
+@bot.tree.command(name="shop-add", description="Add an item to the shop (Admin only)")
+async def shop_add(interaction: discord.Interaction, name: str, price: int, inventory: int):
+    if interaction.user.id != int(os.getenv("BOT_OWNER_ID", 0)):
+        await interaction.response.send_message("You do not have permission to add items to the shop.", ephemeral=True)
+        return
+
+    cur.execute("INSERT INTO shop_items (name, price, quantity) VALUES (%s, %s, %s) RETURNING item_id", (name, price, inventory))
+    new_item_id = cur.fetchone()[0]
+    conn.commit()
+    await interaction.response.send_message(f"Added item **{name}** with ID #{new_item_id} to the shop.", ephemeral=True)
+
+@bot.tree.command(name="inventory", description="Check user's inventory")
+async def inventory(interaction: discord.Interaction, user: discord.Member = None):
+    user_check = user or interaction.user
+    user_id = str(user_check.id)
+    
+    cur.execute("""
+    SELECT shop_items.name, inventory.quantity 
+    FROM inventory 
+    JOIN shop_items ON inventory.item_id = shop_items.item_id 
+    WHERE inventory.user_id = %s
+    """, (user_id,))
+    items = cur.fetchall()
+    
+    if not items:
+        await interaction.response.send_message(f"{user_check.mention}'s inventory is empty.")
+        return
+
+    inv_list = [f"**{item[0]}**: {item[1]}" for item in items]
+    await interaction.response.send_message(f"{user_check.mention}'s Inventory:\n" + "\n".join(inv_list))
+
+@bot.tree.command(name="buy", description="Buy an item from the shop")
+async def buy(interaction: discord.Interaction, product_number: int):
+    user_id = str(interaction.user.id)
+    current_points = get_points(user_id)
+    
+    # Fetch item details
+    cur.execute("SELECT item_id, name, price, quantity FROM shop_items WHERE item_id = %s", (product_number,))
+    item = cur.fetchone()
+
+    if not item:
+        await interaction.response.send_message("Item not found in the shop.", ephemeral=True)
+        return
+
+    item_id, item_name, price, quantity = item
+
+    if current_points < price:
+        await interaction.response.send_message(f"You don't have enough points to buy **{item_name}**.", ephemeral=True)
+        return
+
+    if quantity <= 0:
+        await interaction.response.send_message(f"**{item_name}** is out of stock.", ephemeral=True)
+        return
+
+    # Deduct points
+    update_points(user_id, -price)
+
+    # Reduce shop quantity
+    cur.execute("UPDATE shop_items SET quantity = quantity - 1 WHERE item_id = %s", (item_id,))
+    conn.commit()
+
+    # Add to user's inventory
+    cur.execute("""
+    INSERT INTO inventory (user_id, item_id, quantity) 
+    VALUES (%s, %s, 1) 
+    ON CONFLICT (user_id, item_id) 
+    DO UPDATE SET quantity = inventory.quantity + 1
+    """, (user_id, item_id))
+    conn.commit()
+
+    await interaction.response.send_message(f"You've bought **{item_name}** for {price} points. It's now in your inventory!")
 
 @bot.event
 async def on_ready():
