@@ -6,6 +6,8 @@ import random
 import psycopg2
 import requests
 from datetime import datetime, timedelta
+from discord.ui import View, Button
+from discord import ButtonStyle
 
 # Set up the bot with required intents
 intents = discord.Intents.default()
@@ -407,6 +409,74 @@ async def buy(interaction: discord.Interaction, product_number: int):
     conn.commit()
 
     await interaction.response.send_message(f"You've bought **{item_name}** for {price} points. It's now in your inventory!")
+
+# New command for removing items from inventory with buttons
+
+class RemoveItemView(View):
+    def __init__(self, user_id, items):
+        super().__init__(timeout=60.0)
+        for item_name, quantity in items:
+            button = Button(label=f"{item_name} (x{quantity})", style=ButtonStyle.gray, custom_id=item_name)
+            button.callback = self.remove_item
+            self.add_item(button)
+        self.user_id = user_id
+
+    async def remove_item(self, interaction: discord.Interaction):
+        item_name = interaction.data['custom_id']
+        cur.execute("SELECT item_id FROM shop_items WHERE name = %s", (item_name,))
+        item = cur.fetchone()
+        if not item:
+            await interaction.response.send_message(f"Error: Could not find item **{item_name}** in the shop.", ephemeral=True)
+            return
+
+        item_id = item[0]
+        cur.execute("SELECT quantity FROM inventory WHERE user_id = %s AND item_id = %s", (self.user_id, item_id))
+        quantity = cur.fetchone()
+
+        if not quantity:
+            await interaction.response.send_message(f"**{item_name}** not found in the user's inventory.", ephemeral=True)
+            return
+
+                # Remove one item from inventory
+        new_quantity = quantity[0] - 1
+        if new_quantity > 0:
+            cur.execute("""
+            UPDATE inventory 
+            SET quantity = %s 
+            WHERE user_id = %s AND item_id = %s
+            """, (new_quantity, self.user_id, item_id))
+        else:
+            cur.execute("""
+            DELETE FROM inventory 
+            WHERE user_id = %s AND item_id = %s
+            """, (self.user_id, item_id))
+        conn.commit()
+        
+        await interaction.response.send_message(f"Removed one **{item_name}** from the inventory.", ephemeral=True)
+
+@bot.tree.command(name="remove-from-inventory", description="Remove item from a user's inventory (Bot Owner Only)")
+async def remove_from_inventory(interaction: discord.Interaction, user: discord.Member):
+    if interaction.user.id != int(os.getenv("BOT_OWNER_ID", 0)):
+        await interaction.response.send_message("You do not have permission to remove items from inventory.", ephemeral=True)
+        return
+    
+    user_id = str(user.id)
+    
+    # Fetch user's inventory
+    cur.execute("""
+    SELECT shop_items.name, inventory.quantity 
+    FROM inventory 
+    JOIN shop_items ON inventory.item_id = shop_items.item_id 
+    WHERE inventory.user_id = %s
+    """, (user_id,))
+    items = cur.fetchall()
+    
+    if not items:
+        await interaction.response.send_message(f"{user.mention}'s inventory is empty.")
+        return
+
+    view = RemoveItemView(user_id, items)
+    await interaction.response.send_message(f"Choose which item to remove from {user.mention}'s inventory:", view=view)
 
 @bot.event
 async def on_ready():
