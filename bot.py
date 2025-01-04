@@ -185,6 +185,9 @@ async def before_leaderboard_loop():
 
 # Commands
 
+from discord import ButtonStyle
+from discord.ui import View, Button
+
 class CoinFlipView(View):
     def __init__(self, user_id, amount):
         super().__init__(timeout=60.0)
@@ -201,14 +204,18 @@ class CoinFlipView(View):
         return True
 
     def add_heads_button(self):
-        @Button(label="HEADS", style=ButtonStyle.green, custom_id=f"heads-{self.user_id}-{self.amount}")  # Changed here
-        async def heads(self, interaction: discord.Interaction, button: discord.ui.Button):
-            await self.flip(interaction, "Heads")
+        self.add_item(Button(label="HEADS", style=ButtonStyle.green, custom_id=f"heads-{self.user_id}-{self.amount}"))
 
     def add_tails_button(self):
-        @Button(label="TAILS", style=ButtonStyle.red, custom_id=f"tails-{self.user_id}-{self.amount}")  # Changed here
-        async def tails(self, interaction: discord.Interaction, button: discord.ui.Button):
-            await self.flip(interaction, "Tails")
+        self.add_item(Button(label="TAILS", style=ButtonStyle.red, custom_id=f"tails-{self.user_id}-{self.amount}"))
+
+    @Button(label="HEADS", style=ButtonStyle.green, custom_id=lambda i: f"heads-{i.user.id}-{self.amount}")
+    async def heads_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.flip(interaction, "Heads")
+
+    @Button(label="TAILS", style=ButtonStyle.red, custom_id=lambda i: f"tails-{i.user.id}-{self.amount}")
+    async def tails_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.flip(interaction, "Tails")
 
     async def flip(self, interaction: discord.Interaction, choice):
         outcome = random.choice(["Heads", "Tails"])
