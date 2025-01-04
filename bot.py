@@ -198,11 +198,11 @@ class CoinFlipView(View):
             return False
         return True
 
-    @discord.ui.button(label="HEADS", style=ButtonStyle.green, custom_id=lambda i: f"heads-{i.user.id}-{self.amount}")
+    @discord.ui.button(label="HEADS", style=ButtonStyle.green, custom_id=f"heads-{self.user_id}-{self.amount}")
     async def heads(self, interaction: discord.Interaction, button: Button):
         await self.flip(interaction, "Heads")
 
-    @discord.ui.button(label="TAILS", style=ButtonStyle.red, custom_id=lambda i: f"tails-{i.user.id}-{self.amount}")
+    @discord.ui.button(label="TAILS", style=ButtonStyle.red, custom_id=f"tails-{self.user_id}-{self.amount}")
     async def tails(self, interaction: discord.Interaction, button: Button):
         await self.flip(interaction, "Tails")
 
