@@ -185,7 +185,7 @@ async def before_leaderboard_loop():
 
 # Commands
 @bot.tree.command(name="coinflip", description="Bet your points on heads or tails!")
-async def coinflip(interaction: discord.Interaction, amount: int):
+async def coinflip(interaction: discord.Interaction, amount: int, choice: str):
     user_id = str(interaction.user.id)
     current_points = get_points(user_id)
 
@@ -193,13 +193,18 @@ async def coinflip(interaction: discord.Interaction, amount: int):
         await interaction.response.send_message("Invalid bet amount.", ephemeral=True)
         return
 
-    outcome = random.choice(["Heads", "Tails"])
-    if outcome == "Heads":
+    choice = choice.lower()
+    if choice not in ["heads", "tails"]:
+        await interaction.response.send_message("Please choose either 'heads' or 'tails'.", ephemeral=True)
+        return
+
+    outcome = random.choice(["heads", "tails"])
+    if outcome == choice:
         update_points(user_id, amount)
-        await interaction.response.send_message(f"The coin landed on **Heads**! You won {amount} points!")
+        await interaction.response.send_message(f"The coin landed on **{outcome.capitalize()}**! You won {amount} points!")
     else:
         update_points(user_id, -amount)
-        await interaction.response.send_message(f"The coin landed on **Tails**! You lost {amount} points.")
+        await interaction.response.send_message(f"The coin landed on **{outcome.capitalize()}**! You lost {amount} points.")
 
 @bot.tree.command(name="my-points", description="Check your total points")
 async def my_points(interaction: discord.Interaction):
