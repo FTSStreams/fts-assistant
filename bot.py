@@ -6,8 +6,8 @@ import random
 import psycopg2
 import requests
 from datetime import datetime, timedelta
-from discord.ui import Button, View, Select, SelectOption
-from discord import ButtonStyle
+from discord.ui import Button, View, Select
+from discord import ButtonStyle, SelectOption
 
 # Set up the bot with required intents
 intents = discord.Intents.default()
