@@ -190,9 +190,11 @@ class CoinFlipView(View):
         super().__init__(timeout=60.0)
         self.user_id = user_id
         self.amount = amount
-        # Ensure unique custom_ids for each button
+        # Only add these buttons once in the __init__ method
         self.add_item(Button(style=ButtonStyle.green, label="HEADS", custom_id=f"heads-{user_id}-{amount}"))
         self.add_item(Button(style=ButtonStyle.red, label="TAILS", custom_id=f"tails-{user_id}-{amount}"))
+
+    # Remove any additional add_item calls if they exist elsewhere in this class
 
     async def interaction_check(self, interaction):
         if interaction.user.id != int(self.user_id):
@@ -200,11 +202,11 @@ class CoinFlipView(View):
             return False
         return True
 
-    @discord.ui.button(label="HEADS", style=ButtonStyle.green, custom_id="heads")
+    @discord.ui.button(label="HEADS", style=ButtonStyle.green)
     async def heads(self, interaction: discord.Interaction, button: Button):
         await self.flip(interaction, "Heads")
 
-    @discord.ui.button(label="TAILS", style=ButtonStyle.red, custom_id="tails")
+    @discord.ui.button(label="TAILS", style=ButtonStyle.red)
     async def tails(self, interaction: discord.Interaction, button: Button):
         await self.flip(interaction, "Tails")
 
