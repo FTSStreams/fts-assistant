@@ -185,59 +185,6 @@ async def before_leaderboard_loop():
 
 # Commands
 
-from discord import ButtonStyle
-from discord.ui import View, Button
-
-from discord import ButtonStyle
-from discord.ui import View, Button
-
-class CoinFlipView(View):
-    def __init__(self, user_id, amount):
-        super().__init__(timeout=60.0)
-        self.user_id = user_id
-        self.amount = amount
-        print(f"DEBUG: Initializing CoinFlipView with user_id {user_id} and amount {amount}")
-        self.add_heads_button()
-        self.add_tails_button()
-
-    async def interaction_check(self, interaction):
-        if interaction.user.id != int(self.user_id):
-            await interaction.response.send_message("This coinflip is not for you!", ephemeral=True)
-            return False
-        return True
-
-    def add_heads_button(self):
-        self.add_item(Button(label="HEADS", style=ButtonStyle.green, custom_id=f"heads-{self.user_id}-{self.amount}"))
-
-    def add_tails_button(self):
-        self.add_item(Button(label="TAILS", style=ButtonStyle.red, custom_id=f"tails-{self.user_id}-{self.amount}"))
-
-    @Button(label="HEADS", style=ButtonStyle.green)
-    async def heads_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        custom_id = f"heads-{interaction.user.id}-{self.amount}"
-        if button.custom_id != custom_id:
-            raise ValueError("Invalid custom_id for HEADS button")
-        await self.flip(interaction, "Heads")
-
-    @Button(label="TAILS", style=ButtonStyle.red)
-    async def tails_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        custom_id = f"tails-{interaction.user.id}-{self.amount}"
-        if button.custom_id != custom_id:
-            raise ValueError("Invalid custom_id for TAILS button")
-        await self.flip(interaction, "Tails")
-
-    async def flip(self, interaction: discord.Interaction, choice):
-        outcome = random.choice(["Heads", "Tails"])
-        print(f"DEBUG: Flip result: {outcome}")
-        if outcome == choice:
-            update_points(self.user_id, self.amount)
-            await interaction.response.send_message(f"The coin landed on **{outcome}**! You won {self.amount} points!")
-        else:
-            update_points(self.user_id, -self.amount)
-            await interaction.response.send_message(f"The coin landed on **{outcome}**! You lost {self.amount} points!")
-        self.stop()
-        print("DEBUG: CoinFlipView has been stopped")
-
 @bot.tree.command(name="coinflip", description="Bet your points on heads or tails!")
 async def coinflip(interaction: discord.Interaction, amount: int):
     user_id = str(interaction.user.id)
@@ -247,8 +194,15 @@ async def coinflip(interaction: discord.Interaction, amount: int):
         await interaction.response.send_message("Invalid bet amount.", ephemeral=True)
         return
 
-    view = CoinFlipView(user_id, amount)
-    await interaction.response.send_message(f"Choose your side for **{amount} points**:", view=view)
+    outcome = random.choice(["Heads", "Tails"])
+    if outcome == "Heads":
+        update_points(user_id, amount)
+        message = f"The coin landed on **{outcome}**! You won {amount} points!"
+    else:
+        update_points(user_id, -amount)
+        message = f"The coin landed on **{outcome}**! You lost {amount} points!"
+
+    await interaction.response.send_message(message)
 
 @bot.tree.command(name="my-points", description="Check your total points")
 async def my_points(interaction: discord.Interaction):
