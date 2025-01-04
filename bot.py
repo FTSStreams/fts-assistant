@@ -190,11 +190,7 @@ class CoinFlipView(View):
         super().__init__(timeout=60.0)
         self.user_id = user_id
         self.amount = amount
-        # Only add these buttons once in the __init__ method
-        self.add_item(Button(style=ButtonStyle.green, label="HEADS", custom_id=f"heads-{user_id}-{amount}"))
-        self.add_item(Button(style=ButtonStyle.red, label="TAILS", custom_id=f"tails-{user_id}-{amount}"))
-
-    # Remove any additional add_item calls if they exist elsewhere in this class
+        print(f"DEBUG: Initializing CoinFlipView with user_id {user_id} and amount {amount}")
 
     async def interaction_check(self, interaction):
         if interaction.user.id != int(self.user_id):
@@ -202,16 +198,17 @@ class CoinFlipView(View):
             return False
         return True
 
-    @discord.ui.button(label="HEADS", style=ButtonStyle.green)
+    @discord.ui.button(label="HEADS", style=ButtonStyle.green, custom_id=lambda i: f"heads-{i.user.id}-{self.amount}")
     async def heads(self, interaction: discord.Interaction, button: Button):
         await self.flip(interaction, "Heads")
 
-    @discord.ui.button(label="TAILS", style=ButtonStyle.red)
+    @discord.ui.button(label="TAILS", style=ButtonStyle.red, custom_id=lambda i: f"tails-{i.user.id}-{self.amount}")
     async def tails(self, interaction: discord.Interaction, button: Button):
         await self.flip(interaction, "Tails")
 
     async def flip(self, interaction: discord.Interaction, choice):
         outcome = random.choice(["Heads", "Tails"])
+        print(f"DEBUG: Flip result: {outcome}")
         if outcome == choice:
             update_points(self.user_id, self.amount)
             await interaction.response.send_message(f"The coin landed on **{outcome}**! You won {self.amount} points!")
@@ -219,6 +216,7 @@ class CoinFlipView(View):
             update_points(self.user_id, -self.amount)
             await interaction.response.send_message(f"The coin landed on **{outcome}**! You lost {self.amount} points!")
         self.stop()
+        print("DEBUG: CoinFlipView has been stopped")
 
 @bot.tree.command(name="coinflip", description="Bet your points on heads or tails!")
 async def coinflip(interaction: discord.Interaction, amount: int):
