@@ -190,8 +190,9 @@ class CoinFlipView(View):
         super().__init__(timeout=60.0)
         self.user_id = user_id
         self.amount = amount
-        self.add_item(Button(style=ButtonStyle.green, label="HEADS", custom_id="heads"))
-        self.add_item(Button(style=ButtonStyle.red, label="TAILS", custom_id="tails"))
+        # Ensure unique custom_ids for each button
+        self.add_item(Button(style=ButtonStyle.green, label="HEADS", custom_id=f"heads-{user_id}-{amount}"))
+        self.add_item(Button(style=ButtonStyle.red, label="TAILS", custom_id=f"tails-{user_id}-{amount}"))
 
     async def interaction_check(self, interaction):
         if interaction.user.id != int(self.user_id):
