@@ -191,6 +191,8 @@ class CoinFlipView(View):
         self.user_id = user_id
         self.amount = amount
         print(f"DEBUG: Initializing CoinFlipView with user_id {user_id} and amount {amount}")
+        self.add_heads_button()
+        self.add_tails_button()
 
     async def interaction_check(self, interaction):
         if interaction.user.id != int(self.user_id):
@@ -198,13 +200,15 @@ class CoinFlipView(View):
             return False
         return True
 
-    @discord.ui.button(label="HEADS", style=ButtonStyle.green, custom_id=f"heads-{self.user_id}-{self.amount}")
-    async def heads(self, interaction: discord.Interaction, button: Button):
-        await self.flip(interaction, "Heads")
+    def add_heads_button(self):
+        @button(label="HEADS", style=ButtonStyle.green, custom_id=f"heads-{self.user_id}-{self.amount}")
+        async def heads(self, interaction: discord.Interaction, button: discord.ui.Button):
+            await self.flip(interaction, "Heads")
 
-    @discord.ui.button(label="TAILS", style=ButtonStyle.red, custom_id=f"tails-{self.user_id}-{self.amount}")
-    async def tails(self, interaction: discord.Interaction, button: Button):
-        await self.flip(interaction, "Tails")
+    def add_tails_button(self):
+        @button(label="TAILS", style=ButtonStyle.red, custom_id=f"tails-{self.user_id}-{self.amount}")
+        async def tails(self, interaction: discord.Interaction, button: discord.ui.Button):
+            await self.flip(interaction, "Tails")
 
     async def flip(self, interaction: discord.Interaction, choice):
         outcome = random.choice(["Heads", "Tails"])
