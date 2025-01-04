@@ -427,6 +427,11 @@ class RemoveItemView(View):
         self.user_id = user_id
 
     async def remove_item(self, interaction: discord.Interaction):
+        # Check if the person interacting with the button is the bot owner
+        if interaction.user.id != int(os.getenv("BOT_OWNER_ID", 0)):
+            await interaction.response.send_message("You do not have permission to remove items from inventory.", ephemeral=True)
+            return
+
         item_name = interaction.data['custom_id']
         cur.execute("SELECT item_id FROM shop_items WHERE name = %s", (item_name,))
         item = cur.fetchone()
@@ -442,7 +447,7 @@ class RemoveItemView(View):
             await interaction.response.send_message(f"**{item_name}** not found in the user's inventory.", ephemeral=True)
             return
 
-                # Remove one item from inventory
+        # Remove one item from inventory
         new_quantity = quantity[0] - 1
         if new_quantity > 0:
             cur.execute("""
