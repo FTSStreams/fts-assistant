@@ -58,7 +58,7 @@ ROOBET_USER_ID = os.getenv("ROOBET_USER_ID")
 LEADERBOARD_CHANNEL_ID = 1324462489404051487
 
 # Prizes distribution
-PRIZE_DISTRIBUTION = [550, 375, 275, 200, 150, 75, 50, 40, 30, 25]
+PRIZE_DISTRIBUTION = [550, 375, 275, 200, 150, 75, 50, 40, 30, 25, 1, 1, 1, 1, 1]
 
 # Cooldown for earning points
 last_message_time = {}
@@ -149,7 +149,7 @@ async def update_roobet_leaderboard():
         color=discord.Color.gold()
     )
 
-    for i, entry in enumerate(leaderboard_data[:10]):
+    for i, entry in enumerate(leaderboard_data[:15]):
         username = entry.get("username", "Unknown")
         if len(username) > 3:
             username = username[:-3] + "***"
