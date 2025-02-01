@@ -58,7 +58,7 @@ ROOBET_USER_ID = os.getenv("ROOBET_USER_ID")
 LEADERBOARD_CHANNEL_ID = 1324462489404051487
 
 # Prizes distribution
-PRIZE_DISTRIBUTION = [550, 375, 275, 200, 150, 75, 50, 40, 30, 25, 1, 1, 1, 1, 1]
+PRIZE_DISTRIBUTION = [550, 375, 275, 200, 150, 75, 50, 40, 30, 25, 5, 4, 3, 2, 1]
 
 # Cooldown for earning points
 last_message_time = {}
@@ -120,8 +120,8 @@ async def update_roobet_leaderboard():
         print("DEBUG: Leaderboard channel not found.")
         return
 
-    start_date = "2025-01-01T00:00:00"
-    end_date = "2025-02-02T23:59:59"
+    start_date = "2025-02-01T05:00:00"
+    end_date = "2025-02-29T04:59:59"
     leaderboard_data = fetch_roobet_leaderboard(start_date, end_date)
 
     if not leaderboard_data:
@@ -137,7 +137,7 @@ async def update_roobet_leaderboard():
     embed = discord.Embed(
         title="🏆 **$1,500 USD Roobet Monthly Leaderboard** 🏆",
         description=(
-            f"**Leaderboard Period:**\nFrom: <t:1735707600:f>\nTo: <t:1738385940:f>\n\n"
+            f"**Leaderboard Period:**\nFrom: <t:1738386000:F>\nTo: <t:1740805140:F>\n\n"
             f"⏰ **Last Updated:** <t:{current_unix_time}:f>\n\n"
             "📜 **Leaderboard Rules & Disclosure**:\n"
             "• Games with an RTP of **97% or less** contribute **100%** to your weighted wager.\n"
