@@ -113,7 +113,7 @@ def fetch_roobet_leaderboard(start_date, end_date):
 
     return response.json() if response.status_code == 200 else []
 
-@tasks.loop(minutes=15)
+@tasks.loop(minutes=5)
 async def update_roobet_leaderboard():
     channel = bot.get_channel(LEADERBOARD_CHANNEL_ID)
     if not channel:
