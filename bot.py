@@ -58,7 +58,7 @@ ROOBET_USER_ID = os.getenv("ROOBET_USER_ID")
 LEADERBOARD_CHANNEL_ID = 1324462489404051487
 
 # Prizes distribution
-PRIZE_DISTRIBUTION = [550, 375, 275, 200, 150, 75, 50, 40, 30, 25, 5, 4, 3, 2, 1]
+PRIZE_DISTRIBUTION = [500, 300, 225, 175, 125, 75, 40, 30, 25, 20, 10, 8, 7, 6, 4]
 
 # Cooldown for earning points
 last_message_time = {}
