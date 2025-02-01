@@ -120,8 +120,8 @@ async def update_roobet_leaderboard():
         print("DEBUG: Leaderboard channel not found.")
         return
 
-    start_date = "2025-02-01T05:00:00"
-    end_date = "2025-02-29T04:59:59"
+    start_date = "2025-02-01T00:00:00"
+    end_date = "2025-02-29T23:59:59"
     leaderboard_data = fetch_roobet_leaderboard(start_date, end_date)
 
     if not leaderboard_data:
