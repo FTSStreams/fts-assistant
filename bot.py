@@ -121,7 +121,7 @@ async def update_roobet_leaderboard():
         return
 
     start_date = "2025-01-01T00:00:00"
-    end_date = "2025-01-31T23:59:59"
+    end_date = "2025-02-02T23:59:59"
     leaderboard_data = fetch_roobet_leaderboard(start_date, end_date)
 
     if not leaderboard_data:
