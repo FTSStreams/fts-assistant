@@ -7,7 +7,7 @@ import psycopg2
 import requests
 from datetime import datetime, timedelta
 from discord.ui import View, Button
-from discord import ButtonStyle
+from discord import ButtonStyle, Embed, Interaction
 
 # Set up the bot with required intents
 intents = discord.Intents.default()
@@ -94,11 +94,11 @@ def update_points(user_id, points_to_add):
 def fetch_roobet_leaderboard(start_date, end_date):
     headers = {"Authorization": f"Bearer {ROOBET_API_TOKEN}"}
     params = {
-    "userId": ROOBET_USER_ID,
-    "startDate": start_date,
-    "endDate": end_date,
-    "timestamp": datetime.utcnow().isoformat()  # Unique timestamp to bypass caching
-}
+        "userId": ROOBET_USER_ID,
+        "startDate": start_date,
+        "endDate": end_date,
+        "timestamp": datetime.utcnow().isoformat()  # Unique timestamp to bypass caching
+    }
 
     response = requests.get(ROOBET_API_URL, headers=headers, params=params)
 
@@ -137,8 +137,8 @@ async def update_roobet_leaderboard():
     embed = discord.Embed(
         title="🏆 **$1,500 USD Roobet Monthly Leaderboard** 🏆",
         description=(
-            f"**Leaderboard Period:**\nFrom: <t:1738368000:F>\nTo: <t:1740787199:F>\n\n"
-            f"⏰ **Last Updated:** <t:{current_unix_time}:f>\n\n"
+            f"**Leaderboard Period:**\nFrom: \nTo: \n\n"
+            f"⏰ **Last Updated:** \n\n"
             "📜 **Leaderboard Rules & Disclosure**:\n"
             "• Games with an RTP of **97% or less** contribute **100%** to your weighted wager.\n"
             "• Games with an RTP **above 97%** contribute **50%** to your weighted wager.\n"
@@ -487,6 +487,69 @@ async def remove_from_inventory(interaction: discord.Interaction, user: discord.
 
     view = RemoveItemView(user_id, items)
     await interaction.response.send_message(f"Choose which item to remove from {user.mention}'s inventory:", view=view)
+
+# New Boost Command
+
+@bot.tree.command(name="boost", description="Start a temporary leaderboard")
+async def boost(interaction: Interaction, minutes: int):
+    if minutes <= 0:
+        await interaction.response.send_message("Please specify a positive number of minutes for the leaderboard duration.", ephemeral=True)
+        return
+
+    warning_period = 1  # minute
+    leaderboard_duration = minutes
+
+    # Announcement 1 minute before the leaderboard starts
+    await interaction.channel.send(f"@everyone {leaderboard_duration} minute Leaderboard starting in 1 minute! Get your depos ready.")
+    
+    await interaction.response.send_message("Leaderboard boost initiated!", ephemeral=True)
+
+    # Wait for 1 minute before starting the leaderboard
+    await asyncio.sleep(warning_period * 60)
+
+    # Announce the start of the leaderboard
+    start_message = await interaction.channel.send(f"🏁 {leaderboard_duration} minute Leaderboard has started!")
+    
+    # Wait for the leaderboard duration
+    await asyncio.sleep(leaderboard_duration * 60)
+
+    # Announce leaderboard closure
+    end_message = await interaction.channel.send(f"🏁 Leaderboard closed. Results will appear in 1 minute.")
+    
+    # Wait for 1 minute before displaying results
+    await asyncio.sleep(60)
+
+    # Fetch leaderboard data for the exact period
+    start_time = datetime.utcnow() - timedelta(minutes=leaderboard_duration)
+    end_time = datetime.utcnow()
+    leaderboard_data = fetch_roobet_leaderboard(
+        start_time.strftime("%Y-%m-%dT%H:%M:%S"),
+        end_time.strftime("%Y-%m-%dT%H:%M:%S")
+    )
+
+    if not leaderboard_data:
+        await interaction.channel.send("No data available for this leaderboard session.")
+        return
+
+    # Sort leaderboard by weighted wager (assuming this is how you want to rank)
+    sorted_leaderboard = sorted(leaderboard_data, key=lambda x: x.get("weightedWagered", 0), reverse=True)
+
+    # Create and send embed with leaderboard results
+    embed = Embed(title=f"🏆 {leaderboard_duration} Minute Leaderboard Results", color=discord.Color.gold())
+    for i, entry in enumerate(sorted_leaderboard[:10]):  # Top 10 or adjust as needed
+        username = entry.get("username", "Unknown")
+        if len(username) > 3:
+            username = username[:-3] + "***"
+        else:
+            username = "***"
+        weighted_wagered = entry.get("weightedWagered", 0)
+        embed.add_field(
+            name=f"**{i + 1}. {username}**",
+            value=f"✨ Weighted Wagered: ${weighted_wagered:,.2f}",
+            inline=False
+        )
+    
+    await interaction.channel.send(embed=embed)
 
 @bot.event
 async def on_ready():
