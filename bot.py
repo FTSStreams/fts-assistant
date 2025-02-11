@@ -122,8 +122,12 @@ async def update_roobet_leaderboard():
 
     start_date = "2025-02-01T00:00:00"
     end_date = "2025-02-28T23:59:59"
-    leaderboard_data = fetch_roobet_leaderboard(start_date, end_date)
 
+    # Convert to Unix timestamps
+    start_unix = int(datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S").timestamp())
+    end_unix = int(datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S").timestamp())
+
+    leaderboard_data = fetch_roobet_leaderboard(start_date, end_date)
     if not leaderboard_data:
         print("DEBUG: No data received from API.")
         try:
@@ -132,18 +136,15 @@ async def update_roobet_leaderboard():
             print("DEBUG: Bot doesn't have permission to send messages in the leaderboard channel.")
         return
 
-    # Sort leaderboard by weighted wagered
     leaderboard_data.sort(key=lambda x: x.get("weightedWagered", 0), reverse=True)
-    print(f"DEBUG: Sorted Leaderboard Data: {leaderboard_data}")
-
-    current_unix_time = int(datetime.utcnow().timestamp())
+    
     embed = discord.Embed(
         title="🏆 **$1,500 USD Roobet Monthly Leaderboard** 🏆",
         description=(
             f"**Leaderboard Period:**\n"
-            f"From: {start_date}\n"
-            f"To: {end_date}\n\n"
-            f"⏰ **Last Updated:** \n\n"
+            f"From: <t:{start_unix}:F>\n"
+            f"To: <t:{end_unix}:F>\n\n"
+            f"⏰ **Last Updated:** <t:{int(datetime.utcnow().timestamp())}:R>\n\n"
             "📜 **Leaderboard Rules & Disclosure**:\n"
             "• Games with an RTP of **97% or less** contribute **100%** to your weighted wager.\n"
             "• Games with an RTP **above 97%** contribute **50%** to your weighted wager.\n"
