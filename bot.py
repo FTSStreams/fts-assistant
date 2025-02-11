@@ -507,7 +507,7 @@ async def boost(interaction: Interaction, minutes: int):
         await interaction.response.send_message("Please specify a positive number of minutes for the leaderboard duration.", ephemeral=True)
         return
 
-    warning_period = 10  # minutes, changed from 15 to 10 as per your earlier request
+    warning_period = 10  # minutes, changed from 15 to 10
     leaderboard_duration = minutes
 
     # Announcement 10 minutes before the leaderboard starts with an embed
@@ -518,96 +518,99 @@ async def boost(interaction: Interaction, minutes: int):
     )
     warning_embed.set_thumbnail(url="https://example.com/leaderboard-icon.jpg")  # Replace with your own icon URL
     warning_embed.set_footer(text="Powered by Roobet API")
+
     try:
         await interaction.channel.send(embed=warning_embed)
     except discord.errors.Forbidden:
         await interaction.response.send_message("The bot doesn't have permission to send messages in this channel.", ephemeral=True)
         return
-    
+
     await interaction.response.send_message("Leaderboard boost initiated!", ephemeral=True)
 
-    # Use a task for timing instead of blocking sleep
-    @tasks.loop(count=1)
-    async def wait_for_start():
-        await asyncio.sleep(warning_period * 60)
-        
-        start_embed = Embed(
-            title="🏁 Leaderboard Launch 🚀",
-            description=f"🎉 The **{leaderboard_duration} Minute Leaderboard** has officially started!\n\n📈 Make your way to the top spot now! 🏅",
-            color=discord.Color.green()
+    # Start the leaderboard sequence in the background
+    asyncio.create_task(handle_leaderboard_timing(interaction, warning_period, leaderboard_duration))
+
+async def handle_leaderboard_timing(interaction: Interaction, warning_period: int, leaderboard_duration: int):
+    # Wait for warning period to end
+    await asyncio.sleep(warning_period * 60)
+    
+    start_embed = Embed(
+        title="🏁 Leaderboard Launch 🚀",
+        description=f"🎉 The **{leaderboard_duration} Minute Leaderboard** has officially started!\n\n📈 Make your way to the top spot now! 🏅",
+        color=discord.Color.green()
+    )
+    start_embed.set_footer(text="Good luck, and may the best player win!")
+
+    try:
+        await interaction.channel.send(embed=start_embed)
+    except discord.errors.Forbidden:
+        print("DEBUG: Bot doesn't have permission to send messages in the channel.")
+
+    # Wait for leaderboard duration to end
+    await asyncio.sleep(leaderboard_duration * 60)
+    
+    closure_embed = Embed(
+        title="🏁 Leaderboard Closed ⏹️",
+        description=f"The leaderboard has ended! 🎊\n\nResults will be processed and displayed!\n\nStay tuned! 📊",
+        color=discord.Color.red()
+    )
+    closure_embed.set_footer(text="Thank you for participating!")
+
+    try:
+        await interaction.channel.send(embed=closure_embed)
+    except discord.errors.Forbidden:
+        print("DEBUG: Bot doesn't have permission to send messages in the channel.")
+
+    # Calculate leaderboard start and end times for data fetching
+    start_time = datetime.utcnow() - timedelta(minutes=leaderboard_duration + warning_period)
+    end_time = datetime.utcnow() + timedelta(minutes=60)  # End time is now when results are about to be displayed
+
+    start_time_str = start_time.strftime("%Y-%m-%dT%H:%M:%S")
+    end_time_str = end_time.strftime("%Y-%m-%dT%H:%M:%S")
+
+    leaderboard_data = fetch_roobet_leaderboard(start_time_str, end_time_str)
+
+    if not leaderboard_data:
+        no_data_embed = Embed(
+            title="📉 No Data Available",
+            description="Oops! It looks like there was no activity during this leaderboard session. 😕\n\nBetter luck next time! 🍀",
+            color=discord.Color.purple()
         )
-        start_embed.set_footer(text="Good luck, and may the best player win!")
         try:
-            await interaction.channel.send(embed=start_embed)
+            await interaction.channel.send(embed=no_data_embed)
         except discord.errors.Forbidden:
             print("DEBUG: Bot doesn't have permission to send messages in the channel.")
+        return
 
-    wait_for_start.start()
+    # Sort leaderboard by weighted wager
+    sorted_leaderboard = sorted(leaderboard_data, key=lambda x: x.get("weightedWagered", 0), reverse=True)
 
-    # For leaderboard duration and result display, we'll use another task
-    @tasks.loop(count=1)
-    async def wait_for_end():
-        await asyncio.sleep(leaderboard_duration * 60)
-        
-        closure_embed = Embed(
-            title="🏁 Leaderboard Closed ⏹️",
-            description=f"The leaderboard has ended! 🎊\n\nResults will be processed and displayed !\n\nStay tuned! 📊",
-            color=discord.Color.red()
+    # Create and send embed with leaderboard results
+    results_embed = Embed(
+        title=f"🏆 {leaderboard_duration} Minute Leaderboard Results 🎉",
+        description="Here are the top performers! 🌟\n\nCongratulations to all participants! 🏅",
+        color=discord.Color.gold()
+    )
+
+    for i, entry in enumerate(sorted_leaderboard[:10]):  # Top 10 or adjust as needed
+        username = entry.get("username", "Unknown")
+        if len(username) > 3:
+            username = username[:-3] + "***"
+        else:
+            username = "***"
+        weighted_wagered = entry.get("weightedWagered", 0)
+        results_embed.add_field(
+            name=f"**{i + 1}. {username}** 🎖️",
+            value=f"✨ Weighted Wagered: **${weighted_wagered:,.2f}** 💸",
+            inline=False
         )
-        closure_embed.set_footer(text="Thank you for participating!")
-        try:
-            await interaction.channel.send(embed=closure_embed)
-        except discord.errors.Forbidden:
-            print("DEBUG: Bot doesn't have permission to send messages in the channel.")
-        
-        # Calculate end time as just before displaying results
-        start_time = datetime.utcnow() - timedelta(minutes=leaderboard_duration + warning_period)
-        end_time = datetime.utcnow() + timedelta(minutes=60)  # End time is now when results are about to be displayed
-        
-        start_time_str = start_time.strftime("%Y-%m-%dT%H:%M:%S")
-        end_time_str = end_time.strftime("%Y-%m-%dT%H:%M:%S")
 
-        leaderboard_data = fetch_roobet_leaderboard(start_time_str, end_time_str)
+    results_embed.set_footer(text="Thanks for playing! More leaderboards coming soon!")
 
-        if not leaderboard_data:
-            no_data_embed = Embed(
-                title="📉 No Data Available",
-                description="Oops! It looks like there was no activity during this leaderboard session. 😕\n\nBetter luck next time! 🍀",
-                color=discord.Color.purple()
-            )
-            try:
-                await interaction.channel.send(embed=no_data_embed)
-            except discord.errors.Forbidden:
-                print("DEBUG: Bot doesn't have permission to send messages in the channel.")
-            return
-
-        # Sort leaderboard by weighted wager
-        sorted_leaderboard = sorted(leaderboard_data, key=lambda x: x.get("weightedWagered", 0), reverse=True)
-
-        # Create and send embed with leaderboard results
-        results_embed = Embed(
-            title=f"🏆 {leaderboard_duration} Minute Leaderboard Results 🎉",
-            description="Here are the top performers! 🌟\n\nCongratulations to all participants! 🏅",
-            color=discord.Color.gold()
-        )
-        for i, entry in enumerate(sorted_leaderboard[:10]):  # Top 10 or adjust as needed
-            username = entry.get("username", "Unknown")
-            if len(username) > 3:
-                username = username[:-3] + "***"
-            else:
-                username = "***"
-            weighted_wagered = entry.get("weightedWagered", 0)
-            results_embed.add_field(
-                name=f"**{i + 1}. {username}** 🎖️",
-                value=f"✨ Weighted Wagered: **${weighted_wagered:,.2f}** 💸",
-                inline=False
-            )
-        results_embed.set_footer(text="Thanks for playing! More leaderboards coming soon!")
-        try:
-            await interaction.channel.send(embed=results_embed)
-        except discord.errors.Forbidden:
-            print("DEBUG: Bot doesn't have permission to send messages in the channel.")
-
+    try:
+        await interaction.channel.send(embed=results_embed)
+    except discord.errors.Forbidden:
+        print("DEBUG: Bot doesn't have permission to send messages in the channel.")
     wait_for_end.start()
 
 @bot.event
