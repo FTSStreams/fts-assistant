@@ -513,7 +513,7 @@ async def boost(interaction: Interaction, minutes: int):
     # Announcement 10 minutes before the leaderboard starts with an embed
     warning_embed = Embed(
         title="🚨 Flash Leaderboard Alert 🚨",
-        description=f"@everyone\n**{leaderboard_duration} Minute Leaderboard** starts <t:{int((datetime.now(timezone.utc) + timedelta(minutes=warning_period)).timestamp())}:R>!\n\n💰 Get your deposits ready and prepare to climb the ranks! 🏆",
+        description=f"@everyone\n**{leaderboard_duration} Minute Leaderboard** starts <t:{int((datetime.utcnow() + timedelta(minutes=warning_period)).timestamp())}:R>!\n\n💰 Get your deposits ready and prepare to climb the ranks! 🏆",
         color=discord.Color.purple()
     )
     warning_embed.set_thumbnail(url="https://example.com/leaderboard-icon.jpg")  # Replace with your own icon URL
@@ -562,8 +562,8 @@ async def handle_leaderboard_timing(interaction: Interaction, warning_period: in
         print("DEBUG: Bot doesn't have permission to send messages in the channel.")
 
     # Calculate leaderboard start and end times for data fetching
-    start_time = datetime.now(timezone.utc) - timedelta(minutes=leaderboard_duration + warning_period)
-    end_time = datetime.now(timezone.utc) + timedelta(minutes=60)  # End time is now when results are about to be displayed
+    start_time = datetime.utcnow() - timedelta(minutes=leaderboard_duration + warning_period)
+    end_time = datetime.utcnow() + timedelta(minutes=60)  # End time is now when results are about to be displayed
 
     start_time_str = start_time.strftime("%Y-%m-%dT%H:%M:%S")
     end_time_str = end_time.strftime("%Y-%m-%dT%H:%M:%S")
