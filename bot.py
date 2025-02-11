@@ -507,13 +507,13 @@ async def boost(interaction: Interaction, minutes: int):
         await interaction.response.send_message("Please specify a positive number of minutes for the leaderboard duration.", ephemeral=True)
         return
 
-    warning_period = 10  # minutes, changed from 15 to 10
+    warning_period = 10  # minutes
     leaderboard_duration = minutes
 
     # Announcement 10 minutes before the leaderboard starts with an embed
     warning_embed = Embed(
         title="🚨 Flash Leaderboard Alert 🚨",
-        description=f"@everyone\n**{leaderboard_duration} Minute Leaderboard** starts <t:{int((datetime.utcnow() + timedelta(minutes=warning_period)).timestamp())}:R>!\n\n💰 Get your deposits ready and prepare to climb the ranks! 🏆",
+        description=f"@everyone\n**{leaderboard_duration} Minute Leaderboard** starts <t:{int((datetime.now(timezone.utc) + timedelta(minutes=warning_period)).timestamp())}:R>!\n\n💰 Get your deposits ready and prepare to climb the ranks! 🏆",
         color=discord.Color.purple()
     )
     warning_embed.set_thumbnail(url="https://example.com/leaderboard-icon.jpg")  # Replace with your own icon URL
@@ -562,8 +562,8 @@ async def handle_leaderboard_timing(interaction: Interaction, warning_period: in
         print("DEBUG: Bot doesn't have permission to send messages in the channel.")
 
     # Calculate leaderboard start and end times for data fetching
-    start_time = datetime.utcnow() - timedelta(minutes=leaderboard_duration + warning_period)
-    end_time = datetime.utcnow() + timedelta(minutes=60)  # End time is now when results are about to be displayed
+    start_time = datetime.now(timezone.utc) - timedelta(minutes=leaderboard_duration + warning_period)
+    end_time = datetime.now(timezone.utc) + timedelta(minutes=60)  # End time is now when results are about to be displayed
 
     start_time_str = start_time.strftime("%Y-%m-%dT%H:%M:%S")
     end_time_str = end_time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -585,32 +585,40 @@ async def handle_leaderboard_timing(interaction: Interaction, warning_period: in
     # Sort leaderboard by weighted wager
     sorted_leaderboard = sorted(leaderboard_data, key=lambda x: x.get("weightedWagered", 0), reverse=True)
 
+    # Prize distribution structure 🏆
+    prize_distribution = [0.03, 0.02, 0.01]  # 🥇 3%, 🥈 2%, 🥉 1%
+    top_3_winners = sorted_leaderboard[:3]  # Get the top 3 players
+
     # Create and send embed with leaderboard results
     results_embed = Embed(
         title=f"🏆 {leaderboard_duration} Minute Leaderboard Results 🎉",
-        description="Here are the top performers! 🌟\n\nCongratulations to all participants! 🏅",
+        description="Here are the top performers! 🌟\n\nPrizes are based on **tomorrow’s end stream balance!** 📊",
         color=discord.Color.gold()
     )
 
-    for i, entry in enumerate(sorted_leaderboard[:10]):  # Top 10 or adjust as needed
+    for i, entry in enumerate(top_3_winners):
         username = entry.get("username", "Unknown")
         if len(username) > 3:
             username = username[:-3] + "***"
         else:
             username = "***"
+
         weighted_wagered = entry.get("weightedWagered", 0)
+        percentage_reward = prize_distribution[i] * 100  # Convert to percentage
+
         results_embed.add_field(
             name=f"**{i + 1}. {username}** 🎖️",
-            value=f"✨ Weighted Wagered: **${weighted_wagered:,.2f}** 💸",
+            value=f"✨ Weighted Wagered: **${weighted_wagered:,.2f}** 💸\n🏆 Prize: **{percentage_reward}%** of tomorrow’s stream balance!",
             inline=False
         )
 
-    results_embed.set_footer(text="Thanks for playing! More leaderboards coming soon!")
+    results_embed.set_footer(text="Final prize value will be calculated after tomorrow’s stream ends.")
 
     try:
         await interaction.channel.send(embed=results_embed)
     except discord.errors.Forbidden:
         print("DEBUG: Bot doesn't have permission to send messages in the channel.")
+    
     wait_for_end.start()
 
 @bot.event
