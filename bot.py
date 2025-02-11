@@ -507,16 +507,25 @@ async def boost(interaction: Interaction, minutes: int):
         await interaction.response.send_message("Please specify a positive number of minutes for the leaderboard duration.", ephemeral=True)
         return
 
-    warning_period = 10  # minutes
+    warning_period = 10  # 10-minute warning before leaderboard starts
     leaderboard_duration = minutes
+    processing_time = 60  # 60-minute buffer after leaderboard ends before fetching results
 
-    # Announcement 10 minutes before the leaderboard starts with an embed
+    current_time = datetime.utcnow()
+    warning_end_time = current_time + timedelta(minutes=warning_period)
+    leaderboard_end_time = warning_end_time + timedelta(minutes=leaderboard_duration)
+    results_time = leaderboard_end_time + timedelta(minutes=processing_time)
+
+    # 📢 Announcement 10 minutes before leaderboard starts
     warning_embed = Embed(
         title="🚨 Flash Leaderboard Alert 🚨",
-        description=f"@everyone\n**{leaderboard_duration} Minute Leaderboard** starts <t:{int((datetime.utcnow() + timedelta(minutes=warning_period)).timestamp())}:R>!\n\n💰 Get your deposits ready and prepare to climb the ranks! 🏆",
+        description=(
+            f"@everyone\n**{leaderboard_duration} Minute Leaderboard** starts **<t:{int(warning_end_time.timestamp())}:R>**!\n\n"
+            "💰 Get your deposits ready and prepare to climb the ranks! 🏆"
+        ),
         color=discord.Color.purple()
     )
-    warning_embed.set_thumbnail(url="https://example.com/leaderboard-icon.jpg")  # Replace with your own icon URL
+    warning_embed.set_thumbnail(url="https://example.com/leaderboard-icon.jpg")  # Replace with actual icon URL
     warning_embed.set_footer(text="Powered by Roobet API")
 
     try:
@@ -527,31 +536,40 @@ async def boost(interaction: Interaction, minutes: int):
 
     await interaction.response.send_message("Leaderboard boost initiated!", ephemeral=True)
 
-    # Start the leaderboard sequence in the background
-    asyncio.create_task(handle_leaderboard_timing(interaction, warning_period, leaderboard_duration))
+    # 🚀 Start the leaderboard sequence in the background
+    asyncio.create_task(handle_leaderboard_timing(interaction, warning_end_time, leaderboard_end_time, results_time, leaderboard_duration))
 
-async def handle_leaderboard_timing(interaction: Interaction, warning_period: int, leaderboard_duration: int):
-    # Wait for warning period to end
-    await asyncio.sleep(warning_period * 60)
-    
+async def handle_leaderboard_timing(interaction: Interaction, warning_end_time: datetime, leaderboard_end_time: datetime, results_time: datetime, leaderboard_duration: int):
+    # ⏳ Wait for warning period to end
+    await asyncio.sleep((warning_end_time - datetime.utcnow()).total_seconds())
+
+    # 🏁 Start the leaderboard
     start_embed = Embed(
         title="🏁 Leaderboard Launch 🚀",
-        description=f"🎉 The **{leaderboard_duration} Minute Leaderboard** has officially started!\n\n📈 Make your way to the top spot now! 🏅",
+        description=(
+            f"🎉 The **{leaderboard_duration} Minute Leaderboard** has officially started!\n\n"
+            "📈 Make your way to the top spot now! 🏅"
+        ),
         color=discord.Color.green()
     )
-    start_embed.set_footer(text="Good luck, and may the best player win!")
+    start_embed.set_footer(text=f"Leaderboard ends <t:{int(leaderboard_end_time.timestamp())}:R>.")
 
     try:
         await interaction.channel.send(embed=start_embed)
     except discord.errors.Forbidden:
         print("DEBUG: Bot doesn't have permission to send messages in the channel.")
 
-    # Wait for leaderboard duration to end
-    await asyncio.sleep(leaderboard_duration * 60)
-    
+    # ⏳ Wait for leaderboard duration to end
+    await asyncio.sleep((leaderboard_end_time - datetime.utcnow()).total_seconds())
+
+    # 🏁 Announce leaderboard closure & start processing timer
     closure_embed = Embed(
         title="🏁 Leaderboard Closed ⏹️",
-        description=f"The leaderboard has ended! 🎊\n\nResults will be processed and displayed!\n\nStay tuned! 📊",
+        description=(
+            "The leaderboard has ended! 🎊\n\n"
+            f"⏳ **Processing results... Final rankings will be available <t:{int(results_time.timestamp())}:R>.**\n\n"
+            "📊 Stay tuned for the winners!"
+        ),
         color=discord.Color.red()
     )
     closure_embed.set_footer(text="Thank you for participating!")
@@ -561,9 +579,28 @@ async def handle_leaderboard_timing(interaction: Interaction, warning_period: in
     except discord.errors.Forbidden:
         print("DEBUG: Bot doesn't have permission to send messages in the channel.")
 
-    # Calculate leaderboard start and end times for data fetching
-    start_time = datetime.utcnow() - timedelta(minutes=leaderboard_duration + warning_period)
-    end_time = datetime.utcnow() + timedelta(minutes=60)  # End time is now when results are about to be displayed
+    # 🔄 Notify users that processing is happening
+    processing_embed = Embed(
+        title="🔄 Processing Results...",
+        description=(
+            "We are verifying all wagers... 🛠️\n\n"
+            f"⏳ **Results will be available <t:{int(results_time.timestamp())}:R>.**"
+        ),
+        color=discord.Color.orange()
+    )
+    processing_embed.set_footer(text="Please wait while we verify all wagers.")
+
+    try:
+        await interaction.channel.send(embed=processing_embed)
+    except discord.errors.Forbidden:
+        print("DEBUG: Bot doesn't have permission to send messages in the channel.")
+
+    # ⏳ 🛑 Wait for processing period before fetching final data (ENFORCED DELAY)
+    await asyncio.sleep(processing_time * 60)
+
+    # 📡 Fetching the leaderboard data (NOW AFTER 60-MIN PROCESSING PERIOD)
+    start_time = datetime.utcnow()  # Start time remains from when the command was actually run
+    end_time = datetime.utcnow() + timedelta(minutes=60)  # Ensures delayed bets are counted
 
     start_time_str = start_time.strftime("%Y-%m-%dT%H:%M:%S")
     end_time_str = end_time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -582,17 +619,20 @@ async def handle_leaderboard_timing(interaction: Interaction, warning_period: in
             print("DEBUG: Bot doesn't have permission to send messages in the channel.")
         return
 
-    # Sort leaderboard by weighted wager
+    # 🏆 Sort leaderboard by weighted wager
     sorted_leaderboard = sorted(leaderboard_data, key=lambda x: x.get("weightedWagered", 0), reverse=True)
 
-    # Prize distribution structure 🏆
+    # 🏅 Prize distribution structure (Top 3 Winners)
     prize_distribution = [0.03, 0.02, 0.01]  # 🥇 3%, 🥈 2%, 🥉 1%
     top_3_winners = sorted_leaderboard[:3]  # Get the top 3 players
 
-    # Create and send embed with leaderboard results
+    # 🎉 Create and send final leaderboard results embed
     results_embed = Embed(
         title=f"🏆 {leaderboard_duration} Minute Leaderboard Results 🎉",
-        description="Here are the top performers! 🌟\n\nPrizes are based on **tomorrow’s end stream balance!** 📊",
+        description=(
+            "Here are the top performers! 🌟\n\n"
+            "🏆 **Prizes are based on tomorrow’s end stream balance!** 📊"
+        ),
         color=discord.Color.gold()
     )
 
