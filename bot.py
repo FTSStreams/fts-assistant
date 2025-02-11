@@ -506,13 +506,13 @@ async def boost(interaction: Interaction, minutes: int):
         await interaction.response.send_message("Please specify a positive number of minutes for the leaderboard duration.", ephemeral=True)
         return
 
-    warning_period = 15  # minutes
+    warning_period = 10  # minutes, changed from 15 to 10 as per your earlier request
     leaderboard_duration = minutes
 
-    # Announcement 15 minutes before the leaderboard starts with an embed
+    # Announcement 10 minutes before the leaderboard starts with an embed
     warning_embed = Embed(
         title="🚨 Flash Leaderboard Alert 🚨",
-        description=f"@everyone\n**{leaderboard_duration} Minute Leaderboard** starts !\n\n💰 Get your deposits ready and prepare to climb the ranks! 🏆",
+        description=f"@everyone\n**{leaderboard_duration} Minute Leaderboard** starts <t:{int((datetime.utcnow() + timedelta(minutes=warning_period)).timestamp())}:R>!\n\n💰 Get your deposits ready and prepare to climb the ranks! 🏆",
         color=discord.Color.purple()
     )
     warning_embed.set_thumbnail(url="https://example.com/leaderboard-icon.jpg")  # Replace with your own icon URL
