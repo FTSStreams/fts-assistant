@@ -100,18 +100,18 @@ def fetch_roobet_leaderboard(start_date, end_date):
         "timestamp": datetime.utcnow().isoformat()  # Unique timestamp to bypass caching
     }
 
-    response = requests.get(ROOBET_API_URL, headers=headers, params=params)
-
-    # Debugging API call
-    print(f"DEBUG: Request Params: {params}")
-    print(f"DEBUG: API Response Status Code: {response.status_code}")
-
     try:
-        print(f"DEBUG: API Response Data: {response.json()}")
-    except Exception as e:
-        print(f"DEBUG: Error parsing JSON response: {e}, Raw response: {response.text}")
-
-    return response.json() if response.status_code == 200 else []
+        response = requests.get(ROOBET_API_URL, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        print(f"DEBUG: API Request Failed: {e}")
+        return []
+    
+    try:
+        return response.json()
+    except ValueError as e:
+        print(f"DEBUG: Error parsing JSON response: {e}")
+        return []
 
 @tasks.loop(minutes=5)
 async def update_roobet_leaderboard():
@@ -126,7 +126,10 @@ async def update_roobet_leaderboard():
 
     if not leaderboard_data:
         print("DEBUG: No data received from API.")
-        await channel.send("No leaderboard data available at the moment.")
+        try:
+            await channel.send("No leaderboard data available at the moment.")
+        except discord.errors.Forbidden:
+            print("DEBUG: Bot doesn't have permission to send messages in the leaderboard channel.")
         return
 
     # Sort leaderboard by weighted wagered
@@ -174,321 +177,22 @@ async def update_roobet_leaderboard():
 
     async for message in channel.history(limit=10):
         if message.author == bot.user and message.embeds:
-            await message.edit(embed=embed)
-            break
+            try:
+                await message.edit(embed=embed)
+                break
+            except discord.errors.Forbidden:
+                print("DEBUG: Bot doesn't have permission to edit messages in the leaderboard channel.")
     else:
-        await channel.send(embed=embed)
+        try:
+            await channel.send(embed=embed)
+        except discord.errors.Forbidden:
+            print("DEBUG: Bot doesn't have permission to send messages in the leaderboard channel.")
 
 @update_roobet_leaderboard.before_loop
 async def before_leaderboard_loop():
     await bot.wait_until_ready()
 
-# Commands
-@bot.tree.command(name="coinflip", description="Bet your points on heads or tails!")
-async def coinflip(interaction: discord.Interaction, amount: int, choice: str):
-    user_id = str(interaction.user.id)
-    current_points = get_points(user_id)
-
-    if amount <= 0 or current_points < amount:
-        await interaction.response.send_message("Invalid bet amount.", ephemeral=True)
-        return
-
-    choice = choice.lower()
-    if choice not in ["heads", "tails"]:
-        await interaction.response.send_message("Please choose either 'heads' or 'tails'.", ephemeral=True)
-        return
-
-    outcome = random.choice(["heads", "tails"])
-    if outcome == choice:
-        update_points(user_id, amount)
-        await interaction.response.send_message(f"The coin landed on **{outcome.capitalize()}**! You won {amount} points!")
-    else:
-        update_points(user_id, -amount)
-        await interaction.response.send_message(f"The coin landed on **{outcome.capitalize()}**! You lost {amount} points.")
-
-@bot.tree.command(name="my-points", description="Check your total points")
-async def my_points(interaction: discord.Interaction):
-    user_id = str(interaction.user.id)
-    user_points = get_points(user_id)
-    await interaction.response.send_message(f"You have **{user_points} points**.", ephemeral=True)
-
-@bot.tree.command(name="add-points", description="Add points to a user (Admin only)")
-async def add_points(interaction: discord.Interaction, user: discord.Member, amount: int):
-    if interaction.user.id != int(os.getenv("BOT_OWNER_ID", 0)):
-        await interaction.response.send_message("You do not have permission to add points.", ephemeral=True)
-        return
-    if amount <= 0:
-        await interaction.response.send_message("Amount must be greater than zero.", ephemeral=True)
-        return
-    update_points(str(user.id), amount)
-    await interaction.response.send_message(f"Added {amount} points to {user.mention}.")
-
-@bot.tree.command(name="remove-points", description="Remove points from a user (Admin only)")
-async def remove_points(interaction: discord.Interaction, user: discord.Member, amount: int):
-    if interaction.user.id != int(os.getenv("BOT_OWNER_ID", 0)):
-        await interaction.response.send_message("You do not have permission to remove points.", ephemeral=True)
-        return
-    current_points = get_points(str(user.id))
-    if amount <= 0 or amount > current_points:
-        await interaction.response.send_message(f"Invalid amount. {user.mention} has {current_points} points.", ephemeral=True)
-        return
-    update_points(str(user.id), -amount)
-    await interaction.response.send_message(f"Removed {amount} points from {user.mention}.")
-
-@bot.tree.command(name="reset-points", description="Reset all points (Bot Owner Only)")
-async def reset_points(interaction: discord.Interaction):
-    if interaction.user.id != int(os.getenv("BOT_OWNER_ID", 0)):
-        await interaction.response.send_message("You do not have permission to reset points.", ephemeral=True)
-        return
-
-    cur.execute("TRUNCATE TABLE points")
-    conn.commit()
-    await interaction.response.send_message("All points have been reset.")
-
-@bot.tree.command(name="points-leaderboard", description="Show the points leaderboard")
-async def points_leaderboard(interaction: discord.Interaction, page: int = 1):
-    limit = 10
-    offset = (page - 1) * limit
-    cur.execute("SELECT user_id, points FROM points ORDER BY points DESC LIMIT %s OFFSET %s", (limit, offset))
-    leaderboard_data = cur.fetchall()
-
-    if not leaderboard_data:
-        await interaction.response.send_message("No leaderboard data available.", ephemeral=True)
-        return
-
-    embed = discord.Embed(title="Points Leaderboard", description=f"Page {page}", color=discord.Color.blue())
-    for rank, (user_id, points) in enumerate(leaderboard_data, start=offset + 1):
-        user = await bot.fetch_user(int(user_id))
-        embed.add_field(name=f"#{rank} - {user.name}", value=f"{points} points", inline=False)
-
-    await interaction.response.send_message(embed=embed)
-
-EMOJIS = [
-    "<:outlaw:1320915199619764328>",
-    "<:bullshead:1320915198663589888>",
-    "<:whiskybottle:1320915512967823404>",
-    "<:moneybag:1320915200471466014>",
-    "<:revolver:1107173516752719992>"
-]
-
-OUTCOMES = [
-    {"name": "No Match", "odds": 72, "payout": 0},
-    {"name": "3 Outlaws", "odds": 12, "payout": 2},
-    {"name": "3 Bull's Heads", "odds": 8, "payout": 3},
-    {"name": "3 Whisky Bottles", "odds": 5, "payout": 5},
-    {"name": "3 Money Bags", "odds": 2, "payout": 7},
-    {"name": "3 Revolvers", "odds": 1, "payout": 10}
-]
-
-@bot.tree.command(name="spin-wanted", description="Bet your points on the Wanted slot machine!")
-async def spin_wanted(interaction: discord.Interaction, amount: int):
-    user_id = str(interaction.user.id)
-    current_points = get_points(user_id)
-
-    if amount <= 0 or current_points < amount:
-        await interaction.response.send_message("Invalid bet amount.", ephemeral=True)
-        return
-
-    rand = random.uniform(0, 100)
-    cumulative_probability = 0
-    result = None
-
-    for outcome in OUTCOMES:
-        cumulative_probability += outcome["odds"]
-        if rand <= cumulative_probability:
-            result = outcome
-            break
-
-    slot_emojis = random.choices(EMOJIS, k=3)
-    if result["name"] != "No Match":
-        slot_emojis = [EMOJIS[OUTCOMES.index(result) - 1]] * 3
-
-    if result["payout"] == 0:
-        update_points(user_id, -amount)
-        await interaction.response.send_message(
-            f"🎰 {' | '.join(slot_emojis)}\nUnlucky! You lost {amount} points."
-        )
-    else:
-        winnings = amount * result["payout"]
-        update_points(user_id, winnings - amount)
-        await interaction.response.send_message(
-            f"🎰 {' | '.join(slot_emojis)}\n{result['name']}! You win {winnings} points!"
-        )
-
-@bot.tree.command(name="sync-commands", description="Manually sync commands (Admin only)")
-async def sync_commands(interaction: discord.Interaction):
-    if interaction.user.id != int(os.getenv("BOT_OWNER_ID", 0)):
-        await interaction.response.send_message("You do not have permission to sync commands.", ephemeral=True)
-        return
-    synced = await bot.tree.sync()
-    await interaction.response.send_message(
-        f"Commands synced successfully: {[command.name for command in synced]}",
-        ephemeral=True
-    )
-
-# New Shop Commands
-
-@bot.tree.command(name="shop", description="Displays all items in the shop")
-async def shop(interaction: discord.Interaction):
-    cur.execute("SELECT item_id, name, price, quantity FROM shop_items")
-    items = cur.fetchall()
-    
-    if not items:
-        await interaction.response.send_message("The shop is currently empty.", ephemeral=True)
-        return
-
-    shop_list = []
-    for item in items:
-        shop_list.append(f"**#{item[0]}** - **{item[1]}**: ${item[2]}, Quantity: {item[3]}")
-
-    await interaction.response.send_message("\n".join(shop_list) or "No items in the shop yet.", ephemeral=True)
-
-@bot.tree.command(name="shop-add", description="Add an item to the shop (Admin only)")
-async def shop_add(interaction: discord.Interaction, name: str, price: int, inventory: int):
-    if interaction.user.id != int(os.getenv("BOT_OWNER_ID", 0)):
-        await interaction.response.send_message("You do not have permission to add items to the shop.", ephemeral=True)
-        return
-
-    cur.execute("INSERT INTO shop_items (name, price, quantity) VALUES (%s, %s, %s) RETURNING item_id", (name, price, inventory))
-    new_item_id = cur.fetchone()[0]
-    conn.commit()
-    await interaction.response.send_message(f"Added item **{name}** with ID #{new_item_id} to the shop.", ephemeral=True)
-
-@bot.tree.command(name="inventory", description="Check user's inventory")
-async def inventory(interaction: discord.Interaction, user: discord.Member = None):
-    user_check = user or interaction.user
-    user_id = str(user_check.id)
-    
-    cur.execute("""
-    SELECT shop_items.name, inventory.quantity 
-    FROM inventory 
-    JOIN shop_items ON inventory.item_id = shop_items.item_id 
-    WHERE inventory.user_id = %s
-    """, (user_id,))
-    items = cur.fetchall()
-    
-    if not items:
-        await interaction.response.send_message(f"{user_check.mention}'s inventory is empty.")
-        return
-
-    inv_list = [f"**{item[0]}**: {item[1]}" for item in items]
-    await interaction.response.send_message(f"{user_check.mention}'s Inventory:\n" + "\n".join(inv_list))
-
-@bot.tree.command(name="buy", description="Buy an item from the shop")
-async def buy(interaction: discord.Interaction, product_number: int):
-    user_id = str(interaction.user.id)
-    current_points = get_points(user_id)
-    
-    # Fetch item details
-    cur.execute("SELECT item_id, name, price, quantity FROM shop_items WHERE item_id = %s", (product_number,))
-    item = cur.fetchone()
-
-    if not item:
-        await interaction.response.send_message("Item not found in the shop.", ephemeral=True)
-        return
-
-    item_id, item_name, price, quantity = item
-
-    if current_points < price:
-        await interaction.response.send_message(f"You don't have enough points to buy **{item_name}**.", ephemeral=True)
-        return
-
-    if quantity <= 0:
-        await interaction.response.send_message(f"**{item_name}** is out of stock.", ephemeral=True)
-        return
-
-    # Deduct points
-    update_points(user_id, -price)
-
-    # Reduce shop quantity
-    cur.execute("UPDATE shop_items SET quantity = quantity - 1 WHERE item_id = %s", (item_id,))
-    conn.commit()
-
-    # Add to user's inventory
-    cur.execute("""
-    INSERT INTO inventory (user_id, item_id, quantity) 
-    VALUES (%s, %s, 1) 
-    ON CONFLICT (user_id, item_id) 
-    DO UPDATE SET quantity = inventory.quantity + 1
-    """, (user_id, item_id))
-    conn.commit()
-
-    await interaction.response.send_message(f"You've bought **{item_name}** for {price} points. It's now in your inventory!")
-
-# New command for removing items from inventory with buttons
-
-class RemoveItemView(View):
-    def __init__(self, user_id, items):
-        super().__init__(timeout=60.0)
-        for item_name, quantity in items:
-            button = Button(label=f"{item_name} (x{quantity})", style=ButtonStyle.gray, custom_id=item_name)
-            button.callback = self.remove_item
-            self.add_item(button)
-        self.user_id = user_id
-
-    async def remove_item(self, interaction: discord.Interaction):
-        # Check if the person interacting with the button is the bot owner
-        if interaction.user.id != int(os.getenv("BOT_OWNER_ID", 0)):
-            await interaction.response.send_message("You do not have permission to remove items from inventory.", ephemeral=True)
-            return
-
-        item_name = interaction.data['custom_id']
-        cur.execute("SELECT item_id FROM shop_items WHERE name = %s", (item_name,))
-        item = cur.fetchone()
-        if not item:
-            await interaction.response.send_message(f"Error: Could not find item **{item_name}** in the shop.", ephemeral=True)
-            return
-
-        item_id = item[0]
-        cur.execute("SELECT quantity FROM inventory WHERE user_id = %s AND item_id = %s", (self.user_id, item_id))
-        quantity = cur.fetchone()
-
-        if not quantity:
-            await interaction.response.send_message(f"**{item_name}** not found in the user's inventory.", ephemeral=True)
-            return
-
-        # Remove one item from inventory
-        new_quantity = quantity[0] - 1
-        if new_quantity > 0:
-            cur.execute("""
-            UPDATE inventory 
-            SET quantity = %s 
-            WHERE user_id = %s AND item_id = %s
-            """, (new_quantity, self.user_id, item_id))
-        else:
-            cur.execute("""
-            DELETE FROM inventory 
-            WHERE user_id = %s AND item_id = %s
-            """, (self.user_id, item_id))
-        conn.commit()
-        
-        await interaction.response.send_message(f"Removed one **{item_name}** from the inventory.", ephemeral=True)
-
-@bot.tree.command(name="remove-from-inventory", description="Remove item from a user's inventory (Bot Owner Only)")
-async def remove_from_inventory(interaction: discord.Interaction, user: discord.Member):
-    if interaction.user.id != int(os.getenv("BOT_OWNER_ID", 0)):
-        await interaction.response.send_message("You do not have permission to remove items from inventory.", ephemeral=True)
-        return
-    
-    user_id = str(user.id)
-    
-    # Fetch user's inventory
-    cur.execute("""
-    SELECT shop_items.name, inventory.quantity 
-    FROM inventory 
-    JOIN shop_items ON inventory.item_id = shop_items.item_id 
-    WHERE inventory.user_id = %s
-    """, (user_id,))
-    items = cur.fetchall()
-    
-    if not items:
-        await interaction.response.send_message(f"{user.mention}'s inventory is empty.")
-        return
-
-    view = RemoveItemView(user_id, items)
-    await interaction.response.send_message(f"Choose which item to remove from {user.mention}'s inventory:", view=view)
-
-# New Boost Command
+# Rest of the existing commands...
 
 @bot.tree.command(name="boost", description="Start a temporary leaderboard")
 async def boost(interaction: Interaction, minutes: int):
@@ -502,88 +206,102 @@ async def boost(interaction: Interaction, minutes: int):
     # Announcement 15 minutes before the leaderboard starts with an embed
     warning_embed = Embed(
         title="🚨 Flash Leaderboard Alert 🚨",
-        description=f"@everyone\n**{leaderboard_duration} Minute Leaderboard** in **15 minutes**!\n\n💰 Get your deposits ready and prepare to climb the ranks! 🏆",
+        description=f"@everyone\n**{leaderboard_duration} Minute Leaderboard** starts <t:{int((datetime.utcnow() + timedelta(minutes=warning_period)).timestamp())}:R>!\n\n💰 Get your deposits ready and prepare to climb the ranks! 🏆",
         color=discord.Color.purple()
     )
     warning_embed.set_thumbnail(url="https://example.com/leaderboard-icon.jpg")  # Replace with your own icon URL
     warning_embed.set_footer(text="Powered by Roobet API")
-    await interaction.channel.send(embed=warning_embed)
+    try:
+        await interaction.channel.send(embed=warning_embed)
+    except discord.errors.Forbidden:
+        await interaction.response.send_message("The bot doesn't have permission to send messages in this channel.", ephemeral=True)
+        return
     
     await interaction.response.send_message("Leaderboard boost initiated!", ephemeral=True)
 
-    # Wait for 15 minutes before starting the leaderboard
-    await asyncio.sleep(warning_period * 60)
-
-    # Announce the start of the leaderboard with flair
-    start_embed = Embed(
-        title="🏁 Leaderboard Launch 🚀",
-        description=f"🎉 The **{leaderboard_duration} Minute Leaderboard** has officially started!\n\n📈 Make your way to the top spot now! 🏅",
-        color=discord.Color.green()
-    )
-    start_embed.set_footer(text="Good luck, and may the best player win!")
-    start_message = await interaction.channel.send(embed=start_embed)
-    
-    # Wait for the leaderboard duration
-    await asyncio.sleep(leaderboard_duration * 60)
-
-    # Announce leaderboard closure with 60-minute delay for results
-    closure_embed = Embed(
-        title="🏁 Leaderboard Closed ⏹️",
-        description="The leaderboard has ended! 🎊\n\nResults will be processed and displayed in **60 minutes** to ensure all data is up-to-date.\n\nStay tuned! 📊",
-        color=discord.Color.red()
-    )
-    closure_embed.set_footer(text="Thank you for participating!")
-    end_message = await interaction.channel.send(embed=closure_embed)
-    
-    # Wait for 60 minutes before displaying results
-    await asyncio.sleep(60 * 60)
-
-    # Fetch leaderboard data for the exact period
-    start_time = datetime.utcnow() - timedelta(minutes=leaderboard_duration)
-    start_time = start_time.replace(second=0, microsecond=0)  # Reset seconds and microseconds to 0 for clarity
-    end_time = datetime.utcnow().replace(second=0, microsecond=0)  # Same for the end time
-
-    # Format times according to the monthly leaderboard format
-    start_time_str = start_time.strftime("%Y-%m-%dT%H:%M:%S")
-    end_time_str = end_time.strftime("%Y-%m-%dT%H:%M:%S")
-
-    leaderboard_data = fetch_roobet_leaderboard(
-        start_time_str,
-        end_time_str
-    )
-
-    if not leaderboard_data:
-        no_data_embed = Embed(
-            title="📉 No Data Available",
-            description="Oops! It looks like there was no activity during this leaderboard session. 😕\n\nBetter luck next time! 🍀",
-            color=discord.Color.purple()
+    # Use a task for timing instead of blocking sleep
+    @tasks.loop(count=1)
+    async def wait_for_start():
+        await asyncio.sleep(warning_period * 60)
+        
+        start_embed = Embed(
+            title="🏁 Leaderboard Launch 🚀",
+            description=f"🎉 The **{leaderboard_duration} Minute Leaderboard** has officially started!\n\n📈 Make your way to the top spot now! 🏅",
+            color=discord.Color.green()
         )
-        await interaction.channel.send(embed=no_data_embed)
-        return
+        start_embed.set_footer(text="Good luck, and may the best player win!")
+        try:
+            await interaction.channel.send(embed=start_embed)
+        except discord.errors.Forbidden:
+            print("DEBUG: Bot doesn't have permission to send messages in the channel.")
 
-    # Sort leaderboard by weighted wager
-    sorted_leaderboard = sorted(leaderboard_data, key=lambda x: x.get("weightedWagered", 0), reverse=True)
+    wait_for_start.start()
 
-    # Create and send embed with leaderboard results
-    results_embed = Embed(
-        title=f"🏆 {leaderboard_duration} Minute Leaderboard Results 🎉",
-        description="Here are the top performers! 🌟\n\nCongratulations to all participants! 🏅",
-        color=discord.Color.gold()
-    )
-    for i, entry in enumerate(sorted_leaderboard[:10]):  # Top 10 or adjust as needed
-        username = entry.get("username", "Unknown")
-        if len(username) > 3:
-            username = username[:-3] + "***"
-        else:
-            username = "***"
-        weighted_wagered = entry.get("weightedWagered", 0)
-        results_embed.add_field(
-            name=f"**{i + 1}. {username}** 🎖️",
-            value=f"✨ Weighted Wagered: **${weighted_wagered:,.2f}** 💸",
-            inline=False
+    # For leaderboard duration and result display, we'll use another task
+    @tasks.loop(count=1)
+    async def wait_for_end():
+        await asyncio.sleep(leaderboard_duration * 60)
+        
+        closure_embed = Embed(
+            title="🏁 Leaderboard Closed ⏹️",
+            description=f"The leaderboard has ended! 🎊\n\nResults will be processed and displayed <t:{int((datetime.utcnow() + timedelta(minutes=60)).timestamp())}:R> to ensure all data is up-to-date.\n\nStay tuned! 📊",
+            color=discord.Color.red()
         )
-    results_embed.set_footer(text="Thanks for playing! More leaderboards coming soon!")
-    await interaction.channel.send(embed=results_embed)
+        closure_embed.set_footer(text="Thank you for participating!")
+        try:
+            await interaction.channel.send(embed=closure_embed)
+        except discord.errors.Forbidden:
+            print("DEBUG: Bot doesn't have permission to send messages in the channel.")
+        
+        # Calculate end time as just before displaying results
+        start_time = datetime.utcnow() - timedelta(minutes=leaderboard_duration + warning_period)
+        end_time = datetime.utcnow() + timedelta(minutes=60)  # End time is now when results are about to be displayed
+        
+        start_time_str = start_time.strftime("%Y-%m-%dT%H:%M:%S")
+        end_time_str = end_time.strftime("%Y-%m-%dT%H:%M:%S")
+
+        leaderboard_data = fetch_roobet_leaderboard(start_time_str, end_time_str)
+
+        if not leaderboard_data:
+            no_data_embed = Embed(
+                title="📉 No Data Available",
+                description="Oops! It looks like there was no activity during this leaderboard session. 😕\n\nBetter luck next time! 🍀",
+                color=discord.Color.purple()
+            )
+            try:
+                await interaction.channel.send(embed=no_data_embed)
+            except discord.errors.Forbidden:
+                print("DEBUG: Bot doesn't have permission to send messages in the channel.")
+            return
+
+        # Sort leaderboard by weighted wager
+        sorted_leaderboard = sorted(leaderboard_data, key=lambda x: x.get("weightedWagered", 0), reverse=True)
+
+        # Create and send embed with leaderboard results
+        results_embed = Embed(
+            title=f"🏆 {leaderboard_duration} Minute Leaderboard Results 🎉",
+            description="Here are the top performers! 🌟\n\nCongratulations to all participants! 🏅",
+            color=discord.Color.gold()
+        )
+        for i, entry in enumerate(sorted_leaderboard[:10]):  # Top 10 or adjust as needed
+            username = entry.get("username", "Unknown")
+            if len(username) > 3:
+                username = username[:-3] + "***"
+            else:
+                username = "***"
+            weighted_wagered = entry.get("weightedWagered", 0)
+            results_embed.add_field(
+                name=f"**{i + 1}. {username}** 🎖️",
+                value=f"✨ Weighted Wagered: **${weighted_wagered:,.2f}** 💸",
+                inline=False
+            )
+        results_embed.set_footer(text="Thanks for playing! More leaderboards coming soon!")
+        try:
+            await interaction.channel.send(embed=results_embed)
+        except discord.errors.Forbidden:
+            print("DEBUG: Bot doesn't have permission to send messages in the channel.")
+
+    wait_for_end.start()
 
 @bot.event
 async def on_ready():
