@@ -496,46 +496,80 @@ async def boost(interaction: Interaction, minutes: int):
         await interaction.response.send_message("Please specify a positive number of minutes for the leaderboard duration.", ephemeral=True)
         return
 
-    warning_period = 1  # minute
+    warning_period = 15  # minutes
     leaderboard_duration = minutes
 
-    # Announcement 1 minute before the leaderboard starts
-    await interaction.channel.send(f"@everyone {leaderboard_duration} minute Leaderboard starting in 1 minute! Get your depos ready.")
+    # Announcement 15 minutes before the leaderboard starts with an embed
+    warning_embed = Embed(
+        title="🚨 Flash Leaderboard Alert 🚨",
+        description=f"@everyone\n**{leaderboard_duration} Minute Leaderboard** in **15 minutes**!\n\n💰 Get your deposits ready and prepare to climb the ranks! 🏆",
+        color=discord.Color.purple()
+    )
+    warning_embed.set_thumbnail(url="https://example.com/leaderboard-icon.jpg")  # Replace with your own icon URL
+    warning_embed.set_footer(text="Powered by Roobet API")
+    await interaction.channel.send(embed=warning_embed)
     
     await interaction.response.send_message("Leaderboard boost initiated!", ephemeral=True)
 
-    # Wait for 1 minute before starting the leaderboard
+    # Wait for 15 minutes before starting the leaderboard
     await asyncio.sleep(warning_period * 60)
 
-    # Announce the start of the leaderboard
-    start_message = await interaction.channel.send(f"🏁 {leaderboard_duration} minute Leaderboard has started!")
+    # Announce the start of the leaderboard with flair
+    start_embed = Embed(
+        title="🏁 Leaderboard Launch 🚀",
+        description=f"🎉 The **{leaderboard_duration} Minute Leaderboard** has officially started!\n\n📈 Make your way to the top spot now! 🏅",
+        color=discord.Color.green()
+    )
+    start_embed.set_footer(text="Good luck, and may the best player win!")
+    start_message = await interaction.channel.send(embed=start_embed)
     
     # Wait for the leaderboard duration
     await asyncio.sleep(leaderboard_duration * 60)
 
-    # Announce leaderboard closure
-    end_message = await interaction.channel.send(f"🏁 Leaderboard closed. Results will appear in 1 minute.")
+    # Announce leaderboard closure with 60-minute delay for results
+    closure_embed = Embed(
+        title="🏁 Leaderboard Closed ⏹️",
+        description="The leaderboard has ended! 🎊\n\nResults will be processed and displayed in **60 minutes** to ensure all data is up-to-date.\n\nStay tuned! 📊",
+        color=discord.Color.red()
+    )
+    closure_embed.set_footer(text="Thank you for participating!")
+    end_message = await interaction.channel.send(embed=closure_embed)
     
-    # Wait for 1 minute before displaying results
-    await asyncio.sleep(60)
+    # Wait for 60 minutes before displaying results
+    await asyncio.sleep(60 * 60)
 
     # Fetch leaderboard data for the exact period
     start_time = datetime.utcnow() - timedelta(minutes=leaderboard_duration)
-    end_time = datetime.utcnow()
+    start_time = start_time.replace(second=0, microsecond=0)  # Reset seconds and microseconds to 0 for clarity
+    end_time = datetime.utcnow().replace(second=0, microsecond=0)  # Same for the end time
+
+    # Format times according to the monthly leaderboard format
+    start_time_str = start_time.strftime("%Y-%m-%dT%H:%M:%S")
+    end_time_str = end_time.strftime("%Y-%m-%dT%H:%M:%S")
+
     leaderboard_data = fetch_roobet_leaderboard(
-        start_time.strftime("%Y-%m-%dT%H:%M:%S"),
-        end_time.strftime("%Y-%m-%dT%H:%M:%S")
+        start_time_str,
+        end_time_str
     )
 
     if not leaderboard_data:
-        await interaction.channel.send("No data available for this leaderboard session.")
+        no_data_embed = Embed(
+            title="📉 No Data Available",
+            description="Oops! It looks like there was no activity during this leaderboard session. 😕\n\nBetter luck next time! 🍀",
+            color=discord.Color.purple()
+        )
+        await interaction.channel.send(embed=no_data_embed)
         return
 
-    # Sort leaderboard by weighted wager (assuming this is how you want to rank)
+    # Sort leaderboard by weighted wager
     sorted_leaderboard = sorted(leaderboard_data, key=lambda x: x.get("weightedWagered", 0), reverse=True)
 
     # Create and send embed with leaderboard results
-    embed = Embed(title=f"🏆 {leaderboard_duration} Minute Leaderboard Results", color=discord.Color.gold())
+    results_embed = Embed(
+        title=f"🏆 {leaderboard_duration} Minute Leaderboard Results 🎉",
+        description="Here are the top performers! 🌟\n\nCongratulations to all participants! 🏅",
+        color=discord.Color.gold()
+    )
     for i, entry in enumerate(sorted_leaderboard[:10]):  # Top 10 or adjust as needed
         username = entry.get("username", "Unknown")
         if len(username) > 3:
@@ -543,13 +577,13 @@ async def boost(interaction: Interaction, minutes: int):
         else:
             username = "***"
         weighted_wagered = entry.get("weightedWagered", 0)
-        embed.add_field(
-            name=f"**{i + 1}. {username}**",
-            value=f"✨ Weighted Wagered: ${weighted_wagered:,.2f}",
+        results_embed.add_field(
+            name=f"**{i + 1}. {username}** 🎖️",
+            value=f"✨ Weighted Wagered: **${weighted_wagered:,.2f}** 💸",
             inline=False
         )
-    
-    await interaction.channel.send(embed=embed)
+    results_embed.set_footer(text="Thanks for playing! More leaderboards coming soon!")
+    await interaction.channel.send(embed=results_embed)
 
 @bot.event
 async def on_ready():
