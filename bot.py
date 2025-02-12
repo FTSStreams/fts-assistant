@@ -544,22 +544,22 @@ async def handle_leaderboard_timing(interaction: Interaction, warning_end_time: 
     await asyncio.sleep((warning_end_time - datetime.utcnow()).total_seconds())
 
     # 🏁 Start the leaderboard
-start_embed = Embed(
-    title="🏁 Leaderboard Launch 🚀",
-    description=(
-        f"🎉 The **{leaderboard_duration} Minute Leaderboard** has officially started!\n\n"
-        f"📈 Make your way to the top spot now! 🏅\n\n"
-        f"🏁 **Leaderboard ends <t:{int(leaderboard_end_time.timestamp())}:R>.**"
-    ),
-    color=discord.Color.green()
-)
-start_embed.set_footer(text="Powered by FTS")
+    start_embed = Embed(
+        title="🏁 Leaderboard Launch 🚀",
+        description=(
+            f"🎉 The **{leaderboard_duration} Minute Leaderboard** has officially started!\n\n"
+            f"📈 Make your way to the top spot now! 🏅\n\n"
+            f"🏁 **Leaderboard ends <t:{int(leaderboard_end_time.timestamp())}:R>.**"
+        ),
+        color=discord.Color.green()
+    )
+    start_embed.set_footer(text="Powered by FTS")
 
-try:
-    await interaction.channel.send(embed=start_embed)
-except discord.errors.Forbidden:
-    print("DEBUG: Bot doesn't have permission to send messages in the channel.")
-
+    try:
+        await interaction.channel.send(embed=start_embed)  # ✅ Now correctly inside the function
+    except discord.errors.Forbidden:
+        print("DEBUG: Bot doesn't have permission to send messages in the channel.")
+        
     # ⏳ Wait for leaderboard duration to end
     await asyncio.sleep((leaderboard_end_time - datetime.utcnow()).total_seconds())
 
