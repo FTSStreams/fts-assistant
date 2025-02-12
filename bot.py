@@ -511,7 +511,7 @@ async def boost(interaction: Interaction, minutes: int):
     boost_leaderboard_duration = minutes
     boost_processing_time = 60  # 60-minute buffer after leaderboard ends before fetching results
 
-    boost_current_time = datetime.utcnow()
+    boost_current_time = datetime.now(timezone.utc)  # Ensure consistent UTC timestamps
     boost_warning_end_time = boost_current_time + timedelta(minutes=boost_warning_period)
     boost_leaderboard_end_time = boost_warning_end_time + timedelta(minutes=boost_leaderboard_duration)
     boost_results_time = boost_leaderboard_end_time + timedelta(minutes=boost_processing_time)
@@ -525,7 +525,6 @@ async def boost(interaction: Interaction, minutes: int):
         ),
         color=discord.Color.purple()
     )
-    boost_warning_embed.set_thumbnail(url="https://example.com/leaderboard-icon.jpg")  # Replace with actual icon URL
     boost_warning_embed.set_footer(text="Powered by Roobet API")
 
     try:
@@ -541,8 +540,8 @@ async def boost(interaction: Interaction, minutes: int):
 
 
 async def handle_boost_leaderboard_timing(interaction: Interaction, boost_warning_end_time: datetime, boost_leaderboard_end_time: datetime, boost_results_time: datetime, boost_leaderboard_duration: int, boost_processing_time: int):
-    # ⏳ Wait for warning period to end
-    await asyncio.sleep((boost_warning_end_time - datetime.utcnow()).total_seconds())
+    print(f"DEBUG: Waiting for leaderboard warning period to end at {boost_warning_end_time.isoformat()} UTC")
+    await asyncio.sleep((boost_warning_end_time - datetime.now(timezone.utc)).total_seconds())
 
     # 🏁 Start the boost leaderboard
     boost_start_embed = Embed(
@@ -554,15 +553,14 @@ async def handle_boost_leaderboard_timing(interaction: Interaction, boost_warnin
         ),
         color=discord.Color.green()
     )
-    boost_start_embed.set_footer(text="Powered by FTS")
 
     try:
         await interaction.channel.send(embed=boost_start_embed)
     except discord.errors.Forbidden:
         print("DEBUG: Bot doesn't have permission to send messages in the channel.")
         
-    # ⏳ Wait for leaderboard duration to end
-    await asyncio.sleep((boost_leaderboard_end_time - datetime.utcnow()).total_seconds())
+    print(f"DEBUG: Waiting for leaderboard duration to end at {boost_leaderboard_end_time.isoformat()} UTC")
+    await asyncio.sleep((boost_leaderboard_end_time - datetime.now(timezone.utc)).total_seconds())
 
     # 🏁 Announce leaderboard closure & start processing timer
     boost_closure_embed = Embed(
@@ -574,33 +572,16 @@ async def handle_boost_leaderboard_timing(interaction: Interaction, boost_warnin
         ),
         color=discord.Color.red()
     )
-    boost_closure_embed.set_footer(text="Thank you for participating!")
 
     try:
         await interaction.channel.send(embed=boost_closure_embed)
     except discord.errors.Forbidden:
         print("DEBUG: Bot doesn't have permission to send messages in the channel.")
 
-    # 🔄 Notify users that processing is happening
-    boost_processing_embed = Embed(
-        title="🔄 Processing Results...",
-        description=(
-            "We are verifying all wagers... 🛠️\n\n"
-            f"⏳ **Results will be available <t:{int(boost_results_time.timestamp())}:R>.**"
-        ),
-        color=discord.Color.orange()
-    )
-    boost_processing_embed.set_footer(text="Please wait while we verify all wagers.")
-
-    try:
-        await interaction.channel.send(embed=boost_processing_embed)
-    except discord.errors.Forbidden:
-        print("DEBUG: Bot doesn't have permission to send messages in the channel.")
-
-    # ⏳ 🛑 Wait for processing period before fetching final data (ENFORCED DELAY)
+    print(f"DEBUG: Waiting for processing period to end at {boost_results_time.isoformat()} UTC")
     await asyncio.sleep(boost_processing_time * 60)
 
-    # 📡 Fetching the leaderboard data (Now using same structure as Monthly Leaderboard)
+    # 📡 Fetching the leaderboard data using dynamically set start and end times
     boost_start_time_str = boost_current_time.isoformat()  # When the command was triggered
     boost_end_time_str = boost_results_time.isoformat()    # When results are finalized
 
@@ -609,6 +590,7 @@ async def handle_boost_leaderboard_timing(interaction: Interaction, boost_warnin
     boost_leaderboard_data = fetch_roobet_leaderboard(boost_start_time_str, boost_end_time_str)
 
     if not boost_leaderboard_data:
+        print("DEBUG: No leaderboard data retrieved. Check API response.")
         boost_no_data_embed = Embed(
             title="📉 No Data Available",
             description="Oops! It looks like there was no activity during this boost leaderboard session. 😕\n\nBetter luck next time! 🍀",
@@ -630,10 +612,7 @@ async def handle_boost_leaderboard_timing(interaction: Interaction, boost_warnin
     # 🎉 Create and send final leaderboard results embed
     boost_results_embed = Embed(
         title=f"🏆 {boost_leaderboard_duration} Minute Boost Leaderboard Results 🎉",
-        description=(
-            "Here are the top performers! 🌟\n\n"
-            "🏆 **Prizes are based on tomorrow’s end stream balance!** 📊"
-        ),
+        description="Here are the top performers! 🌟\n\n🏆 **Prizes are based on tomorrow’s end stream balance!** 📊",
         color=discord.Color.gold()
     )
 
@@ -657,8 +636,11 @@ async def handle_boost_leaderboard_timing(interaction: Interaction, boost_warnin
 
     try:
         await interaction.channel.send(embed=boost_results_embed)
+        print("DEBUG: Boost results posted successfully.")
     except discord.errors.Forbidden:
-        print("DEBUG: Bot doesn't have permission to send messages in the channel.")
+        print("DEBUG: Bot lacks permission to post the final results.")
+    except Exception as e:
+        print(f"DEBUG: Error posting boost results - {e}")
     
     wait_for_end.start()
 
