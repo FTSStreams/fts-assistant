@@ -601,8 +601,8 @@ async def handle_boost_leaderboard_timing(interaction: Interaction, boost_warnin
     await asyncio.sleep(boost_processing_time * 60)
 
     # 📡 Fetching the leaderboard data (Now using same structure as Monthly Leaderboard)
-    boost_start_time_str = "2025-02-01T00:00:00"  # Example: Adjust dynamically based on command time
-    boost_end_time_str = "2025-02-28T23:59:59"
+    boost_start_time_str = boost_current_time.isoformat()  # When the command was triggered
+    boost_end_time_str = boost_results_time.isoformat()    # When results are finalized
 
     print(f"DEBUG: Fetching Boost Leaderboard from {boost_start_time_str} to {boost_end_time_str}")
     
