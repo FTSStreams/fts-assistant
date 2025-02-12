@@ -539,7 +539,7 @@ async def boost(interaction: Interaction, minutes: int):
     # 🚀 Start the leaderboard sequence in the background
     asyncio.create_task(handle_leaderboard_timing(interaction, warning_end_time, leaderboard_end_time, results_time, leaderboard_duration, processing_time))
 
-async def handle_leaderboard_timing(interaction: Interaction, warning_end_time: datetime, leaderboard_end_time: datetime, results_time: datetime, leaderboard_duration: int, processing_time: int):
+    async def handle_leaderboard_timing(interaction: Interaction, warning_end_time: datetime, leaderboard_end_time: datetime, results_time: datetime, leaderboard_duration: int, processing_time: int):
     # ⏳ Wait for warning period to end
     await asyncio.sleep((warning_end_time - datetime.utcnow()).total_seconds())
 
