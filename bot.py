@@ -5,7 +5,7 @@ import os
 import random
 import psycopg2
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from discord.ui import View, Button
 from discord import ButtonStyle, Embed, Interaction
 
