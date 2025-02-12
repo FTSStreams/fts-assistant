@@ -509,7 +509,7 @@ async def boost(interaction: Interaction, minutes: int):
 
     boost_warning_period = 10  # 10-minute warning before leaderboard starts
     boost_leaderboard_duration = minutes
-    boost_processing_time = 60  # 60-minute buffer after leaderboard ends before fetching results
+    boost_processing_time = 30  # 60-minute buffer after leaderboard ends before fetching results
 
     boost_current_time = datetime.now(timezone.utc)  # Ensure consistent UTC timestamps
     boost_warning_end_time = boost_current_time + timedelta(minutes=boost_warning_period)
