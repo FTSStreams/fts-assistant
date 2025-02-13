@@ -509,14 +509,14 @@ async def boost(interaction: Interaction, minutes: int):
 
     boost_warning_period = 10  # 10-minute warning before leaderboard starts
     boost_leaderboard_duration = minutes
-    boost_processing_time = 30  # 60-minute buffer after leaderboard ends before fetching results
+    boost_processing_time = 30  # Processing time (in minutes) after leaderboard ends before fetching results
 
-    boost_current_time = datetime.now(timezone.utc)  # Ensure consistent UTC timestamps
+    boost_current_time = datetime.now(timezone.utc)  # When the command is triggered (UTC)
     boost_warning_end_time = boost_current_time + timedelta(minutes=boost_warning_period)
     boost_leaderboard_end_time = boost_warning_end_time + timedelta(minutes=boost_leaderboard_duration)
     boost_results_time = boost_leaderboard_end_time + timedelta(minutes=boost_processing_time)
 
-    # 📢 Announcement 10 minutes before leaderboard starts
+    # 📢 Announcement: Warning before leaderboard starts
     boost_warning_embed = Embed(
         title="🚨 Flash Leaderboard Alert 🚨",
         description=(
@@ -535,11 +535,24 @@ async def boost(interaction: Interaction, minutes: int):
 
     await interaction.response.send_message("Boost leaderboard initiated!", ephemeral=True)
 
-    # 🚀 Start the leaderboard sequence in the background
-    asyncio.create_task(handle_boost_leaderboard_timing(interaction, boost_warning_end_time, boost_leaderboard_end_time, boost_results_time, boost_leaderboard_duration, boost_processing_time))
+    # 🚀 Start the leaderboard sequence in the background, passing boost_current_time along
+    asyncio.create_task(handle_boost_leaderboard_timing(
+        interaction,
+        boost_current_time,
+        boost_warning_end_time,
+        boost_leaderboard_end_time,
+        boost_results_time,
+        boost_leaderboard_duration,
+        boost_processing_time
+    ))
 
-
-async def handle_boost_leaderboard_timing(interaction: Interaction, boost_warning_end_time: datetime, boost_leaderboard_end_time: datetime, boost_results_time: datetime, boost_leaderboard_duration: int, boost_processing_time: int):
+async def handle_boost_leaderboard_timing(interaction: Interaction,
+                                          boost_current_time: datetime,
+                                          boost_warning_end_time: datetime,
+                                          boost_leaderboard_end_time: datetime,
+                                          boost_results_time: datetime,
+                                          boost_leaderboard_duration: int,
+                                          boost_processing_time: int):
     print(f"DEBUG: Waiting for leaderboard warning period to end at {boost_warning_end_time.isoformat()} UTC")
     await asyncio.sleep((boost_warning_end_time - datetime.now(timezone.utc)).total_seconds())
 
@@ -558,7 +571,7 @@ async def handle_boost_leaderboard_timing(interaction: Interaction, boost_warnin
         await interaction.channel.send(embed=boost_start_embed)
     except discord.errors.Forbidden:
         print("DEBUG: Bot doesn't have permission to send messages in the channel.")
-        
+
     print(f"DEBUG: Waiting for leaderboard duration to end at {boost_leaderboard_end_time.isoformat()} UTC")
     await asyncio.sleep((boost_leaderboard_end_time - datetime.now(timezone.utc)).total_seconds())
 
@@ -581,9 +594,9 @@ async def handle_boost_leaderboard_timing(interaction: Interaction, boost_warnin
     print(f"DEBUG: Waiting for processing period to end at {boost_results_time.isoformat()} UTC")
     await asyncio.sleep(boost_processing_time * 60)
 
-    # 📡 Fetching the leaderboard data using dynamically set start and end times
+    # 📡 Fetch the leaderboard data using the recorded start and final times
     boost_start_time_str = boost_current_time.isoformat()  # When the command was triggered
-    boost_end_time_str = boost_results_time.isoformat()    # When results are finalized
+    boost_end_time_str = boost_results_time.isoformat()      # When results are finalized
 
     print(f"DEBUG: Fetching Boost Leaderboard from {boost_start_time_str} to {boost_end_time_str}")
     
