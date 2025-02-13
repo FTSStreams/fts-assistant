@@ -501,6 +501,7 @@ async def remove_from_inventory(interaction: discord.Interaction, user: discord.
     await interaction.response.send_message(f"Choose which item to remove from {user.mention}'s inventory:", view=view)
 
 # Boost Command
+# Flash Command
 @bot.tree.command(name="boost", description="Start a temporary leaderboard")
 async def boost(interaction: Interaction, minutes: int):
     if minutes <= 0:
@@ -520,12 +521,12 @@ async def boost(interaction: Interaction, minutes: int):
     boost_warning_embed = Embed(
         title="🚨 Flash Leaderboard Alert 🚨",
         description=(
-            f"@everyone\n**{boost_leaderboard_duration} Minute Leaderboard** starts **<t:{int(boost_warning_end_time.timestamp())}:R>**!\n\n"
+            f"@everyone\n**{boost_leaderboard_duration} Minute Flash Leaderboard** starts **<t:{int(boost_warning_end_time.timestamp())}:R>**!\n\n"
             "💰 Get your deposits ready and prepare to climb the ranks! 🏆"
         ),
         color=discord.Color.purple()
     )
-    boost_warning_embed.set_footer(text="Powered by Roobet API")
+    boost_warning_embed.set_footer(text="Powered by FlipTheSwitch")
 
     try:
         await interaction.channel.send(embed=boost_warning_embed)
@@ -533,7 +534,7 @@ async def boost(interaction: Interaction, minutes: int):
         await interaction.response.send_message("The bot doesn't have permission to send messages in this channel.", ephemeral=True)
         return
 
-    await interaction.response.send_message("Boost leaderboard initiated!", ephemeral=True)
+    await interaction.response.send_message("Flash leaderboard initiated!", ephemeral=True)
 
     # 🚀 Start the leaderboard sequence in the background, passing boost_current_time along
     asyncio.create_task(handle_boost_leaderboard_timing(
@@ -556,16 +557,17 @@ async def handle_boost_leaderboard_timing(interaction: Interaction,
     print(f"DEBUG: Waiting for leaderboard warning period to end at {boost_warning_end_time.isoformat()} UTC")
     await asyncio.sleep((boost_warning_end_time - datetime.now(timezone.utc)).total_seconds())
 
-    # 🏁 Start the boost leaderboard
+    # 🏁 Start the flash leaderboard
     boost_start_embed = Embed(
-        title="🏁 Boost Leaderboard Launch 🚀",
+        title="🏁 Flash Leaderboard Launch 🚀",
         description=(
-            f"🎉 The **{boost_leaderboard_duration} Minute Leaderboard** has officially started!\n\n"
+            f"🎉 The **{boost_leaderboard_duration} Minute Flash Leaderboard** has officially started!\n\n"
             f"📈 Make your way to the top spot now! 🏅\n\n"
             f"🏁 **Leaderboard ends <t:{int(boost_leaderboard_end_time.timestamp())}:R>.**"
         ),
         color=discord.Color.green()
     )
+    boost_start_embed.set_footer(text="Powered by FlipTheSwitch")
 
     try:
         await interaction.channel.send(embed=boost_start_embed)
@@ -577,7 +579,7 @@ async def handle_boost_leaderboard_timing(interaction: Interaction,
 
     # 🏁 Announce leaderboard closure & start processing timer
     boost_closure_embed = Embed(
-        title="🏁 Boost Leaderboard Closed ⏹️",
+        title="🏁 Flash Leaderboard Closed ⏹️",
         description=(
             "The leaderboard has ended! 🎊\n\n"
             f"⏳ **Processing results... Final rankings will be available <t:{int(boost_results_time.timestamp())}:R>.**\n\n"
@@ -598,7 +600,7 @@ async def handle_boost_leaderboard_timing(interaction: Interaction,
     boost_start_time_str = boost_current_time.isoformat()  # When the command was triggered
     boost_end_time_str = boost_results_time.isoformat()      # When results are finalized
 
-    print(f"DEBUG: Fetching Boost Leaderboard from {boost_start_time_str} to {boost_end_time_str}")
+    print(f"DEBUG: Fetching Flash Leaderboard from {boost_start_time_str} to {boost_end_time_str}")
     
     boost_leaderboard_data = fetch_roobet_leaderboard(boost_start_time_str, boost_end_time_str)
 
@@ -606,7 +608,7 @@ async def handle_boost_leaderboard_timing(interaction: Interaction,
         print("DEBUG: No leaderboard data retrieved. Check API response.")
         boost_no_data_embed = Embed(
             title="📉 No Data Available",
-            description="Oops! It looks like there was no activity during this boost leaderboard session. 😕\n\nBetter luck next time! 🍀",
+            description="Oops! It looks like there was no activity during this flash leaderboard session. 😕\n\nBetter luck next time! 🍀",
             color=discord.Color.purple()
         )
         try:
@@ -624,7 +626,7 @@ async def handle_boost_leaderboard_timing(interaction: Interaction,
 
     # 🎉 Create and send final leaderboard results embed
     boost_results_embed = Embed(
-        title=f"🏆 {boost_leaderboard_duration} Minute Boost Leaderboard Results 🎉",
+        title=f"🏆 {boost_leaderboard_duration} Minute Flash Leaderboard Results 🎉",
         description="Here are the top performers! 🌟\n\n🏆 **Prizes are based on tomorrow’s end stream balance!** 📊",
         color=discord.Color.gold()
     )
@@ -649,11 +651,11 @@ async def handle_boost_leaderboard_timing(interaction: Interaction,
 
     try:
         await interaction.channel.send(embed=boost_results_embed)
-        print("DEBUG: Boost results posted successfully.")
+        print("DEBUG: Flash leaderboard results posted successfully.")
     except discord.errors.Forbidden:
         print("DEBUG: Bot lacks permission to post the final results.")
     except Exception as e:
-        print(f"DEBUG: Error posting boost results - {e}")
+        print(f"DEBUG: Error posting flash leaderboard results - {e}")
 
 @bot.event
 async def on_ready():
