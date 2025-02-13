@@ -654,8 +654,6 @@ async def handle_boost_leaderboard_timing(interaction: Interaction,
         print("DEBUG: Bot lacks permission to post the final results.")
     except Exception as e:
         print(f"DEBUG: Error posting boost results - {e}")
-    
-    wait_for_end.start()
 
 @bot.event
 async def on_ready():
