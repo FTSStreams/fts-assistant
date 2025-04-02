@@ -1,5 +1,5 @@
 import discord
-from discord.ext import tasks
+from discord.ext import commands, tasks  # Fixed: Added 'commands' back
 import os
 import requests
 from datetime import datetime
@@ -14,8 +14,8 @@ ROOBET_API_TOKEN = os.getenv("ROOBET_API_TOKEN")
 ROOBET_USER_ID = os.getenv("ROOBET_USER_ID")
 LEADERBOARD_CHANNEL_ID = 1324462489404051487
 
-# Prizes distribution
-PRIZE_DISTRIBUTION = [500, 300, 225, 175, 125, 75, 40, 30, 25, 20, 10, 8, 7, 6, 4]
+# Prizes distribution (updated to $1,500 total)
+PRIZE_DISTRIBUTION = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
 
 # Roobet leaderboard
 def fetch_roobet_leaderboard(start_date, end_date):
@@ -79,7 +79,7 @@ async def update_roobet_leaderboard():
         color=discord.Color.gold()
     )
 
-    for i, entry in enumerate(leaderboard_data[:15]):
+    for i, entry in enumerate(leaderboard_data[:10]):  # Updated to 10 spots
         username = entry.get("username", "Unknown")
         if len(username) > 3:
             username = username[:-3] + "***"
