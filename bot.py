@@ -120,8 +120,8 @@ async def update_roobet_leaderboard():
         print("DEBUG: Leaderboard channel not found.")
         return
 
-    start_date = "2025-03-01T00:00:00"
-    end_date = "2025-03-31T23:59:59"
+    start_date = "2025-04-01T00:00:00"
+    end_date = "2025-04-30T23:59:59"
 
     # Convert to Unix timestamps
     start_unix = int(datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S").timestamp())
