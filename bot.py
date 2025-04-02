@@ -1,12 +1,12 @@
 import discord
-from discord.ext import commands, tasks  # Fixed: Added 'commands' back
+from discord.ext import commands, tasks
 import os
 import requests
 from datetime import datetime
 
 # Set up the bot with minimal intents
 intents = discord.Intents.default()
-bot = commands.Bot(intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)  # Fixed: Added command_prefix
 
 # Roobet API configuration
 ROOBET_API_URL = "https://roobetconnect.com/affiliate/v2/stats"
@@ -79,7 +79,7 @@ async def update_roobet_leaderboard():
         color=discord.Color.gold()
     )
 
-    for i, entry in enumerate(leaderboard_data[:10]):  # Updated to 10 spots
+    for i, entry in enumerate(leaderboard_data[:10]):
         username = entry.get("username", "Unknown")
         if len(username) > 3:
             username = username[:-3] + "***"
