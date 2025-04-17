@@ -163,7 +163,11 @@ def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balanc
         logger.info(f"Tip sent to {to_username}: ${amount}")
         return response.json()
     except requests.RequestException as e:
-        logger.error(f"Tipping API Request Failed for {to_username}: {e}")
+        try:
+            error_response = response.json()
+            logger.error(f"Tipping API Request Failed for {to_username}: {e}, Response: {error_response}")
+        except (ValueError, AttributeError):
+            logger.error(f"Tipping API Request Failed for {to_username}: {e}, No valid JSON response")
         return {"success": False, "message": str(e)}
 
 # Process tip queue with 30-second delays
