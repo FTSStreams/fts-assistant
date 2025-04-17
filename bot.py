@@ -325,7 +325,7 @@ async def check_wager_milestones():
         await check_wager_milestones.tip_queue.join()
 
     # Timestamps (GMT)
-    start_date = "2025-04-17T00:00:00"  # April 17, 2025, 00:00:00 GMT (April 16, 2025, 8:00:00 PM EDT)
+    start_date = "2025-04-17T05:45:00"  # April 17, 2025, 00:00:00 GMT (April 16, 2025, 8:00:00 PM EDT)
     end_date = "2025-04-30T23:59:59"    # April 30, 2025, 23:59:59 GMT (April 30, 2025, 7:59:59 PM EDT)
 
     # Fetch weighted wager data
