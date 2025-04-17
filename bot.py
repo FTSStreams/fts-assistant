@@ -31,16 +31,16 @@ MILESTONE_CHANNEL_ID = 1339413771000614982  # 🔓︱wager-milestone
 # Prizes distribution ($1,500 total)
 PRIZE_DISTRIBUTION = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
 
-# Milestone tiers (for testing)
+# Milestone tiers (reverted to original values)
 MILESTONES = [
-    {"tier": "Bronze", "threshold": 5, "tip": 0.10, "color": discord.Color.orange(), "emoji": "🥉"},
-    {"tier": "Silver", "threshold": 10, "tip": 0.12, "color": discord.Color.light_grey(), "emoji": "🥈"},
-    {"tier": "Gold", "threshold": 15, "tip": 0.15, "color": discord.Color.gold(), "emoji": "🥇"},
-    {"tier": "Platinum", "threshold": 20, "tip": 0.20, "color": discord.Color.teal(), "emoji": "💎"},
-    {"tier": "Diamond", "threshold": 25, "tip": 0.25, "color": discord.Color.blue(), "emoji": "💠"},
-    {"tier": "Master", "threshold": 30, "tip": 0.30, "color": discord.Color.purple(), "emoji": "👑"},
-    {"tier": "Grand Master", "threshold": 35, "tip": 0.35, "color": discord.Color.red(), "emoji": "🌟"},
-    {"tier": "Legend", "threshold": 40, "tip": 0.40, "color": discord.Color.green(), "emoji": "🏆"}
+    {"tier": "Bronze", "threshold": 500, "tip": 2.85, "color": discord.Color.orange(), "emoji": "🥉"},
+    {"tier": "Silver", "threshold": 1000, "tip": 2.85, "color": discord.Color.light_grey(), "emoji": "🥈"},
+    {"tier": "Gold", "threshold": 2500, "tip": 8.55, "color": discord.Color.gold(), "emoji": "🥇"},
+    {"tier": "Platinum", "threshold": 5000, "tip": 14.25, "color": discord.Color.teal(), "emoji": "💎"},
+    {"tier": "Diamond", "threshold": 10000, "tip": 28.50, "color": discord.Color.blue(), "emoji": "💠"},
+    {"tier": "Master", "threshold": 25000, "tip": 85.50, "color": discord.Color.purple(), "emoji": "👑"},
+    {"tier": "Grand Master", "threshold": 50000, "tip": 142.50, "color": discord.Color.red(), "emoji": "🌟"},
+    {"tier": "Legend", "threshold": 100000, "tip": 285.00, "color": discord.Color.green(), "emoji": "🏆"}
 ]
 
 # In-memory tracking
@@ -332,7 +332,7 @@ async def check_wager_milestones():
         await check_wager_milestones.tip_queue.join()
 
     # Timestamps (GMT)
-    start_date = "2025-04-17T18:40:00"  # April 17, 2025, 05:45:00 GMT
+    start_date = "2025-04-17T06:30:00"  # April 17, 2025, 05:45:00 GMT
     end_date = "2025-04-30T23:59:59"    # April 30, 2025, 23:59:59 GMT
 
     # Fetch weighted wager data
