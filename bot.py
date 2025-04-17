@@ -22,7 +22,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Roobet API configuration
 AFFILIATE_API_URL = "https://roobetconnect.com/affiliate/v2/stats"
 TIPPING_API_URL = "https://roobet.com/_api/tipping/send"
-ROOBET_API_TOKEN = os.getenv("ROOBET_API_TOKEN")
+ROOBET_API_TOKEN = os.getenv("ROOBET_API_TOKEN")  # For affiliate API
+TIPPING_API_TOKEN = os.getenv("TIPPING_API_TOKEN")  # For tipping API
 ROOBET_USER_ID = os.getenv("ROOBET_USER_ID")
 LEADERBOARD_CHANNEL_ID = 1324462489404051487
 MILESTONE_CHANNEL_ID = 1339413771000614982  # 🔓︱wager-milestone
@@ -148,15 +149,14 @@ def fetch_weighted_wager(start_date, end_date):
 
 # Send tip via Tipping API
 def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balance_type="usdt"):
-    headers = {"Authorization": f"Bearer {ROOBET_API_TOKEN}"}
+    headers = {"Authorization": f"Bearer {TIPPING_API_TOKEN}"}
     payload = {
         "userId": user_id,
         "toUserName": to_username,
         "toUserId": to_user_id,
         "amount": amount,
         "showInChat": show_in_chat,
-        "balanceType": balance_type,
-        "nonce": 1  # Test with static nonce value
+        "balanceType": balance_type
     }
     logger.debug(f"Sending tip request for {to_username}: Payload={payload}, Headers={headers}")
     try:
@@ -332,7 +332,7 @@ async def check_wager_milestones():
         await check_wager_milestones.tip_queue.join()
 
     # Timestamps (GMT)
-    start_date = "2025-04-17T06:30:00"  # April 17, 2025, 05:45:00 GMT
+    start_date = "2025-04-17T18:40:00"  # April 17, 2025, 05:45:00 GMT
     end_date = "2025-04-30T23:59:59"    # April 30, 2025, 23:59:59 GMT
 
     # Fetch weighted wager data
