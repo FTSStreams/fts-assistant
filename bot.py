@@ -30,10 +30,10 @@ MILESTONE_CHANNEL_ID = 1339413771000614982  # 🔓︱wager-milestone
 # Prizes distribution ($1,500 total)
 PRIZE_DISTRIBUTION = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
 
-# Milestone tiers (modified for testing)
+# Milestone tiers (for testing)
 MILESTONES = [
-    {"tier": "Bronze", "threshold": 5, "tip": 0.10, "color": discord.Color.orange(), "emoji": "🥉"},
-    {"tier": "Silver", "threshold": 10, "tip": 0.12, "color": discord.Color.light_grey(), "emoji": "🥈"},
+    {"tier": "Bronze", "threshold": 5, "tip": 0.05, "color": discord.Color.orange(), "emoji": "🥉"},
+    {"tier": "Silver", "threshold": 10, "tip": 0.10, "color": discord.Color.light_grey(), "emoji": "🥈"},
     {"tier": "Gold", "threshold": 15, "tip": 0.15, "color": discord.Color.gold(), "emoji": "🥇"},
     {"tier": "Platinum", "threshold": 20, "tip": 0.20, "color": discord.Color.teal(), "emoji": "💎"},
     {"tier": "Diamond", "threshold": 25, "tip": 0.25, "color": discord.Color.blue(), "emoji": "💠"},
@@ -100,14 +100,16 @@ def save_tip(user_id, tier):
 # Initialize tips
 SENT_TIPS = load_tips()
 
-# Fetch total wager (all games)
+# Fetch total wager (filtered: slots, provably fair, excluding dice)
 def fetch_total_wager(start_date, end_date):
     headers = {"Authorization": f"Bearer {ROOBET_API_TOKEN}"}
     params = {
         "userId": ROOBET_USER_ID,
         "startDate": start_date,
         "endDate": end_date,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
+        "categories": "slots,provably fair",
+        "gameIdentifiers": "-housegames:dice"
     }
     try:
         response = requests.get(AFFILIATE_API_URL, headers=headers, params=params, timeout=10)
@@ -325,8 +327,8 @@ async def check_wager_milestones():
         await check_wager_milestones.tip_queue.join()
 
     # Timestamps (GMT)
-    start_date = "2025-04-17T05:45:00"  # April 17, 2025, 00:00:00 GMT (April 16, 2025, 8:00:00 PM EDT)
-    end_date = "2025-04-30T23:59:59"    # April 30, 2025, 23:59:59 GMT (April 30, 2025, 7:59:59 PM EDT)
+    start_date = "2025-04-17T05:45:00"  # April 17, 2025, 05:45:00 GMT
+    end_date = "2025-04-30T23:59:59"    # April 30, 2025, 23:59:59 GMT
 
     # Fetch weighted wager data
     weighted_wager_data = fetch_weighted_wager(start_date, end_date)
