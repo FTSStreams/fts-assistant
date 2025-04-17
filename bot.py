@@ -155,7 +155,8 @@ def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balanc
         "toUserId": to_user_id,
         "amount": amount,
         "showInChat": show_in_chat,
-        "balanceType": balance_type
+        "balanceType": balance_type,
+        "nonce": str(int(datetime.utcnow().timestamp() * 1000))  # Add nonce as timestamp in milliseconds
     }
     try:
         response = requests.post(TIPPING_API_URL, json=payload, headers=headers, timeout=10)
