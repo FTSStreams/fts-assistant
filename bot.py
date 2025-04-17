@@ -30,16 +30,16 @@ MILESTONE_CHANNEL_ID = 1339413771000614982  # 🔓︱wager-milestone
 # Prizes distribution ($1,500 total)
 PRIZE_DISTRIBUTION = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
 
-# Milestone tiers
+# Milestone tiers (modified for testing)
 MILESTONES = [
-    {"tier": "Bronze", "threshold": 500, "tip": 2.85, "color": discord.Color.orange(), "emoji": "🥉"},
-    {"tier": "Silver", "threshold": 1000, "tip": 2.85, "color": discord.Color.light_grey(), "emoji": "🥈"},
-    {"tier": "Gold", "threshold": 2500, "tip": 8.55, "color": discord.Color.gold(), "emoji": "🥇"},
-    {"tier": "Platinum", "threshold": 5000, "tip": 14.25, "color": discord.Color.teal(), "emoji": "💎"},
-    {"tier": "Diamond", "threshold": 10000, "tip": 28.50, "color": discord.Color.blue(), "emoji": "💠"},
-    {"tier": "Master", "threshold": 25000, "tip": 85.50, "color": discord.Color.purple(), "emoji": "👑"},
-    {"tier": "Grand Master", "threshold": 50000, "tip": 142.50, "color": discord.Color.red(), "emoji": "🌟"},
-    {"tier": "Legend", "threshold": 100000, "tip": 285.00, "color": discord.Color.green(), "emoji": "🏆"}
+    {"tier": "Bronze", "threshold": 5, "tip": 0.05, "color": discord.Color.orange(), "emoji": "🥉"},
+    {"tier": "Silver", "threshold": 10, "tip": 0.10, "color": discord.Color.light_grey(), "emoji": "🥈"},
+    {"tier": "Gold", "threshold": 15, "tip": 0.15, "color": discord.Color.gold(), "emoji": "🥇"},
+    {"tier": "Platinum", "threshold": 20, "tip": 0.20, "color": discord.Color.teal(), "emoji": "💎"},
+    {"tier": "Diamond", "threshold": 25, "tip": 0.25, "color": discord.Color.blue(), "emoji": "💠"},
+    {"tier": "Master", "threshold": 30, "tip": 0.30, "color": discord.Color.purple(), "emoji": "👑"},
+    {"tier": "Grand Master", "threshold": 35, "tip": 0.35, "color": discord.Color.red(), "emoji": "🌟"},
+    {"tier": "Legend", "threshold": 40, "tip": 0.40, "color": discord.Color.green(), "emoji": "🏆"}
 ]
 
 # In-memory tracking
@@ -47,28 +47,39 @@ CURRENT_CYCLE_TIPS = set()  # Format: {(user_id, tier)}
 
 # Database functions
 def get_db_connection():
-    return psycopg2.connect(os.getenv("DATABASE_URL"))
+    try:
+        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        return conn
+    except Exception as e:
+        logger.error(f"Failed to connect to database: {e}")
+        raise
 
 def init_db():
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS tips (
-                    user_id TEXT NOT NULL,
-                    tier TEXT NOT NULL,
-                    tipped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (user_id, tier)
-                );
-            """)
-            conn.commit()
-    logger.info("Database initialized.")
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS tips (
+                        user_id TEXT NOT NULL,
+                        tier TEXT NOT NULL,
+                        tipped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (user_id, tier)
+                    );
+                """)
+                conn.commit()
+        logger.info("Database initialized.")
+    except Exception as e:
+        logger.error(f"Error initializing database: {e}")
+        raise
 
 def load_tips():
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT user_id, tier FROM tips;")
-                return {(row[0], row[1]) for row in cur.fetchall()}
+                tips = {(row[0], row[1]) for row in cur.fetchall()}
+        logger.info(f"Loaded {len(tips)} tips from database.")
+        return tips
     except Exception as e:
         logger.error(f"Error loading tips from database: {e}")
         return set()
