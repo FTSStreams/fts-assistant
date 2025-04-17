@@ -148,16 +148,19 @@ def fetch_weighted_wager(start_date, end_date):
 
 # Send tip via Tipping API
 def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balance_type="usdt"):
-    headers = {"Authorization": f"Bearer {ROOBET_API_TOKEN}"}
+    headers = {
+        "Authorization": f"Bearer {ROOBET_API_TOKEN}",
+        "X-Nonce": str(int(datetime.utcnow().timestamp() * 1000))  # Add nonce as timestamp in headers
+    }
     payload = {
         "userId": user_id,
         "toUserName": to_username,
         "toUserId": to_user_id,
         "amount": amount,
         "showInChat": show_in_chat,
-        "balanceType": balance_type,
-        "nonce": str(int(datetime.utcnow().timestamp() * 1000))  # Add nonce as timestamp in milliseconds
+        "balanceType": balance_type
     }
+    logger.debug(f"Sending tip request for {to_username}: Payload={payload}, Headers={headers}")
     try:
         response = requests.post(TIPPING_API_URL, json=payload, headers=headers, timeout=10)
         response.raise_for_status()
