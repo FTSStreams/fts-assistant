@@ -32,8 +32,8 @@ PRIZE_DISTRIBUTION = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
 
 # Milestone tiers (for testing)
 MILESTONES = [
-    {"tier": "Bronze", "threshold": 5, "tip": 0.05, "color": discord.Color.orange(), "emoji": "🥉"},
-    {"tier": "Silver", "threshold": 10, "tip": 0.10, "color": discord.Color.light_grey(), "emoji": "🥈"},
+    {"tier": "Bronze", "threshold": 5, "tip": 0.10, "color": discord.Color.orange(), "emoji": "🥉"},
+    {"tier": "Silver", "threshold": 10, "tip": 0.12, "color": discord.Color.light_grey(), "emoji": "🥈"},
     {"tier": "Gold", "threshold": 15, "tip": 0.15, "color": discord.Color.gold(), "emoji": "🥇"},
     {"tier": "Platinum", "threshold": 20, "tip": 0.20, "color": discord.Color.teal(), "emoji": "💎"},
     {"tier": "Diamond", "threshold": 25, "tip": 0.25, "color": discord.Color.blue(), "emoji": "💠"},
