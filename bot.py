@@ -149,11 +149,12 @@ def fetch_weighted_wager(start_date, end_date):
         return []
 
 # Send tip via Tipping API
-def send_tip(user_id, to_username, amount, show_in_chat=True, balance_type="usdt"):
+def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balance_type="usdt"):
     headers = {"Authorization": f"Bearer {ROOBET_API_TOKEN}"}
     payload = {
         "userId": user_id,
         "toUserName": to_username,
+        "toUserId": to_user_id,
         "amount": amount,
         "showInChat": show_in_chat,
         "balanceType": balance_type
@@ -181,8 +182,8 @@ async def process_tip_queue(queue, channel):
             queue.task_done()
             continue
 
-        # Send tip
-        response = send_tip(ROOBET_USER_ID, username, tip_amount, show_in_chat=True, balance_type="usdt")
+        # Send tip (pass user_id as to_user_id)
+        response = send_tip(ROOBET_USER_ID, username, user_id, tip_amount, show_in_chat=True, balance_type="usdt")
         if response.get("success"):
             # Update database
             SENT_TIPS.add((user_id, tier))
@@ -305,12 +306,12 @@ async def update_roobet_leaderboard():
                 break
             except discord.errors.Forbidden:
                 logger.error("Bot doesn't have permission to edit messages in the leaderboard channel.")
-    else:
-        try:
-            await channel.send(embed=embed)
-            logger.info("New leaderboard message sent.")
-        except discord.errors.Forbidden:
-            logger.error("Bot doesn't have permission to send messages in the leaderboard channel.")
+        else:
+            try:
+                await channel.send(embed=embed)
+                logger.info("New leaderboard message sent.")
+            except discord.errors.Forbidden:
+                logger.error("Bot doesn't have permission to send messages in the leaderboard channel.")
 
 # Milestone checking task
 @tasks.loop(minutes=15)
@@ -327,7 +328,7 @@ async def check_wager_milestones():
         await check_wager_milestones.tip_queue.join()
 
     # Timestamps (GMT)
-    start_date = "2025-04-17T05:45:00"  # April 17, 2025, 05:45:00 GMT
+    start_date = "2025-04-17T06:30:00"  # April 17, 2025, 05:45:00 GMT
     end_date = "2025-04-30T23:59:59"    # April 30, 2025, 23:59:59 GMT
 
     # Fetch weighted wager data
