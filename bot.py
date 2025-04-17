@@ -100,7 +100,7 @@ def save_tip(user_id, tier):
 # Initialize tips
 SENT_TIPS = load_tips()
 
-# Fetch total wager (filtered: slots, provably fair, excluding dice)
+# Fetch total wager (all games and categories)
 def fetch_total_wager(start_date, end_date):
     headers = {"Authorization": f"Bearer {ROOBET_API_TOKEN}"}
     params = {
@@ -108,8 +108,6 @@ def fetch_total_wager(start_date, end_date):
         "startDate": start_date,
         "endDate": end_date,
         "timestamp": datetime.utcnow().isoformat(),
-        "categories": "slots,provably fair",
-        "gameIdentifiers": "-housegames:dice"
     }
     try:
         response = requests.get(AFFILIATE_API_URL, headers=headers, params=params, timeout=10)
