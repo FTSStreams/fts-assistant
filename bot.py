@@ -204,7 +204,7 @@ async def process_tip_queue(queue, channel):
                 ),
                 color=milestone["color"]
             )
-            embed.set_thumbnail(url="https://roobet.com/favicon.ico")
+            embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
             embed.set_footer(text=f"Tipped on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} GMT")
             try:
                 await channel.send(embed=embed)
