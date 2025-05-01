@@ -225,8 +225,8 @@ async def update_roobet_leaderboard():
         logger.error("Leaderboard channel not found.")
         return
 
-    start_date = "2025-04-01T00:00:00"
-    end_date = "2025-04-30T23:59:59"
+    start_date = "2025-05-01T00:00:00"
+    end_date = "2025-05-31T23:59:59"
 
     start_unix = int(datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S").timestamp())
     end_unix = int(datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S").timestamp())
@@ -332,8 +332,8 @@ async def check_wager_milestones():
         await check_wager_milestones.tip_queue.join()
 
     # Timestamps (GMT)
-    start_date = "2025-04-17T06:30:00"  # April 17, 2025, 05:45:00 GMT
-    end_date = "2025-04-30T23:59:59"    # April 30, 2025, 23:59:59 GMT
+    start_date = "2025-05-01T00:00:00"
+    end_date = "2025-05-31T23:59:59"
 
     # Fetch weighted wager data
     weighted_wager_data = fetch_weighted_wager(start_date, end_date)
