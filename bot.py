@@ -7,6 +7,7 @@ from datetime import datetime
 import logging
 import psycopg2
 from dotenv import load_dotenv
+from discord import app_commands
 
 # Load environment variables
 load_dotenv()
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 # Set up the bot
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
+tree = app_commands.CommandTree(bot)  # Initialize CommandTree for slash commands
 
 # Roobet API configuration
 AFFILIATE_API_URL = "https://roobetconnect.com/affiliate/v2/stats"
@@ -217,10 +219,14 @@ async def process_tip_queue(queue, channel):
         queue.task_done()
         await asyncio.sleep(30)  # 30-second delay between tips
 
-# Clear tips command (new addition)
-@bot.command()
-@commands.has_permissions(administrator=True)  # Restrict to admins
-async def clear_tips(ctx):
+# Clear tips slash command (clears milestone tips from the database)
+@tree.command(
+    name="clear_tips",
+    description="Clear all milestone tips from the database (admin only)",
+    guild=discord.Object(id=123456789012345678)  # Replace with your GUILD_ID
+)
+@app_commands.default_permissions(administrator=True)  # Restrict to admins
+async def clear_tips(interaction: discord.Interaction):
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -228,11 +234,11 @@ async def clear_tips(ctx):
                 conn.commit()
                 global SENT_TIPS
                 SENT_TIPS = set()  # Clear in-memory tips
-                logger.info("Cleared all tips from database and in-memory set.")
-                await ctx.send("✅ All tips have been cleared from the database.")
+                logger.info("Cleared all milestone tips from database and in-memory set.")
+                await interaction.response.send_message("✅ All milestone tips have been cleared from the database.", ephemeral=True)
     except Exception as e:
-        logger.error(f"Failed to clear tips: {e}")
-        await ctx.send(f"❌ Error clearing tips: {e}")
+        logger.error(f"Failed to clear milestone tips: {e}")
+        await interaction.response.send_message(f"❌ Error clearing milestone tips: {e}", ephemeral=True)
 
 # Leaderboard update task
 @tasks.loop(minutes=5)
@@ -253,12 +259,12 @@ async def update_roobet_leaderboard():
     weighted_wager_data = fetch_weighted_wager(start_date, end_date)
 
     if not weighted_wager_data:
-        logger.error("No weighted wager data received from API.")
-        try:
-            await channel.send("No leaderboard data available at the moment.")
-        except discord.errors.Forbidden:
-            logger.error("Bot doesn't have permission to send messages in the leaderboard channel.")
-        return
+            logger.error("No weighted wager data received from API.")
+            try:
+                await channel.send("No leaderboard data available at the moment.")
+            except discord.errors.Forbidden:
+                logger.error("Bot doesn't have permission to send messages in the leaderboard channel.")
+            return
 
     # Create a dictionary for total wagers by UID
     total_wager_dict = {entry.get("uid"): entry.get("wagered", 0) for entry in total_wager_data}
@@ -393,6 +399,14 @@ async def before_milestone_loop():
 async def on_ready():
     update_roobet_leaderboard.start()
     check_wager_milestones.start()
+    try:
+        # Sync slash commands for the specified guild
+        guild = discord.Object(id=123456789012345678)  # Replace with your GUILD_ID
+        bot.tree.copy_global_to(guild=guild)
+        await bot.tree.sync(guild=guild)
+        logger.info("Slash commands synced to guild.")
+    except Exception as e:
+        logger.error(f"Failed to sync slash commands: {e}")
     logger.info(f"{bot.user.name} is now online and ready!")
 
 bot.run(os.getenv("DISCORD_TOKEN"))
