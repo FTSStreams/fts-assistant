@@ -223,7 +223,7 @@ async def process_tip_queue(queue, channel):
 @tree.command(
     name="clear_tips",
     description="Clear all milestone tips from the database (admin only)",
-    guild=discord.Object(id=123456789012345678)  # Replace with your GUILD_ID
+    guild=discord.Object(id=987654321098765432)  # Replace with your GUILD_ID
 )
 @app_commands.default_permissions(administrator=True)  # Restrict to admins
 async def clear_tips(interaction: discord.Interaction):
@@ -239,6 +239,43 @@ async def clear_tips(interaction: discord.Interaction):
     except Exception as e:
         logger.error(f"Failed to clear milestone tips: {e}")
         await interaction.response.send_message(f"❌ Error clearing milestone tips: {e}", ephemeral=True)
+
+# Sync slash command to manage slash commands (clear old ones and sync new ones)
+@tree.command(
+    name="sync",
+    description="Sync slash commands and optionally clear old ones (admin only)",
+    guild=discord.Object(id=987654321098765432)  # Replace with your GUILD_ID
+)
+@app_commands.default_permissions(administrator=True)  # Restrict to admins
+@app_commands.describe(
+    clear="Clear all existing guild commands before syncing",
+    global_clear="Clear all existing global commands before syncing"
+)
+async def sync(interaction: discord.Interaction, clear: bool = False, global_clear: bool = False):
+    await interaction.response.defer(ephemeral=True)  # Defer response due to potential delay
+    try:
+        guild = discord.Object(id=987654321098765432)  # Replace with your GUILD_ID
+        messages = []
+        if clear:
+            current_commands = await bot.tree.fetch_commands(guild=guild)
+            for cmd in current_commands:
+                await bot.tree.remove_command(cmd.name, guild=guild)
+            logger.info(f"Cleared {len(current_commands)} commands from guild {guild.id}.")
+            messages.append(f"Cleared {len(current_commands)} guild commands.")
+        if global_clear:
+            current_commands = await bot.tree.fetch_commands()
+            for cmd in current_commands:
+                await bot.tree.remove_command(cmd.name)
+            logger.info(f"Cleared {len(current_commands)} global commands.")
+            messages.append(f"Cleared {len(current_commands)} global commands.")
+        bot.tree.copy_global_to(guild=guild)
+        synced = await bot.tree.sync(guild=guild)
+        messages.append(f"Synced {len(synced)} commands to the guild.")
+        logger.info(f"Synced {len(synced)} commands to guild {guild.id}.")
+        await interaction.followup.send("\n".join(messages), ephemeral=True)
+    except Exception as e:
+        logger.error(f"Failed to sync commands: {e}")
+        await interaction.followup.send(f"Error syncing commands: {e}", ephemeral=True)
 
 # Leaderboard update task
 @tasks.loop(minutes=5)
@@ -259,12 +296,12 @@ async def update_roobet_leaderboard():
     weighted_wager_data = fetch_weighted_wager(start_date, end_date)
 
     if not weighted_wager_data:
-            logger.error("No weighted wager data received from API.")
-            try:
-                await channel.send("No leaderboard data available at the moment.")
-            except discord.errors.Forbidden:
-                logger.error("Bot doesn't have permission to send messages in the leaderboard channel.")
-            return
+        logger.error("No weighted wager data received from API.")
+        try:
+            await channel.send("No leaderboard data available at the moment.")
+        except discord.errors.Forbidden:
+            logger.error("Bot doesn't have permission to send messages in the leaderboard channel.")
+        return
 
     # Create a dictionary for total wagers by UID
     total_wager_dict = {entry.get("uid"): entry.get("wagered", 0) for entry in total_wager_data}
@@ -399,14 +436,21 @@ async def before_milestone_loop():
 async def on_ready():
     update_roobet_leaderboard.start()
     check_wager_milestones.start()
-    try:
-        # Sync slash commands for the specified guild
-        guild = discord.Object(id=123456789012345678)  # Replace with your GUILD_ID
-        bot.tree.copy_global_to(guild=guild)
-        await bot.tree.sync(guild=guild)
-        logger.info("Slash commands synced to guild.")
-    except Exception as e:
-        logger.error(f"Failed to sync slash commands: {e}")
+    if not hasattr(bot, "commands_synced"):
+        try:
+            guild = discord.Object(id=987654321098765432)  # Replace with your GUILD_ID
+            # Clear existing guild commands to remove old ones
+            current_commands = await bot.tree.fetch_commands(guild=guild)
+            for cmd in current_commands:
+                await bot.tree.remove_command(cmd.name, guild=guild)
+            logger.info(f"Cleared {len(current_commands)} guild commands on startup.")
+            # Sync new commands
+            bot.tree.copy_global_to(guild=guild)
+            synced = await bot.tree.sync(guild=guild)
+            logger.info(f"Synced {len(synced)} commands to guild {guild.id} on startup.")
+            bot.commands_synced = True
+        except Exception as e:
+            logger.error(f"Failed to sync slash commands: {e}")
     logger.info(f"{bot.user.name} is now online and ready!")
 
 bot.run(os.getenv("DISCORD_TOKEN"))
