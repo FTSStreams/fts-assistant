@@ -217,6 +217,23 @@ async def process_tip_queue(queue, channel):
         queue.task_done()
         await asyncio.sleep(30)  # 30-second delay between tips
 
+# Clear tips command (new addition)
+@bot.command()
+@commands.has_permissions(administrator=True)  # Restrict to admins
+async def clear_tips(ctx):
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("TRUNCATE tips;")
+                conn.commit()
+                global SENT_TIPS
+                SENT_TIPS = set()  # Clear in-memory tips
+                logger.info("Cleared all tips from database and in-memory set.")
+                await ctx.send("✅ All tips have been cleared from the database.")
+    except Exception as e:
+        logger.error(f"Failed to clear tips: {e}")
+        await ctx.send(f"❌ Error clearing tips: {e}")
+
 # Leaderboard update task
 @tasks.loop(minutes=5)
 async def update_roobet_leaderboard():
