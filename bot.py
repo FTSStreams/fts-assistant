@@ -223,7 +223,7 @@ async def process_tip_queue(queue, channel):
 @tree.command(
     name="clear_tips",
     description="Clear all milestone tips from the database (admin only)",
-    guild=discord.Object(id=987654321098765432)  # Replace with your GUILD_ID
+    guild=discord.Object(id=1008041420738789536)  # Replace with your GUILD_ID
 )
 @app_commands.default_permissions(administrator=True)  # Restrict to admins
 async def clear_tips(interaction: discord.Interaction):
@@ -244,7 +244,7 @@ async def clear_tips(interaction: discord.Interaction):
 @tree.command(
     name="sync",
     description="Sync slash commands and optionally clear old ones (admin only)",
-    guild=discord.Object(id=987654321098765432)  # Replace with your GUILD_ID
+    guild=discord.Object(id=1008041420738789536)  # Replace with your GUILD_ID
 )
 @app_commands.default_permissions(administrator=True)  # Restrict to admins
 @app_commands.describe(
@@ -254,7 +254,7 @@ async def clear_tips(interaction: discord.Interaction):
 async def sync(interaction: discord.Interaction, clear: bool = False, global_clear: bool = False):
     await interaction.response.defer(ephemeral=True)  # Defer response due to potential delay
     try:
-        guild = discord.Object(id=987654321098765432)  # Replace with your GUILD_ID
+        guild = discord.Object(id=1008041420738789536)  # Replace with your GUILD_ID
         messages = []
         if clear:
             current_commands = await bot.tree.fetch_commands(guild=guild)
@@ -438,7 +438,7 @@ async def on_ready():
     check_wager_milestones.start()
     if not hasattr(bot, "commands_synced"):
         try:
-            guild = discord.Object(id=987654321098765432)  # Replace with your GUILD_ID
+            guild = discord.Object(id=1008041420738789536)  # Replace with your GUILD_ID
             # Clear existing guild commands to remove old ones
             current_commands = await bot.tree.fetch_commands(guild=guild)
             for cmd in current_commands:
