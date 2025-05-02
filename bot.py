@@ -131,6 +131,20 @@ def load_tips():
     finally:
         release_db_connection(conn)
 
+def load_tips():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id, tier FROM tips;")
+            tips = {(row[0], row[1]) for row in cur.fetchall()}
+        logger.info(f"Loaded {len(tips)} tips from database.")
+        return tips
+    except Exception as e:
+        logger.error(f"Error loading tips from database: {e}")
+        return set()
+    finally:
+        release_db_connection(conn)
+
 def save_tip(user_id, tier):
     conn = get_db_connection()
     try:
@@ -442,6 +456,65 @@ async def status(interaction: discord.Interaction):
         f"- Pending Tips: {len(load_pending_tips())}",
         ephemeral=True
     )
+
+# New tipuser slash command
+@bot.tree.command(
+    name="tipuser",
+    description="Manually tip a Roobet user (admin only)",
+    guild=discord.Object(id=GUILD_ID)
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    username="The Roobet username of the player",
+    userid="The Roobet UID of the player",
+    amount="The tip amount in USD (e.g., 5.00)"
+)
+async def tipuser(interaction: discord.Interaction, username: str, userid: str, amount: float):
+    """
+    Manually send a tip to a Roobet user.
+    Args:
+        username: Roobet username of the recipient.
+        userid: Roobet UID of the recipient.
+        amount: Tip amount in USD.
+    """
+    # Validate inputs
+    if amount <= 0:
+        await interaction.response.send_message("❌ Tip amount must be greater than 0.", ephemeral=True)
+        logger.error(f"Invalid tip amount: {amount} by {interaction.user}")
+        return
+
+    # Send the tip using the existing send_tip function
+    logger.info(f"Attempting to send manual tip of ${amount} to {username} (UID: {userid})")
+    response = send_tip(
+        user_id=ROOBET_USER_ID,
+        to_username=username,
+        to_user_id=userid,
+        amount=amount,
+        show_in_chat=True,
+        balance_type="crypto"
+    )
+
+    # Handle the response
+    if response.get("success"):
+        masked_username = username[:-3] + "***" if len(username) > 3 else "***"
+        embed = discord.Embed(
+            title="🎉 Manual Tip Sent!",
+            description=(
+                f"**{masked_username}** received a tip of **${amount:.2f} USD**!\n"
+                f"Sent by: **{interaction.user.display_name}**\n"
+                f"Keep shining! ✨"
+            ),
+            color=discord.Color.green()
+        )
+        embed.set_footer(text=f"Tipped on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
+        await interaction.response.send_message(embed=embed)
+        logger.info(f"Manual tip of ${amount} sent to {username} (UID: {userid})")
+    else:
+        error_message = response.get("message", "Unknown error")
+        await interaction.response.send_message(
+            f"❌ Failed to send tip to {username}: {error_message}", ephemeral=True
+        )
+        logger.error(f"Failed to send tip to {username} (UID: {userid}): {error_message}")
 
 # Command error handler
 @bot.tree.error
