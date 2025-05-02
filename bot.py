@@ -734,7 +734,7 @@ async def update_roobet_leaderboard():
                 logger.warning(f"Leaderboard message ID {message_id} not found, sending new message.")
                 try:
                     message = await channel.send(embed=embed)
-                    save leaderboard_message_id(message.id)
+                    save_leaderboard_message_id(message.id)
                     logger.info("New leaderboard message sent.")
                 except discord.errors.Forbidden:
                     logger.error("Bot lacks permission to send messages in leaderboard channel.")
