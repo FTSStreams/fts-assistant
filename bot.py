@@ -320,14 +320,14 @@ async def sync(interaction: discord.Interaction, clear: bool = False, global_cle
 
         # Clear guild commands if requested
         if clear:
-            await bot.tree.clear_commands(guild=guild)
+            bot.tree.clear_commands(guild=guild)  # Synchronous, no await
             logger.info(f"Cleared all commands from guild {guild.id}.")
             messages.append("Cleared all guild commands.")
             await asyncio.sleep(1)  # Avoid rate-limiting
 
         # Clear global commands if requested
         if global_clear:
-            await bot.tree.clear_commands(guild=None)
+            bot.tree.clear_commands(guild=None)  # Synchronous, no await
             logger.info("Cleared all global commands.")
             messages.append("Cleared all global commands.")
             await asyncio.sleep(1)  # Avoid rate-limiting
@@ -345,15 +345,6 @@ async def sync(interaction: discord.Interaction, clear: bool = False, global_cle
             await interaction.followup.send(f"Error syncing commands: {e}", ephemeral=True)
         except discord.errors.InteractionResponded:
             logger.warning("Interaction already responded, skipping followup.")
-
-        # Sync the command tree
-        synced = await bot.tree.sync(guild=guild)
-        logger.info(f"Synced {len(synced)} commands to guild {guild.id}: {[cmd.name for cmd in synced]}")
-        messages.append(f"Synced {len(synced)} commands to the guild: {[cmd.name for cmd in synced]}")
-        await interaction.followup.send("\n".join(messages), ephemeral=True)
-    except Exception as e:
-        logger.error(f"Failed to sync commands: {e}")
-        await interaction.followup.send(f"Error syncing commands: {e}", ephemeral=True)
 
 # Leaderboard update task
 @tasks.loop(minutes=5)
@@ -574,11 +565,10 @@ async def on_ready():
         guild = discord.Object(id=GUILD_ID)
         current_commands = await bot.tree.fetch_commands(guild=guild)
         logger.info(f"Current guild commands: {[cmd.name for cmd in current_commands]}")
-        if last_version != COMMAND_VERSION or len(current_commands) == 0:
-            await bot.tree.clear_commands(guild=guild)  # Clear all guild commands
+        if last_version != COMMAND_VERSION or len(current_commands) != 2:  # Expect exactly 2 commands
+            bot.tree.clear_commands(guild=guild)  # Synchronous, no await
             logger.info(f"Cleared all commands from guild {guild.id}.")
-            await asyncio.sleep(1)  # Brief delay to avoid rate-limiting
-            bot.tree.copy_global_to(guild=guild)
+            await asyncio.sleep(1)  # Avoid rate-limiting
             synced = await bot.tree.sync(guild=guild)
             save_command_version(COMMAND_VERSION)
             logger.info(f"Synced {len(synced)} commands to guild {guild.id}: {[cmd.name for cmd in synced]}")
