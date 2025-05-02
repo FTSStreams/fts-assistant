@@ -51,7 +51,7 @@ except (TypeError, ValueError):
 # Prizes distribution ($1,500 total)
 PRIZE_DISTRIBUTION = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
 
-# Milestone tiers
+# Milestone tiers (original float amounts)
 MILESTONES = [
     {"tier": "Bronze", "threshold": 500, "tip": 2.85, "color": discord.Color.orange(), "emoji": "🥉"},
     {"tier": "Silver", "threshold": 1000, "tip": 2.85, "color": discord.Color.light_grey(), "emoji": "🥈"},
@@ -380,7 +380,7 @@ def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balanc
     try:
         response = requests.post(TIPPING_API_URL, json=payload, headers=headers, timeout=10)
         response.raise_for_status()
-        logger.info(f"Tip sent to {to_username}: ${amount} ({balance_type})")
+        logger.info(f"Tip sent to {to_username}: ${amount:.2f} ({balance_type})")
         return response.json()
     except requests.RequestException as e:
         try:
@@ -454,7 +454,7 @@ async def process_tip_queue(queue, channel):
 @app_commands.describe(
     roobet_id="The Roobet user ID of the recipient",
     username="The Roobet username of the recipient",
-    amount="The tip amount in USD (supports decimals, e.g., 2.85)"
+    amount="The tip amount in USD (supports decimals, e.g., 1.00)"
 )
 async def tipuser(interaction: discord.Interaction, roobet_id: str, username: str, amount: float):
     if amount <= 0:
@@ -492,7 +492,7 @@ async def tipuser(interaction: discord.Interaction, roobet_id: str, username: st
         try:
             await confirmation_channel.send(embed=embed)
             await interaction.response.send_message(f"✅ Tip of ${amount:.2f} sent to {masked_username}!", ephemeral=True)
-            logger.info(f"Manual tip sent to {username} (ID: {roobet_id}): ${amount}")
+            logger.info(f"Manual tip sent to {username} (ID: {roobet_id}): ${amount:.2f}")
         except discord.errors.Forbidden:
             logger.error("Bot lacks permission to send messages in tip confirmation channel.")
             await interaction.response.send_message("❌ Error: Bot lacks permission to send confirmation message.", ephemeral=True)
