@@ -226,6 +226,7 @@ def load_pending_tips():
 def validate_user(username):
     """
     Validate a user by username using the Roobet Affiliate User Validation API and retrieve their userId.
+    Falls back to fetch_weighted_wager if userId is not returned.
     
     Args:
         username (str): The Roobet username to validate.
@@ -233,6 +234,7 @@ def validate_user(username):
     Returns:
         tuple: (user_id, bool) where user_id is the Roobet user ID (or None if not found) and bool indicates if the user is an affiliate.
     """
+    # Try validateUser API first
     headers = {"Authorization": f"Bearer {ROOBET_API_TOKEN}"}
     params = {
         "username": username,
@@ -243,10 +245,23 @@ def validate_user(username):
         response.raise_for_status()
         data = response.json()
         is_affiliate = data.get("isAffiliate", False)
-        # Note: The API spec doesn't explicitly show userId in the response, but we assume it may be included
-        user_id = data.get("userId")  # Adjust based on actual API response
-        logger.info(f"Validated user {username}: isAffiliate={is_affiliate}, userId={user_id}")
-        return user_id, is_affiliate
+        user_id = data.get("userId")  # May be None if not included in response
+        logger.info(f"Validated user {username} via validateUser: isAffiliate={is_affiliate}, userId={user_id}")
+        
+        if user_id:
+            return user_id, is_affiliate
+        elif is_affiliate:
+            # Fallback to fetch_weighted_wager if userId is not provided but user is an affiliate
+            try:
+                wager_data = fetch_weighted_wager("2025-05-01T00:00:00", "2025-05-31T23:59:59")
+                user = next((u for u in wager_data if u.get("username").lower() == username.lower()), None)
+                if user:
+                    user_id = user.get("uid")
+                    logger.info(f"Found user {username} in wager data: userId={user_id}")
+                    return user_id, True
+            except Exception as e:
+                logger.error(f"Fallback to fetch_weighted_wager failed for {username}: {e}")
+        return None, is_affiliate
     except requests.RequestException as e:
         logger.error(f"Validate User API Request Failed for {username}: {e}")
         return None, False
@@ -496,7 +511,7 @@ async def tipuser(interaction: discord.Interaction, id: str, amount: float):
         await interaction.response.send_message(f"❌ User {id} is not a valid affiliate or does not exist.", ephemeral=True)
         return
     if not roobet_id:
-        await interaction.response.send_message(f"❌ Could not retrieve Roobet ID for {id}. Please provide the correct username or contact support.", ephemeral=True)
+        await interaction.response.send_message(f"❌ Could not retrieve Roobet ID for {id}. The user is a valid affiliate but not found in wager data. Please contact support or provide the Roobet ID manually.", ephemeral=True)
         return
 
     # Send tip
