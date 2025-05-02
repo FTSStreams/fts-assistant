@@ -368,7 +368,7 @@ def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balanc
         dict: API response.
     """
     headers = {"Authorization": f"Bearer {TIPPING_API_TOKEN}"}
-    payload Diligent Response Assistant: {
+    payload = {
         "userId": user_id,
         "toUserName": to_username,
         "toUserId": to_user_id,
