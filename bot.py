@@ -318,17 +318,13 @@ async def sync(interaction: discord.Interaction, clear: bool = False, global_cle
         guild = discord.Object(id=GUILD_ID)
         messages = []
         if clear:
-            current_commands = await bot.tree.fetch_commands(guild=guild)
-            for cmd in current_commands:
-                bot.tree.remove_command(cmd.name, guild=guild)
-            logger.info(f"Cleared {len(current_commands)} commands from guild {guild.id}.")
-            messages.append(f"Cleared {len(current_commands)} guild commands.")
+            bot.tree.clear_commands(guild=guild)  # Clear all guild commands
+            logger.info(f"Cleared all commands from guild {guild.id}.")
+            messages.append("Cleared all guild commands.")
         if global_clear:
-            current_commands = await bot.tree.fetch_commands()
-            for cmd in current_commands:
-                bot.tree.remove_command(cmd.name)
-            logger.info(f"Cleared {len(current_commands)} global commands.")
-            messages.append(f"Cleared {len(current_commands)} global commands.")
+            bot.tree.clear_commands(guild=None)  # Clear all global commands
+            logger.info("Cleared all global commands.")
+            messages.append("Cleared all global commands.")
         bot.tree.copy_global_to(guild=guild)
         synced = await bot.tree.sync(guild=guild)
         logger.info(f"Synced {len(synced)} commands to guild {guild.id}: {[cmd.name for cmd in synced]}")
