@@ -16,7 +16,7 @@ import datetime as dt
 load_dotenv()
 
 # Validate environment variables
-required_env_vars = ["DISCORD_TOKEN", "ROOBET_API_TOKEN", "TIPPING_API_TOKEN", "ROOBET_USER_ID", "DATABASE_URL", "GUILD_ID", "LEADERBOARD_CHANNEL_ID", "MILESTONE_CHANNEL_ID"]
+required_env_vars = ["DISCORD_TOKEN", "ROOBET_API_TOKEN", "TIPPING_API_TOKEN", "ROOBET_USER_ID", "DATABASE_URL", "GUILD_ID", "LEADERBOARD_CHANNEL_ID", "MILESTONE_CHANNEL_ID", "TIP_CONFIRMATION_CHANNEL_ID"]
 for var in required_env_vars:
     if not os.getenv(var):
         raise ValueError(f"Missing required environment variable: {var}")
@@ -44,8 +44,9 @@ try:
     GUILD_ID = int(os.getenv("GUILD_ID"))
     LEADERBOARD_CHANNEL_ID = int(os.getenv("LEADERBOARD_CHANNEL_ID"))
     MILESTONE_CHANNEL_ID = int(os.getenv("MILESTONE_CHANNEL_ID"))
+    TIP_CONFIRMATION_CHANNEL_ID = int(os.getenv("TIP_CONFIRMATION_CHANNEL_ID"))
 except (TypeError, ValueError):
-    raise ValueError("GUILD_ID, LEADERBOARD_CHANNEL_ID, and MILESTONE_CHANNEL_ID must be valid integers")
+    raise ValueError("GUILD_ID, LEADERBOARD_CHANNEL_ID, MILESTONE_CHANNEL_ID, and TIP_CONFIRMATION_CHANNEL_ID must be valid integers")
 
 # Prizes distribution ($1,500 total)
 PRIZE_DISTRIBUTION = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
@@ -103,31 +104,25 @@ def init_db():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (user_id, tier)
                 );
+                CREATE TABLE IF NOT EXISTS tip_logs (
+                    user_id TEXT NOT NULL,
+                    username TEXT NOT NULL,
+                    amount NUMERIC NOT NULL,
+                    tip_type TEXT NOT NULL,
+                    tipped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_tips_tipped_at ON tips (tipped_at);
+                CREATE INDEX IF NOT EXISTS idx_tip_logs_tipped_at ON tip_logs (tipped_at);
             """)
             conn.commit()
         logger.info("Database initialized.")
     except Exception as e:
         logger.error(f"Error initializing database: {e}")
         raise
-    finally:
-        release_db_connection(conn)
-
-def load_tips():
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT user_id, tier FROM tips;")
-            tips = {(row[0], row[1]) for row in cur.fetchall()}
-        logger.info(f"Loaded {len(tips)} tips from database.")
-        return tips
-    except Exception as e:
-        logger.error(f"Error loading tips from database: {e}")
-        return set()
     finally:
         release_db_connection(conn)
 
@@ -157,6 +152,58 @@ def save_tip(user_id, tier):
         logger.info(f"Saved tip for user_id: {user_id}, tier: {tier}")
     except Exception as e:
         logger.error(f"Error saving tip to database: {e}")
+    finally:
+        release_db_connection(conn)
+
+def save_tip_log(user_id, username, amount, tip_type):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO tip_logs (user_id, username, amount, tip_type) VALUES (%s, %s, %s, %s);",
+                (user_id, username, amount, tip_type)
+            )
+            conn.commit()
+        logger.info(f"Saved tip log for user_id: {user_id}, username: {username}, amount: {amount}, type: {tip_type}")
+    except Exception as e:
+        logger.error(f"Error saving tip log to database: {e}")
+    finally:
+        release_db_connection(conn)
+
+def get_tip_stats():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # Current time
+            now = datetime.now(dt.UTC)
+            # 24 hours ago
+            last_24h = now - dt.timedelta(hours=24)
+            # 7 days ago
+            last_7d = now - dt.timedelta(days=7)
+            # 30 days ago
+            last_30d = now - dt.timedelta(days=30)
+            # Since May 1, 2025
+            since_may1 = datetime(2025, 5, 1, tzinfo=dt.UTC)
+
+            # Query for each time range
+            cur.execute("""
+                SELECT 
+                    COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_24h,
+                    COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_7d,
+                    COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_30d,
+                    COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS since_may1
+                FROM tip_logs;
+            """, (last_24h, last_7d, last_30d, since_may1))
+            result = cur.fetchone()
+            return {
+                "last_24h": float(result[0]),
+                "last_7d": float(result[1]),
+                "last_30d": float(result[2]),
+                "since_may1": float(result[3])
+            }
+    except Exception as e:
+        logger.error(f"Error retrieving tip stats: {e}")
+        return {"last_24h": 0.0, "last_7d": 0.0, "last_30d": 0.0, "since_may1": 0.0}
     finally:
         release_db_connection(conn)
 
@@ -364,6 +411,7 @@ def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balanc
 
 # Process tip queue with 30-second delays
 async def process_tip_queue(queue, channel):
+    confirmation_channel = bot.get_channel(TIP_CONFIRMATION_CHANNEL_ID)
     while not queue.empty():
         user_id, username, milestone = await queue.get()
         masked_username = username[:-3] + "***" if len(username) > 3 else "***"
@@ -385,9 +433,10 @@ async def process_tip_queue(queue, channel):
             # Update database
             SENT_TIPS.add((user_id, tier))
             save_tip(user_id, tier)
+            save_tip_log(user_id, username, tip_amount, "milestone")
             delete_pending_tip(user_id, tier)
             CURRENT_CYCLE_TIPS.add((user_id, tier))
-            # Create embed
+            # Create embed for milestone channel
             embed = discord.Embed(
                 title=f"{milestone['emoji']} {tier} Wager Milestone Achieved! {milestone['emoji']}",
                 description=(
@@ -405,6 +454,15 @@ async def process_tip_queue(queue, channel):
                 logger.info(f"Sent milestone embed for {username} ({tier})")
             except discord.errors.Forbidden:
                 logger.error("Bot lacks permission to send messages in milestone channel.")
+            # Log to confirmation channel
+            if confirmation_channel:
+                try:
+                    await confirmation_channel.send(f"💰 A payout of ${tip_amount:.2f} was sent to {masked_username}")
+                    logger.info(f"Logged milestone tip to confirmation channel for {username} (${tip_amount})")
+                except discord.errors.Forbidden:
+                    logger.error("Bot lacks permission to send messages in tip confirmation channel.")
+            else:
+                logger.error("Tip confirmation channel not found.")
         else:
             logger.error(f"Failed to tip {username} for {tier}: {response.get('message')}")
 
@@ -457,7 +515,7 @@ async def status(interaction: discord.Interaction):
         ephemeral=True
     )
 
-# New tipuser slash command
+# Tipuser slash command
 @bot.tree.command(
     name="tipuser",
     description="Manually tip a Roobet user (admin only)",
@@ -485,7 +543,7 @@ async def tipuser(interaction: discord.Interaction, username: str, userid: str, 
 
     # Defer the response to avoid interaction timeout
     await interaction.response.defer()
-    
+
     # Send the tip using the existing send_tip function
     logger.info(f"Attempting to send manual tip of ${amount} to {username} (UID: {userid})")
     response = send_tip(
@@ -497,9 +555,14 @@ async def tipuser(interaction: discord.Interaction, username: str, userid: str, 
         balance_type="crypto"
     )
 
+    confirmation_channel = bot.get_channel(TIP_CONFIRMATION_CHANNEL_ID)
+    masked_username = username[:-3] + "***" if len(username) > 3 else "***"
+
     # Handle the response
     if response.get("success"):
-        masked_username = username[:-3] + "***" if len(username) > 3 else "***"
+        # Save to tip_logs
+        save_tip_log(userid, username, amount, "manual")
+        # Send confirmation embed
         embed = discord.Embed(
             title="🎉 Manual Tip Sent!",
             description=(
@@ -512,12 +575,48 @@ async def tipuser(interaction: discord.Interaction, username: str, userid: str, 
         embed.set_footer(text=f"Tipped on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
         await interaction.followup.send(embed=embed)
         logger.info(f"Manual tip of ${amount} sent to {username} (UID: {userid})")
+        # Log to confirmation channel
+        if confirmation_channel:
+            try:
+                await confirmation_channel.send(f"💰 A payout of ${amount:.2f} was sent to {masked_username}")
+                logger.info(f"Logged manual tip to confirmation channel for {username} (${amount})")
+            except discord.errors.Forbidden:
+                logger.error("Bot lacks permission to send messages in tip confirmation channel.")
+        else:
+            logger.error("Tip confirmation channel not found.")
     else:
         error_message = response.get("message", "Unknown error")
         await interaction.followup.send(
             f"❌ Failed to send tip to {username}: {error_message}", ephemeral=True
         )
         logger.error(f"Failed to send tip to {username} (UID: {userid}): {error_message}")
+
+# Tipstats slash command
+@bot.tree.command(
+    name="tipstats",
+    description="Display tip statistics (admin only)",
+    guild=discord.Object(id=GUILD_ID)
+)
+@app_commands.default_permissions(administrator=True)
+async def tipstats(interaction: discord.Interaction):
+    """
+    Display statistics for tips sent in various time ranges.
+    """
+    await interaction.response.defer(ephemeral=True)
+    stats = get_tip_stats()
+    embed = discord.Embed(
+        title="📊 Tip Statistics",
+        description=(
+            f"**24 Hour Tips**: ${stats['last_24h']:.2f} USD\n"
+            f"**7 Day Tips**: ${stats['last_7d']:.2f} USD\n"
+            f"**30 Day Tips**: ${stats['last_30d']:.2f} USD\n"
+            f"**Tips Since May 1, 2025**: ${stats['since_may1']:.2f} USD"
+        ),
+        color=discord.Color.blue()
+    )
+    embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
+    await interaction.followup.send(embed=embed, ephemeral=True)
+    logger.info(f"Tip stats requested by {interaction.user}")
 
 # Command error handler
 @bot.tree.error
@@ -635,7 +734,7 @@ async def update_roobet_leaderboard():
                 logger.warning(f"Leaderboard message ID {message_id} not found, sending new message.")
                 try:
                     message = await channel.send(embed=embed)
-                    save_leaderboard_message_id(message.id)
+                    save leaderboard_message_id(message.id)
                     logger.info("New leaderboard message sent.")
                 except discord.errors.Forbidden:
                     logger.error("Bot lacks permission to send messages in leaderboard channel.")
