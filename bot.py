@@ -9,14 +9,14 @@ import psycopg2
 from psycopg2 import pool
 from dotenv import load_dotenv
 from discord import app_commands
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 import datetime as dt
 
 # Load environment variables
 load_dotenv()
 
 # Validate environment variables
-required_env_vars = ["DISCORD_TOKEN", "ROOBET_API_TOKEN", "TIPPING_API_TOKEN", "ROOBET_USER_ID", "DATABASE_URL", "GUILD_ID"]
+required_env_vars = ["DISCORD_TOKEN", "ROOBET_API_TOKEN", "TIPPING_API_TOKEN", "ROOBET_USER_ID", "DATABASE_URL", "GUILD_ID", "LEADERBOARD_CHANNEL_ID", "MILESTONE_CHANNEL_ID"]
 for var in required_env_vars:
     if not os.getenv(var):
         raise ValueError(f"Missing required environment variable: {var}")
@@ -40,9 +40,12 @@ TIPPING_API_URL = "https://roobet.com/_api/tipping/send"
 ROOBET_API_TOKEN = os.getenv("ROOBET_API_TOKEN")
 TIPPING_API_TOKEN = os.getenv("TIPPING_API_TOKEN")
 ROOBET_USER_ID = os.getenv("ROOBET_USER_ID")
-GUILD_ID = int(os.getenv("GUILD_ID"))
-LEADERBOARD_CHANNEL_ID = 1324462489404051487
-MILESTONE_CHANNEL_ID = 1339413771000614982  # 🔓︱wager-milestone
+try:
+    GUILD_ID = int(os.getenv("GUILD_ID"))
+    LEADERBOARD_CHANNEL_ID = int(os.getenv("LEADERBOARD_CHANNEL_ID"))
+    MILESTONE_CHANNEL_ID = int(os.getenv("MILESTONE_CHANNEL_ID"))
+except (TypeError, ValueError):
+    raise ValueError("GUILD_ID, LEADERBOARD_CHANNEL_ID, and MILESTONE_CHANNEL_ID must be valid integers")
 
 # Prizes distribution ($1,500 total)
 PRIZE_DISTRIBUTION = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
@@ -63,7 +66,13 @@ MILESTONES = [
 CURRENT_CYCLE_TIPS = set()  # Format: {(user_id, tier)}
 
 # Database connection pool
-db_pool = psycopg2.pool.SimpleConnectionPool(1, 20, os.getenv("DATABASE_URL"))
+try:
+    db_pool = psycopg2.pool.SimpleConnectionPool(1, 20, os.getenv("DATABASE_URL"))
+    if db_pool is None:
+        raise psycopg2.Error("Failed to initialize database connection pool")
+except psycopg2.Error as e:
+    logger.critical(f"Failed to initialize database connection pool: {e}")
+    raise
 
 def get_db_connection():
     try:
@@ -86,10 +95,19 @@ def init_db():
                     tipped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (user_id, tier)
                 );
+                CREATE TABLE IF NOT EXISTS pending_tips (
+                    user_id TEXT NOT NULL,
+                    username TEXT NOT NULL,
+                    tier TEXT NOT NULL,
+                    amount NUMERIC NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, tier)
+                );
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 );
+                CREATE INDEX IF NOT EXISTS idx_tips_tipped_at ON tips (tipped_at);
             """)
             conn.commit()
         logger.info("Database initialized.")
@@ -128,6 +146,50 @@ def save_tip(user_id, tier):
     finally:
         release_db_connection(conn)
 
+def save_pending_tip(user_id, username, tier, amount):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO pending_tips (user_id, username, tier, amount) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING;",
+                (user_id, username, tier, amount)
+            )
+            conn.commit()
+        logger.info(f"Saved pending tip for user_id: {user_id}, username: {username}, tier: {tier}")
+    except Exception as e:
+        logger.error(f"Error saving pending tip to database: {e}")
+    finally:
+        release_db_connection(conn)
+
+def delete_pending_tip(user_id, tier):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM pending_tips WHERE user_id = %s AND tier = %s;",
+                (user_id, tier)
+            )
+            conn.commit()
+        logger.info(f"Deleted pending tip for user_id: {user_id}, tier: {tier}")
+    except Exception as e:
+        logger.error(f"Error deleting pending tip from database: {e}")
+    finally:
+        release_db_connection(conn)
+
+def load_pending_tips():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id, username, tier, amount FROM pending_tips;")
+            pending_tips = [(row[0], row[1], row[2], row[3]) for row in cur.fetchall()]
+        logger.info(f"Loaded {len(pending_tips)} pending tips from database.")
+        return pending_tips
+    except Exception as e:
+        logger.error(f"Error loading pending tips from database: {e}")
+        return []
+    finally:
+        release_db_connection(conn)
+
 def save_leaderboard_message_id(message_id):
     conn = get_db_connection()
     try:
@@ -160,9 +222,23 @@ def get_leaderboard_message_id():
 init_db()
 SENT_TIPS = load_tips()
 
+# Locks
+leaderboard_lock = asyncio.Lock()
+milestone_lock = asyncio.Lock()
+
 # Fetch total wager with retry
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def fetch_total_wager(start_date, end_date):
+    """
+    Fetch total wager data from Roobet API for a given date range.
+    
+    Args:
+        start_date (str): Start date in ISO format.
+        end_date (str): End date in ISO format.
+    
+    Returns:
+        list: List of wager data entries.
+    """
     headers = {"Authorization": f"Bearer {ROOBET_API_TOKEN}"}
     params = {
         "userId": ROOBET_USER_ID,
@@ -174,7 +250,12 @@ def fetch_total_wager(start_date, end_date):
         response = requests.get(AFFILIATE_API_URL, headers=headers, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
-        logger.info(f"Total Wager API Response: {data}")
+        # Validate response structure (adjust based on actual API response)
+        data = data.get("data", []) if isinstance(data, dict) else data
+        if not isinstance(data, list):
+            logger.warning(f"Unexpected total wager response format: {data}")
+            return []
+        logger.info(f"Total Wager API Response: {len(data)} entries")
         return data
     except requests.RequestException as e:
         logger.error(f"Total Wager API Request Failed: {e}")
@@ -186,6 +267,16 @@ def fetch_total_wager(start_date, end_date):
 # Fetch weighted wager with retry
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def fetch_weighted_wager(start_date, end_date):
+    """
+    Fetch weighted wager data from Roobet API for a given date range.
+    
+    Args:
+        start_date (str): Start date in ISO format.
+        end_date (str): End date in ISO format.
+    
+    Returns:
+        list: List of weighted wager data entries.
+    """
     headers = {"Authorization": f"Bearer {ROOBET_API_TOKEN}"}
     params = {
         "userId": ROOBET_USER_ID,
@@ -199,7 +290,12 @@ def fetch_weighted_wager(start_date, end_date):
         response = requests.get(AFFILIATE_API_URL, headers=headers, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
-        logger.info(f"Weighted Wager API Response: {data}")
+        # Validate response structure
+        data = data.get("data", []) if isinstance(data, dict) else data
+        if not isinstance(data, list):
+            logger.warning(f"Unexpected weighted wager response format: {data}")
+            return []
+        logger.info(f"Weighted Wager API Response: {len(data)} entries")
         return data
     except requests.RequestException as e:
         logger.error(f"Weighted Wager API Request Failed: {e}")
@@ -208,8 +304,27 @@ def fetch_weighted_wager(start_date, end_date):
         logger.error(f"Error parsing Weighted Wager JSON response: {e}")
         raise
 
-# Send tip via Tipping API
+# Send tip via Tipping API with rate limit retry
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception(lambda e: isinstance(e, requests.HTTPError) and e.response.status_code == 429)
+)
 def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balance_type="crypto"):
+    """
+    Send a tip to a user via the Roobet Tipping API.
+    
+    Args:
+        user_id (str): Sender's user ID.
+        to_username (str): Recipient's username.
+        to_user_id (str): Recipient's user ID.
+        amount (float): Tip amount in USD.
+        show_in_chat (bool): Whether to show the tip in chat.
+        balance_type (str): Balance type (e.g., "crypto").
+    
+    Returns:
+        dict: API response.
+    """
     headers = {"Authorization": f"Bearer {TIPPING_API_TOKEN}"}
     payload = {
         "userId": user_id,
@@ -230,7 +345,7 @@ def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balanc
             error_response = response.json()
             logger.error(f"Tipping API Request Failed for {to_username}: {e}, Response: {error_response}")
         except (ValueError, AttributeError):
-            logger.error(f"Tipping API Request Failed for {to_username}: {e}, No valid JSON response")
+            logger.error(f healed to parse Tipping API response for {to_username}: {e}")
         return {"success": False, "message": str(e)}
 
 # Process tip queue with 30-second delays
@@ -247,12 +362,16 @@ async def process_tip_queue(queue, channel):
             queue.task_done()
             continue
 
+        # Save to pending tips
+        save_pending_tip(user_id, username, tier, tip_amount)
+
         # Send tip
         response = send_tip(ROOBET_USER_ID, username, user_id, tip_amount, show_in_chat=True, balance_type="crypto")
         if response.get("success"):
             # Update database
             SENT_TIPS.add((user_id, tier))
             save_tip(user_id, tier)
+            delete_pending_tip(user_id, tier)
             CURRENT_CYCLE_TIPS.add((user_id, tier))
             # Create embed
             embed = discord.Embed(
@@ -289,11 +408,11 @@ async def clear_tips(interaction: discord.Interaction):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("TRUNCATE tips;")
+            cur.execute("TRUNCATE tips; TRUNCATE pending_tips;")
             conn.commit()
             global SENT_TIPS
             SENT_TIPS = set()
-            logger.info("Cleared all milestone tips from database and in-memory set.")
+            logger.info("Cleared all milestone tips and pending tips from database and in-memory set.")
             await interaction.response.send_message("✅ All milestone tips have been cleared from the database.", ephemeral=True)
     except Exception as e:
         logger.error(f"Failed to clear milestone tips: {e}")
@@ -301,130 +420,161 @@ async def clear_tips(interaction: discord.Interaction):
     finally:
         release_db_connection(conn)
 
+# Status slash command
+@bot.tree.command(
+    name="status",
+    description="Check bot status (admin only)",
+    guild=discord.Object(id=GUILD_ID)
+)
+@app_commands.default_permissions(administrator=True)
+async def status(interaction: discord.Interaction):
+    db_status = "Connected"
+    try:
+        conn = get_db_connection()
+        release_db_connection(conn)
+    except Exception:
+        db_status = "Disconnected"
+    await interaction.response.send_message(
+        f"Bot Status:\n"
+        f"- Database: {db_status}\n"
+        f"- Leaderboard Task: {'Running' if update_roobet_leaderboard.is_running() else 'Stopped'}\n"
+        f"- Milestone Task: {'Running' if check_wager_milestones.is_running() else 'Stopped'}\n"
+        f"- Pending Tips: {len(load_pending_tips())}",
+        ephemeral=True
+    )
+
+# Command error handler
+@bot.tree.error
+async def on_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    logger.error(f"Command error: {error}")
+    try:
+        await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
+    except discord.errors.InteractionResponded:
+        await interaction.followup.send("An error occurred while processing the command.", ephemeral=True)
+
 # Leaderboard update task
 @tasks.loop(minutes=5)
 async def update_roobet_leaderboard():
-    channel = bot.get_channel(LEADERBOARD_CHANNEL_ID)
-    if not channel:
-        logger.error("Leaderboard channel not found.")
-        return
+    async with leaderboard_lock:
+        channel = bot.get_channel(LEADERBOARD_CHANNEL_ID)
+        if not channel:
+            logger.error("Leaderboard channel not found.")
+            return
 
-    start_date = "2025-05-01T00:00:00"
-    end_date = "2025-05-31T23:59:59"
+        start_date = "2025-05-01T00:00:00"
+        end_date = "2025-05-31T23:59:59"
 
-    start_unix = int(datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S").timestamp())
-    end_unix = int(datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S").timestamp())
+        start_unix = int(datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S").timestamp())
+        end_unix = int(datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S").timestamp())
 
-    # Fetch data
-    logger.info("Fetching leaderboard data...")
-    try:
-        total_wager_data = fetch_total_wager(start_date, end_date)
-    except Exception as e:
-        logger.error(f"Failed to fetch total wager data: {e}")
-        total_wager_data = []
-    try:
-        weighted_wager_data = fetch_weighted_wager(start_date, end_date)
-    except Exception as e:
-        logger.error(f"Failed to fetch weighted wager data: {e}")
-        weighted_wager_data = []
-
-    if not weighted_wager_data:
-        logger.error("No weighted wager data received from API.")
+        # Fetch data
+        logger.info("Fetching leaderboard data...")
         try:
-            await channel.send("No leaderboard data available at the moment.")
-            logger.info("Sent no-data message to leaderboard channel.")
-        except discord.errors.Forbidden:
-            logger.error("Bot lacks permission to send messages in leaderboard channel.")
-        return
+            total_wager_data = fetch_total_wager(start_date, end_date)
+        except Exception as e:
+            logger.error(f"Failed to fetch total wager data: {e}")
+            total_wager_data = []
+        try:
+            weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+        except Exception as e:
+            logger.error(f"Failed to fetch weighted wager data: {e}")
+            weighted_wager_data = []
 
-    # Create a dictionary for total wagers by UID
-    total_wager_dict = {entry.get("uid"): entry.get("wagered", 0) for entry in total_wager_data}
+        if not weighted_wager_data:
+            logger.error("No weighted wager data received from API.")
+            try:
+                await channel.send("No leaderboard data available at the moment.")
+                logger.info("Sent no-data message to leaderboard channel.")
+            except discord.errors.Forbidden:
+                logger.error("Bot lacks permission to send messages in leaderboard channel.")
+            return
 
-    # Sort weighted wager data
-    weighted_wager_data.sort(
-        key=lambda x: x.get("weightedWagered", 0) if isinstance(x.get("weightedWagered"), (int, float)) and x.get("weightedWagered") >= 0 else 0,
-        reverse=True
-    )
+        # Create a dictionary for total wagers by UID
+        total_wager_dict = {entry.get("uid"): entry.get("wagered", 0) for entry in total_wager_data}
 
-    # Create the embed
-    embed = discord.Embed(
-        title="🏆 **$1,500 USD Roobet Monthly Leaderboard** 🏆",
-        description=(
-            f"**Leaderboard Period:**\n"
-            f"From: <t:{start_unix}:F>\n"
-            f"To: <t:{end_unix}:F>\n\n"
-            f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"
-            "📜 **Leaderboard Rules & Disclosure**:\n"
-            "• Games with an RTP of **97% or less** contribute **100%** to your weighted wager.\n"
-            "• Games with an RTP **above 97%** contribute **50%** to your weighted wager.\n"
-            "• Games with an RTP **98% and above** contribute **10%** to your weighted wager.\n"
-            "• **Only Slots and House Games count** (Dice is excluded).\n\n"
-            "💵 **All amounts displayed are in USD.**\n\n"
-        ),
-        color=discord.Color.gold()
-    )
-
-    # Populate the leaderboard (up to 10 ranks)
-    for i in range(10):
-        if i < len(weighted_wager_data):
-            entry = weighted_wager_data[i]
-            username = entry.get("username", "Unknown")
-            if len(username) > 3:
-                username = username[:-3] + "***"
-            else:
-                username = "***"
-            uid = entry.get("uid")
-            total_wagered = total_wager_dict.get(uid, 0) if uid in total_wager_dict else 0
-            weighted_wagered = entry.get("weightedWagered", 0) if isinstance(entry.get("weightedWagered"), (int, float)) else 0
-            prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
-        else:
-            username = "N/A"
-            total_wagered = 0
-            weighted_wagered = 0
-            prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
-
-        embed.add_field(
-            name=f"**#{i + 1} - {username}**",
-            value=(
-                f"💰 **Total Wagered**: ${total_wagered:,.2f}\n"
-                f"✨ **Weighted Wagered**: ${weighted_wagered:,.2f}\n"
-                f"🎁 **Prize**: **${prize} USD**"
-            ),
-            inline=False
+        # Sort weighted wager data
+        weighted_wager_data.sort(
+            key=lambda x: x.get("weightedWagered", 0) if isinstance(x.get("weightedWagered"), (int, float)) and x.get("weightedWagered") >= 0 else 0,
+            reverse=True
         )
 
-    embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending.")
+        # Create the embed
+        embed = discord.Embed(
+            title="🏆 **$1,500 USD Roobet Monthly Leaderboard** 🏆",
+            description=(
+                f"**Leaderboard Period:**\n"
+                f"From: <t:{start_unix}:F>\n"
+                f"To: <t:{end_unix}:F>\n\n"
+                f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"
+                "📜 **Leaderboard Rules & Disclosure**:\n"
+                "• Games with an RTP of **97% or less** contribute **100%** to your weighted wager.\n"
+                "• Games with an RTP **above 97%** contribute **50%** to your weighted wager.\n"
+                "• Games with an RTP **98% and above** contribute **10%** to your weighted wager.\n"
+                "• **Only Slots and House Games count** (Dice is excluded).\n\n"
+                "💵 **All amounts displayed are in USD.**\n\n"
+            ),
+            color=discord.Color.gold()
+        )
 
-    # Update or send the leaderboard message
-    message_id = get_leaderboard_message_id()
-    logger.info(f"Retrieved leaderboard message ID: {message_id}")
-    if message_id:
-        try:
-            message = await channel.fetch_message(message_id)
-            await message.edit(embed=embed)
-            logger.info("Leaderboard message updated.")
-        except discord.errors.NotFound:
-            logger.warning(f"Leaderboard message ID {message_id} not found, sending new message.")
+        # Populate the leaderboard (up to 10 ranks)
+        for i in range(10):
+            if i < len(weighted_wager_data):
+                entry = weighted_wager_data[i]
+                username = entry.get("username", "Unknown")
+                if len(username) > 3:
+                    username = username[:-3] + "***"
+                else:
+                    username = "***"
+                uid = entry.get("uid")
+                total_wagered = total_wager_dict.get(uid, 0) if uid in total_wager_dict else 0
+                weighted_wagered = entry.get("weightedWagered", 0) if isinstance(entry.get("weightedWagered"), (int, float)) else 0
+                prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
+            else:
+                username = "N/A"
+                total_wagered = 0
+                weighted_wagered = 0
+                prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
+
+            embed.add_field(
+                name=f"**#{i + 1} - {username}**",
+                value=(
+                    f"💰 **Total Wagered**: ${total_wagered:,.2f}\n"
+                    f"✨ **Weighted Wagered**: ${weighted_wagered:,.2f}\n"
+                    f"🎁 **Prize**: **${prize} USD**"
+                ),
+                inline=False
+            )
+
+        embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending.")
+
+        # Update or send the leaderboard message
+        message_id = get_leaderboard_message_id()
+        logger.info(f"Retrieved leaderboard message ID: {message_id}")
+        if message_id:
+            try:
+                message = await channel.fetch_message(message_id)
+                await message.edit(embed=embed)
+                logger.info("Leaderboard message updated.")
+            except discord.errors.NotFound:
+                logger.warning(f"Leaderboard message ID {message_id} not found, sending new message.")
+                try:
+                    message = await channel.send(embed=embed)
+                    save_leaderboard_message_id(message.id)
+                    logger.info("New leaderboard message sent.")
+                except discord.errors.Forbidden:
+                    logger.error("Bot lacks permission to send messages in leaderboard channel.")
+            except discord.errors.Forbidden:
+                logger.error("Bot lacks permission to edit messages in leaderboard channel.")
+        else:
+            logger.info("No leaderboard message ID found, sending new message.")
             try:
                 message = await channel.send(embed=embed)
                 save_leaderboard_message_id(message.id)
                 logger.info("New leaderboard message sent.")
             except discord.errors.Forbidden:
                 logger.error("Bot lacks permission to send messages in leaderboard channel.")
-        except discord.errors.Forbidden:
-            logger.error("Bot lacks permission to edit messages in leaderboard channel.")
-    else:
-        logger.info("No leaderboard message ID found, sending new message.")
-        try:
-            message = await channel.send(embed=embed)
-            save_leaderboard_message_id(message.id)
-            logger.info("New leaderboard message sent.")
-        except discord.errors.Forbidden:
-            logger.error("Bot lacks permission to send messages in leaderboard channel.")
 
 # Milestone checking task
-milestone_lock = asyncio.Lock()
-
 @tasks.loop(minutes=15)
 async def check_wager_milestones():
     global CURRENT_CYCLE_TIPS
@@ -443,6 +593,13 @@ async def check_wager_milestones():
         start_date = "2025-05-01T00:00:00"
         end_date = "2025-05-31T23:59:59"
 
+        # Load pending tips
+        check_wager_milestones.tip_queue = asyncio.Queue()
+        for user_id, username, tier, amount in load_pending_tips():
+            milestone = next((m for m in MILESTONES if m["tier"] == tier), None)
+            if milestone and milestone["tip"] == amount:
+                await check_wager_milestones.tip_queue.put((user_id, username, milestone))
+
         # Fetch weighted wager data
         try:
             weighted_wager_data = fetch_weighted_wager(start_date, end_date)
@@ -450,10 +607,9 @@ async def check_wager_milestones():
             weighted_wager_data = []
         if not weighted_wager_data:
             logger.error("No weighted wager data received from API.")
+            if not check_wager_milestones.tip_queue.empty():
+                await process_tip_queue(check_wager_milestones.tip_queue, channel)
             return
-
-        # Create queue for tips
-        check_wager_milestones.tip_queue = asyncio.Queue()
 
         # Check milestones for each user
         for entry in weighted_wager_data:
@@ -498,11 +654,18 @@ async def on_ready():
 
 @bot.event
 async def on_shutdown():
-    update_roobet_leaderboard.stop()
-    check_wager_milestones.stop()
+    logger.info("Shutting down bot...")
+    update_roobet_leaderboard.cancel()
+    check_wager_milestones.cancel()
     if hasattr(check_wager_milestones, "tip_queue"):
         await check_wager_milestones.tip_queue.join()
     db_pool.closeall()
-    logger.info("Bot shutting down.")
+    await bot.close()
+    logger.info("Bot shutdown complete.")
 
-bot.run(os.getenv("DISCORD_TOKEN"), log_handler=None)
+# Run the bot
+try:
+    bot.run(os.getenv("DISCORD_TOKEN"), log_handler=None)
+except Exception as e:
+    logger.critical(f"Failed to start bot: {e}")
+    raise
