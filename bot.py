@@ -579,8 +579,9 @@ async def on_ready():
         current_commands = await bot.tree.fetch_commands(guild=guild)
         logger.info(f"Current guild commands: {[cmd.name for cmd in current_commands]}")
         if last_version != COMMAND_VERSION or len(current_commands) == 0:
-            for cmd in current_commands:
-                bot.tree.remove_command(cmd.name, guild=guild)
+            await bot.tree.clear_commands(guild=guild)  # Clear all guild commands
+            logger.info(f"Cleared all commands from guild {guild.id}.")
+            await asyncio.sleep(1)  # Brief delay to avoid rate-limiting
             bot.tree.copy_global_to(guild=guild)
             synced = await bot.tree.sync(guild=guild)
             save_command_version(COMMAND_VERSION)
