@@ -10,6 +10,7 @@ from psycopg2 import pool
 from dotenv import load_dotenv
 from discord import app_commands
 from tenacity import retry, stop_after_attempt, wait_exponential
+import datetime as dt  # Added for timezone-aware datetime
 
 # Load environment variables
 load_dotenv()
@@ -154,7 +155,8 @@ def get_leaderboard_message_id():
     finally:
         release_db_connection(conn)
 
-# Initialize tips
+# Initialize database and tips
+init_db()  # Moved to ensure settings table exists before use
 SENT_TIPS = load_tips()
 
 # Fetch total wager with retry
@@ -165,7 +167,7 @@ def fetch_total_wager(start_date, end_date):
         "userId": ROOBET_USER_ID,
         "startDate": start_date,
         "endDate": end_date,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(dt.UTC).isoformat(),  # Fixed deprecation
     }
     try:
         response = requests.get(AFFILIATE_API_URL, headers=headers, params=params, timeout=10)
@@ -188,7 +190,7 @@ def fetch_weighted_wager(start_date, end_date):
         "userId": ROOBET_USER_ID,
         "startDate": start_date,
         "endDate": end_date,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(dt.UTC).isoformat(),  # Fixed deprecation
         "categories": "slots,provably fair",
         "gameIdentifiers": "-housegames:dice"
     }
@@ -263,7 +265,7 @@ async def process_tip_queue(queue, channel):
                 color=milestone["color"]
             )
             embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
-            embed.set_footer(text=f"Tipped on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} GMT")
+            embed.set_footer(text=f"Tipped on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")  # Fixed deprecation
             try:
                 await channel.send(embed=embed)
                 logger.info(f"Sent milestone embed for {username} ({tier})")
@@ -317,13 +319,13 @@ async def sync(interaction: discord.Interaction, clear: bool = False, global_cle
         if clear:
             current_commands = await bot.tree.fetch_commands(guild=guild)
             for cmd in current_commands:
-                await bot.tree.remove_command(cmd.name, guild=guild)
+                bot.tree.remove_command(cmd.name, guild=guild)  # Synchronous, no await
             logger.info(f"Cleared {len(current_commands)} commands from guild {guild.id}.")
             messages.append(f"Cleared {len(current_commands)} guild commands.")
         if global_clear:
             current_commands = await bot.tree.fetch_commands()
             for cmd in current_commands:
-                await bot.tree.remove_command(cmd.name)
+                bot.tree.remove_command(cmd.name)  # Synchronous, no await
             logger.info(f"Cleared {len(current_commands)} global commands.")
             messages.append(f"Cleared {len(current_commands)} global commands.")
         bot.tree.copy_global_to(guild=guild)
@@ -383,7 +385,7 @@ async def update_roobet_leaderboard():
             f"**Leaderboard Period:**\n"
             f"From: <t:{start_unix}:F>\n"
             f"To: <t:{end_unix}:F>\n\n"
-            f"⏰ **Last Updated:** <t:{int(datetime.utcnow().timestamp())}:R>\n\n"
+            f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"  # Fixed deprecation
             "📜 **Leaderboard Rules & Disclosure**:\n"
             "• Games with an RTP of **97% or less** contribute **100%** to your weighted wager.\n"
             "• Games with an RTP **above 97%** contribute **50%** to your weighted wager.\n"
@@ -508,7 +510,6 @@ async def check_wager_milestones():
 @check_wager_milestones.before_loop
 async def before_milestone_loop():
     await bot.wait_until_ready()
-    init_db()
 
 # Command version for conditional syncing
 COMMAND_VERSION = "1.0"
@@ -549,7 +550,7 @@ async def on_ready():
             guild = discord.Object(id=GUILD_ID)
             current_commands = await bot.tree.fetch_commands(guild=guild)
             for cmd in current_commands:
-                await bot.tree.remove_command(cmd.name, guild=guild)
+                bot.tree.remove_command(cmd.name, guild=guild)  # Synchronous, no await
             bot.tree.copy_global_to(guild=guild)
             synced = await bot.tree.sync(guild=guild)
             save_command_version(COMMAND_VERSION)
