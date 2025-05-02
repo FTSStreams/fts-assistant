@@ -29,7 +29,7 @@ logger.addHandler(file_handler)
 
 # Set up the bot
 intents = discord.Intents.default()
-intents.members = True  # Needed for role-based checks if used later
+intents.members = True  # Needed for potential role-based checks
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Roobet API configuration
@@ -340,4 +340,234 @@ async def sync(interaction: discord.Interaction, clear: bool = False, global_cle
 async def update_roobet_leaderboard():
     channel = bot.get_channel(LEADERBOARD_CHANNEL_ID)
     if not channel:
-        logger.error("Leaderboard
+        logger.error("Leaderboard channel not found.")
+        return
+
+    start_date = "2025-05-01T00:00:00"
+    end_date = "2025-05-31T23:59:59"
+
+    start_unix = int(datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S").timestamp())
+    end_unix = int(datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S").timestamp())
+
+    # Fetch data
+    try:
+        total_wager_data = fetch_total_wager(start_date, end_date)
+    except Exception:
+        total_wager_data = []
+    try:
+        weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+    except Exception:
+        weighted_wager_data = []
+
+    if not weighted_wager_data:
+        logger.error("No weighted wager data received from API.")
+        try:
+            await channel.send("No leaderboard data available at the moment.")
+        except discord.errors.Forbidden:
+            logger.error("Bot lacks permission to send messages in leaderboard channel.")
+        return
+
+    # Create a dictionary for total wagers by UID
+    total_wager_dict = {entry.get("uid"): entry.get("wagered", 0) for entry in total_wager_data}
+
+    # Sort weighted wager data
+    weighted_wager_data.sort(
+        key=lambda x: x.get("weightedWagered", 0) if isinstance(x.get("weightedWagered"), (int, float)) and x.get("weightedWagered") >= 0 else 0,
+        reverse=True
+    )
+
+    # Create the embed
+    embed = discord.Embed(
+        title="🏆 **$1,500 USD Roobet Monthly Leaderboard** 🏆",
+        description=(
+            f"**Leaderboard Period:**\n"
+            f"From: <t:{start_unix}:F>\n"
+            f"To: <t:{end_unix}:F>\n\n"
+            f"⏰ **Last Updated:** <t:{int(datetime.utcnow().timestamp())}:R>\n\n"
+            "📜 **Leaderboard Rules & Disclosure**:\n"
+            "• Games with an RTP of **97% or less** contribute **100%** to your weighted wager.\n"
+            "• Games with an RTP **above 97%** contribute **50%** to your weighted wager.\n"
+            "• Games with an RTP **98% and above** contribute **10%** to your weighted wager.\n"
+            "• **Only Slots and House Games count** (Dice is excluded).\n\n"
+            "💵 **All amounts displayed are in USD.**\n\n"
+        ),
+        color=discord.Color.gold()
+    )
+
+    # Populate the leaderboard (up to 10 ranks)
+    for i in range(10):
+        if i < len(weighted_wager_data):
+            entry = weighted_wager_data[i]
+            username = entry.get("username", "Unknown")
+            if len(username) > 3:
+                username = username[:-3] + "***"
+            else:
+                username = "***"
+            uid = entry.get("uid")
+            total_wagered = total_wager_dict.get(uid, 0) if uid in total_wager_dict else 0
+            weighted_wagered = entry.get("weightedWagered", 0) if isinstance(entry.get("weightedWagered"), (int, float)) else 0
+            prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
+        else:
+            username = "N/A"
+            total_wagered = 0
+            weighted_wagered = 0
+            prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
+
+        embed.add_field(
+            name=f"**#{i + 1} - {username}**",
+            value=(
+                f"💰 **Total Wagered**: ${total_wagered:,.2f}\n"
+                f"✨ **Weighted Wagered**: ${weighted_wagered:,.2f}\n"
+                f"🎁 **Prize**: **${prize} USD**"
+            ),
+            inline=False
+        )
+
+    embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending.")
+
+    # Update or send the leaderboard message
+    message_id = get_leaderboard_message_id()
+    if message_id:
+        try:
+            message = await channel.fetch_message(message_id)
+            await message.edit(embed=embed)
+            logger.info("Leaderboard message updated.")
+        except discord.errors.NotFound:
+            try:
+                message = await channel.send(embed=embed)
+                save_leaderboard_message_id(message.id)
+                logger.info("New leaderboard message sent.")
+            except discord.errors.Forbidden:
+                logger.error("Bot lacks permission to send messages in leaderboard channel.")
+        except discord.errors.Forbidden:
+            logger.error("Bot lacks permission to edit messages in leaderboard channel.")
+    else:
+        try:
+            message = await channel.send(embed=embed)
+            save_leaderboard_message_id(message.id)
+            logger.info("New leaderboard message sent.")
+        except discord.errors.Forbidden:
+            logger.error("Bot lacks permission to send messages in leaderboard channel.")
+
+# Milestone checking task
+milestone_lock = asyncio.Lock()
+
+@tasks.loop(minutes=15)
+async def check_wager_milestones():
+    global CURRENT_CYCLE_TIPS
+    async with milestone_lock:
+        channel = bot.get_channel(MILESTONE_CHANNEL_ID)
+        if not channel:
+            logger.error("Milestone channel not found.")
+            return
+
+        # Ensure previous queue is empty
+        if hasattr(check_wager_milestones, "tip_queue") and not check_wager_milestones.tip_queue.empty():
+            logger.info("Waiting for previous queue to finish.")
+            await check_wager_milestones.tip_queue.join()
+
+        # Timestamps (GMT)
+        start_date = "2025-05-01T00:00:00"
+        end_date = "2025-05-31T23:59:59"
+
+        # Fetch weighted wager data
+        try:
+            weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+        except Exception:
+            weighted_wager_data = []
+        if not weighted_wager_data:
+            logger.error("No weighted wager data received from API.")
+            return
+
+        # Create queue for tips
+        check_wager_milestones.tip_queue = asyncio.Queue()
+
+        # Check milestones for each user
+        for entry in weighted_wager_data:
+            user_id = entry.get("uid")
+            username = entry.get("username", "Unknown")
+            weighted_wagered = entry.get("weightedWagered", 0)
+            if not isinstance(weighted_wagered, (int, float)) or weighted_wagered < 0:
+                logger.warning(f"Invalid weightedWagered for {username}: {weighted_wagered}")
+                continue
+
+            # Check all applicable milestones in order
+            for milestone in MILESTONES:
+                tier = milestone["tier"]
+                threshold = milestone["threshold"]
+                if weighted_wagered >= threshold and (user_id, tier) not in CURRENT_CYCLE_TIPS and (user_id, tier) not in SENT_TIPS:
+                    await check_wager_milestones.tip_queue.put((user_id, username, milestone))
+
+        # Process tip queue
+        if not check_wager_milestones.tip_queue.empty():
+            await process_tip_queue(check_wager_milestones.tip_queue, channel)
+
+        # Clear cycle tips for next refresh
+        CURRENT_CYCLE_TIPS = set()
+
+@check_wager_milestones.before_loop
+async def before_milestone_loop():
+    await bot.wait_until_ready()
+    init_db()
+
+# Command version for conditional syncing
+COMMAND_VERSION = "1.0"
+
+def get_command_version():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value FROM settings WHERE key = %s;", ("command_version",))
+            result = cur.fetchone()
+            return result[0] if result else None
+    except Exception as e:
+        logger.error(f"Error retrieving command version: {e}")
+        return None
+    finally:
+        release_db_connection(conn)
+
+def save_command_version(version):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = %s;",
+                ("command_version", version, version)
+            )
+            conn.commit()
+        logger.info(f"Saved command version: {version}")
+    except Exception as e:
+        logger.error(f"Error saving command version: {e}")
+    finally:
+        release_db_connection(conn)
+
+@bot.event
+async def on_ready():
+    last_version = get_command_version()
+    if last_version != COMMAND_VERSION:
+        try:
+            guild = discord.Object(id=GUILD_ID)
+            current_commands = await bot.tree.fetch_commands(guild=guild)
+            for cmd in current_commands:
+                await bot.tree.remove_command(cmd.name, guild=guild)
+            bot.tree.copy_global_to(guild=guild)
+            synced = await bot.tree.sync(guild=guild)
+            save_command_version(COMMAND_VERSION)
+            logger.info(f"Synced {len(synced)} commands to guild {guild.id}.")
+        except Exception as e:
+            logger.error(f"Failed to sync slash commands: {e}")
+
+    update_roobet_leaderboard.start()
+    check_wager_milestones.start()
+    logger.info(f"{bot.user.name} is now online and ready!")
+
+@bot.event
+async def on_shutdown():
+    update_roobet_leaderboard.stop()
+    check_wager_milestones.stop()
+    if hasattr(check_wager_milestones, "tip_queue"):
+        await check_wager_milestones.tip_queue.join()
+    db_pool.closeall()
+    logger.info("Bot shutting down.")
+
+bot.run(os.getenv("DISCORD_TOKEN"), log_handler=None)
