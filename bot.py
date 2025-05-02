@@ -209,7 +209,7 @@ def fetch_weighted_wager(start_date, end_date):
         raise
 
 # Send tip via Tipping API
-def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balance_type="usdt"):
+def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balance_type="crypto"):
     headers = {"Authorization": f"Bearer {TIPPING_API_TOKEN}"}
     payload = {
         "userId": user_id,
@@ -248,7 +248,7 @@ async def process_tip_queue(queue, channel):
             continue
 
         # Send tip
-        response = send_tip(ROOBET_USER_ID, username, user_id, tip_amount, show_in_chat=True, balance_type="usdt")
+        response = send_tip(ROOBET_USER_ID, username, user_id, tip_amount, show_in_chat=True, balance_type="crypto")
         if response.get("success"):
             # Update database
             SENT_TIPS.add((user_id, tier))
