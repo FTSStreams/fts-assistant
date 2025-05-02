@@ -345,7 +345,7 @@ def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balanc
             error_response = response.json()
             logger.error(f"Tipping API Request Failed for {to_username}: {e}, Response: {error_response}")
         except (ValueError, AttributeError):
-            logger.error(f healed to parse Tipping API response for {to_username}: {e}")
+            logger.error(f"Failed to parse Tipping API response for {to_username}: {e}")
         return {"success": False, "message": str(e)}
 
 # Process tip queue with 30-second delays
