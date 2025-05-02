@@ -402,7 +402,7 @@ def fetch_weighted_wager(start_date, end_date):
     wait=wait_exponential(multiplier=1, min=4, max=10),
     retry=retry_if_exception(lambda e: isinstance(e, requests.HTTPError) and e.response.status_code == 429)
 )
-def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balance_type="crypto"):
+def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balance_type="btc"):
     """
     Send a tip to a user via the Roobet Tipping API.
     
@@ -412,7 +412,7 @@ def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balanc
         to_user_id (str): Recipient's user ID.
         amount (float): Tip amount in USD.
         show_in_chat (bool): Whether to show the tip in chat.
-        balance_type (str): Balance type (e.g., "crypto").
+        balance_type (str): Balance type (e.g., "btc").
     
     Returns:
         dict: API response.
@@ -458,7 +458,7 @@ async def process_tip_queue(queue, channel):
         save_pending_tip(user_id, username, tier, tip_amount)
 
         # Send tip
-        response = send_tip(ROOBET_USER_ID, username, user_id, tip_amount, show_in_chat=True, balance_type="crypto")
+        response = send_tip(ROOBET_USER_ID, username, user_id, tip_amount, show_in_chat=True, balance_type="btc")
         if response.get("success"):
             # Update database
             SENT_TIPS.add((user_id, tier))
@@ -526,7 +526,7 @@ async def tipuser(interaction: discord.Interaction, id: str, amount: float, roob
             return
 
     # Send tip
-    response = send_tip(ROOBET_USER_ID, id, user_id, amount, show_in_chat=True, balance_type="crypto")
+    response = send_tip(ROOBET_USER_ID, id, user_id, amount, show_in_chat=True, balance_type="btc")
     confirmation_channel = bot.get_channel(TIP_CONFIRMATION_CHANNEL_ID)
 
     if not confirmation_channel:
