@@ -10,7 +10,7 @@ from psycopg2 import pool
 from dotenv import load_dotenv
 from discord import app_commands
 from tenacity import retry, stop_after_attempt, wait_exponential
-import datetime as dt  # Added for timezone-aware datetime
+import datetime as dt
 
 # Load environment variables
 load_dotenv()
@@ -30,7 +30,8 @@ logger.addHandler(file_handler)
 
 # Set up the bot
 intents = discord.Intents.default()
-intents.members = True  # Needed for potential role-based checks
+intents.members = True
+intents.message_content = False  # Explicitly disable, not needed for slash commands
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Roobet API configuration
@@ -156,7 +157,7 @@ def get_leaderboard_message_id():
         release_db_connection(conn)
 
 # Initialize database and tips
-init_db()  # Moved to ensure settings table exists before use
+init_db()
 SENT_TIPS = load_tips()
 
 # Fetch total wager with retry
@@ -167,7 +168,7 @@ def fetch_total_wager(start_date, end_date):
         "userId": ROOBET_USER_ID,
         "startDate": start_date,
         "endDate": end_date,
-        "timestamp": datetime.now(dt.UTC).isoformat(),  # Fixed deprecation
+        "timestamp": datetime.now(dt.UTC).isoformat(),
     }
     try:
         response = requests.get(AFFILIATE_API_URL, headers=headers, params=params, timeout=10)
@@ -190,7 +191,7 @@ def fetch_weighted_wager(start_date, end_date):
         "userId": ROOBET_USER_ID,
         "startDate": start_date,
         "endDate": end_date,
-        "timestamp": datetime.now(dt.UTC).isoformat(),  # Fixed deprecation
+        "timestamp": datetime.now(dt.UTC).isoformat(),
         "categories": "slots,provably fair",
         "gameIdentifiers": "-housegames:dice"
     }
@@ -221,7 +222,7 @@ def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balanc
     logger.debug(f"Sending tip request for {to_username}: Payload={payload}")
     try:
         response = requests.post(TIPPING_API_URL, json=payload, headers=headers, timeout=10)
-        response.raise_for_status()
+        response Rai_for_status()
         logger.info(f"Tip sent to {to_username}: ${amount}")
         return response.json()
     except requests.RequestException as e:
@@ -265,7 +266,7 @@ async def process_tip_queue(queue, channel):
                 color=milestone["color"]
             )
             embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
-            embed.set_footer(text=f"Tipped on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")  # Fixed deprecation
+            embed.set_footer(text=f"Tipped on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
             try:
                 await channel.send(embed=embed)
                 logger.info(f"Sent milestone embed for {username} ({tier})")
@@ -319,19 +320,19 @@ async def sync(interaction: discord.Interaction, clear: bool = False, global_cle
         if clear:
             current_commands = await bot.tree.fetch_commands(guild=guild)
             for cmd in current_commands:
-                bot.tree.remove_command(cmd.name, guild=guild)  # Synchronous, no await
+                bot.tree.remove_command(cmd.name, guild=guild)
             logger.info(f"Cleared {len(current_commands)} commands from guild {guild.id}.")
             messages.append(f"Cleared {len(current_commands)} guild commands.")
         if global_clear:
             current_commands = await bot.tree.fetch_commands()
             for cmd in current_commands:
-                bot.tree.remove_command(cmd.name)  # Synchronous, no await
+                bot.tree.remove_command(cmd.name)
             logger.info(f"Cleared {len(current_commands)} global commands.")
             messages.append(f"Cleared {len(current_commands)} global commands.")
         bot.tree.copy_global_to(guild=guild)
         synced = await bot.tree.sync(guild=guild)
-        messages.append(f"Synced {len(synced)} commands to the guild.")
-        logger.info(f"Synced {len(synced)} commands to guild {guild.id}.")
+        logger.info(f"Synced {len(synced)} commands to guild {guild.id}: {[cmd.name for cmd in synced]}")
+        messages.append(f"Synced {len(synced)} commands to the guild: {[cmd.name for cmd in synced]}")
         await interaction.followup.send("\n".join(messages), ephemeral=True)
     except Exception as e:
         logger.error(f"Failed to sync commands: {e}")
@@ -385,7 +386,7 @@ async def update_roobet_leaderboard():
             f"**Leaderboard Period:**\n"
             f"From: <t:{start_unix}:F>\n"
             f"To: <t:{end_unix}:F>\n\n"
-            f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"  # Fixed deprecation
+            f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"
             "📜 **Leaderboard Rules & Disclosure**:\n"
             "• Games with an RTP of **97% or less** contribute **100%** to your weighted wager.\n"
             "• Games with an RTP **above 97%** contribute **50%** to your weighted wager.\n"
@@ -545,18 +546,21 @@ def save_command_version(version):
 @bot.event
 async def on_ready():
     last_version = get_command_version()
-    if last_version != COMMAND_VERSION:
-        try:
-            guild = discord.Object(id=GUILD_ID)
-            current_commands = await bot.tree.fetch_commands(guild=guild)
+    try:
+        guild = discord.Object(id=GUILD_ID)
+        current_commands = await bot.tree.fetch_commands(guild=guild)
+        logger.info(f"Current guild commands: {[cmd.name for cmd in current_commands]}")
+        if last_version != COMMAND_VERSION or len(current_commands) == 0:
             for cmd in current_commands:
-                bot.tree.remove_command(cmd.name, guild=guild)  # Synchronous, no await
+                bot.tree.remove_command(cmd.name, guild=guild)
             bot.tree.copy_global_to(guild=guild)
             synced = await bot.tree.sync(guild=guild)
             save_command_version(COMMAND_VERSION)
-            logger.info(f"Synced {len(synced)} commands to guild {guild.id}.")
-        except Exception as e:
-            logger.error(f"Failed to sync slash commands: {e}")
+            logger.info(f"Synced {len(synced)} commands to guild {guild.id}: {[cmd.name for cmd in synced]}")
+        else:
+            logger.info(f"No sync needed, version {last_version} matches and {len(current_commands)} commands exist.")
+    except Exception as e:
+        logger.error(f"Failed to sync slash commands: {e}")
 
     update_roobet_leaderboard.start()
     check_wager_milestones.start()
