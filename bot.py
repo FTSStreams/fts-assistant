@@ -227,7 +227,7 @@ leaderboard_lock = asyncio.Lock()
 milestone_lock = asyncio.Lock()
 
 # Fetch total wager with retry
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiperator=1, min=4, max=10))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def fetch_total_wager(start_date, end_date):
     """
     Fetch total wager data from Roobet API for a given date range.
@@ -265,7 +265,7 @@ def fetch_total_wager(start_date, end_date):
         raise
 
 # Fetch weighted wager with retry
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiperator=1, min=4, max=10))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def fetch_weighted_wager(start_date, end_date):
     """
     Fetch weighted wager data from Roobet API for a given date range.
@@ -307,7 +307,7 @@ def fetch_weighted_wager(start_date, end_date):
 # Send tip via Tipping API with rate limit retry
 @retry(
     stop=stop_after_attempt(3),
-    wait=wait_exponential(multiperator=1, min=4, max=10),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
     retry=retry_if_exception(lambda e: isinstance(e, requests.HTTPError) and e.response.status_code == 429)
 )
 def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balance_type="crypto"):
