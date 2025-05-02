@@ -301,53 +301,6 @@ async def clear_tips(interaction: discord.Interaction):
     finally:
         release_db_connection(conn)
 
-# Sync slash command
-@bot.tree.command(
-    name="sync",
-    description="Sync slash commands and optionally clear old ones (admin only)",
-    guild=discord.Object(id=GUILD_ID)
-)
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(
-    clear="Clear all existing guild commands before syncing",
-    global_clear="Clear all existing global commands before syncing"
-)
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-async def sync(interaction: discord.Interaction, clear: bool = False, global_clear: bool = False):
-    try:
-        await interaction.response.defer(ephemeral=True)  # Defer response immediately
-        guild = discord.Object(id=GUILD_ID)
-        messages = []
-
-        # Clear guild commands if requested
-        if clear:
-            bot.tree.clear_commands(guild=guild)
-            logger.info(f"Cleared all commands from guild {guild.id}.")
-            messages.append("Cleared all guild commands.")
-            await asyncio.sleep(2)  # Avoid rate-limiting
-
-        # Clear global commands if requested
-        if global_clear:
-            bot.tree.clear_commands(guild=None)
-            logger.info("Cleared all global commands.")
-            messages.append("Cleared all global commands.")
-            await asyncio.sleep(2)  # Avoid rate-limiting
-
-        # Ensure commands are in the tree
-        bot.tree.copy_global_to(guild=guild)
-        synced = await bot.tree.sync(guild=guild)
-        logger.info(f"Synced {len(synced)} commands to guild {guild.id}: {[cmd.name for cmd in synced]}")
-        messages.append(f"Synced {len(synced)} commands to the guild: {[cmd.name for cmd in synced]}")
-
-        # Send response
-        await interaction.followup.send("\n".join(messages), ephemeral=True)
-    except Exception as e:
-        logger.error(f"Failed to sync commands: {e}")
-        try:
-            await interaction.followup.send(f"Error syncing commands: {e}", ephemeral=True)
-        except discord.errors.InteractionResponded:
-            logger.warning("Interaction already responded, skipping followup.")
-
 # Leaderboard update task
 @tasks.loop(minutes=5)
 async def update_roobet_leaderboard():
@@ -529,79 +482,15 @@ async def check_wager_milestones():
 async def before_milestone_loop():
     await bot.wait_until_ready()
 
-# Command version for conditional syncing
-COMMAND_VERSION = "1.4"  # Incremented to force sync
-
-def get_command_version():
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT value FROM settings WHERE key = %s;", ("command_version",))
-            result = cur.fetchone()
-            return result[0] if result else None
-    except Exception as e:
-        logger.error(f"Error retrieving command version: {e}")
-        return None
-    finally:
-        release_db_connection(conn)
-
-def save_command_version(version):
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = %s;",
-                ("command_version", version, version)
-            )
-            conn.commit()
-        logger.info(f"Saved command version: {version}")
-    except Exception as e:
-        logger.error(f"Error saving command version: {e}")
-    finally:
-        release_db_connection(conn)
-
 @bot.event
 async def on_ready():
-    last_version = get_command_version()
     try:
         guild = discord.Object(id=GUILD_ID)
-        current_commands = await bot.tree.fetch_commands(guild=guild)
-        logger.info(f"Current guild commands: {[cmd.name for cmd in current_commands]}")
-        expected_commands = {"clear_tips", "sync"}
-        current_command_names = {cmd.name for cmd in current_commands}
-
-        # Sync commands with retry logic
-        @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-        async def try_sync():
-            bot.tree.copy_global_to(guild=guild)
-            return await bot.tree.sync(guild=guild)
-
-        if last_version != COMMAND_VERSION or current_command_names != expected_commands:
-            bot.tree.clear_commands(guild=guild)
-            logger.info(f"Cleared all commands from guild {guild.id}.")
-            await asyncio.sleep(2)  # Avoid rate-limiting
-            synced = await try_sync()
-            save_command_version(COMMAND_VERSION)
-            logger.info(f"Synced {len(synced)} commands to guild {guild.id}: {[cmd.name for cmd in synced]}")
-        else:
-            logger.info(f"No sync needed, version {last_version} matches and commands {current_command_names} are correct.")
-
-        # Verify commands were registered
-        current_commands = await bot.tree.fetch_commands(guild=guild)
-        current_command_names = {cmd.name for cmd in current_commands}
-        if current_command_names != expected_commands:
-            logger.warning(f"Command sync incomplete, retrying: {current_command_names}")
-            synced = await try_sync()
-            logger.info(f"Retry sync: Synced {len(synced)} commands to guild {guild.id}: {[cmd.name for cmd in synced]}")
-
+        bot.tree.copy_global_to(guild=guild)
+        synced = await bot.tree.sync(guild=guild)
+        logger.info(f"Synced {len(synced)} commands to guild {guild.id}: {[cmd.name for cmd in synced]}")
     except Exception as e:
         logger.error(f"Failed to sync slash commands: {e}")
-        # Attempt recovery
-        try:
-            synced = await try_sync()
-            logger.info(f"Recovery sync: Synced {len(synced)} commands to guild {guild.id}: {[cmd.name for cmd in synced]}")
-        except Exception as recovery_e:
-            logger.error(f"Recovery sync failed: {recovery_e}")
 
     update_roobet_leaderboard.start()
     check_wager_milestones.start()
