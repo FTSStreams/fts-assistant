@@ -37,7 +37,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Roobet API configuration
 AFFILIATE_API_URL = "https://roobetconnect.com/affiliate/v2/stats"
 TIPPING_API_URL = "https://roobet.com/_api/tipping/send"
-VALIDATE_USER_API_URL = "https://roobet.com/_api/affiliate/validateUser"
 ROOBET_API_TOKEN = os.getenv("ROOBET_API_TOKEN")
 TIPPING_API_TOKEN = os.getenv("TIPPING_API_TOKEN")
 ROOBET_USER_ID = os.getenv("ROOBET_USER_ID")
@@ -221,55 +220,6 @@ def load_pending_tips():
         return []
     finally:
         release_db_connection(conn)
-
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-def validate_user(username):
-    """
-    Validate a user by username using the Roobet Affiliate User Validation API and retrieve their userId.
-    Falls back to fetch_weighted_wager if userId is not returned.
-    
-    Args:
-        username (str): The Roobet username to validate.
-    
-    Returns:
-        tuple: (user_id, bool) where user_id is the Roobet user ID (or None if not found) and bool indicates if the user is an affiliate.
-    """
-    # Try validateUser API first
-    headers = {"Authorization": f"Bearer {ROOBET_API_TOKEN}"}
-    params = {
-        "username": username,
-        "affiliateId": ROOBET_USER_ID
-    }
-    try:
-        response = requests.get(VALIDATE_USER_API_URL, headers=headers, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        logger.info(f"ValidateUser API response for {username}: {data}")
-        is_affiliate = data.get("isAffiliate", False)
-        user_id = data.get("userId")  # May be None if not included in response
-        
-        if user_id:
-            logger.info(f"Validated user {username} via validateUser: isAffiliate={is_affiliate}, userId={user_id}")
-            return user_id, is_affiliate
-        elif is_affiliate:
-            # Fallback to fetch_weighted_wager if userId is not provided but user is an affiliate
-            try:
-                wager_data = fetch_weighted_wager("2025-05-01T00:00:00", "2025-05-31T23:59:59")
-                user = next((u for u in wager_data if u.get("username").lower() == username.lower()), None)
-                if user:
-                    user_id = user.get("uid")
-                    logger.info(f"Found user {username} in wager data: userId={user_id}")
-                    return user_id, True
-            except Exception as e:
-                logger.error(f"Fallback to fetch_weighted_wager failed for {username}: {e}")
-        logger.info(f"Validated user {username} via validateUser: isAffiliate={is_affiliate}, userId={user_id}")
-        return None, is_affiliate
-    except requests.RequestException as e:
-        logger.error(f"Validate User API Request Failed for {username}: {e}")
-        return None, False
-    except ValueError as e:
-        logger.error(f"Error parsing Validate User JSON response: {e}")
-        return None, False
 
 async def log_tip(username, amount):
     channel = bot.get_channel(TIP_CONFIRMATION_CHANNEL_ID)
@@ -502,34 +452,17 @@ async def process_tip_queue(queue, channel):
 )
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
-    id="The Roobet username of the recipient",
-    amount="The tip amount in USD (supports decimals, e.g., 2.85)",
-    roobet_id="The Roobet user ID (optional, use if automatic lookup fails)"
+    roobet_id="The Roobet user ID of the recipient",
+    username="The Roobet username of the recipient",
+    amount="The tip amount in USD (supports decimals, e.g., 2.85)"
 )
-async def tipuser(interaction: discord.Interaction, id: str, amount: float, roobet_id: str = None):
+async def tipuser(interaction: discord.Interaction, roobet_id: str, username: str, amount: float):
     if amount <= 0:
         await interaction.response.send_message("❌ Tip amount must be greater than 0.", ephemeral=True)
         return
 
-    # Use provided roobet_id if given, otherwise validate username
-    if roobet_id:
-        user_id = roobet_id
-        is_affiliate = True  # Assume valid if manually provided
-    else:
-        user_id, is_affiliate = validate_user(id)
-        if not is_affiliate:
-            await interaction.response.send_message(f"❌ User {id} is not a valid affiliate or does not exist.", ephemeral=True)
-            return
-        if not user_id:
-            await interaction.response.send_message(
-                f"❌ Could not retrieve Roobet ID for {id}. The user is a valid affiliate but not found in wager data. "
-                f"Please provide the Roobet ID manually using the roobet_id parameter or contact support.",
-                ephemeral=True
-            )
-            return
-
     # Send tip
-    response = send_tip(ROOBET_USER_ID, id, user_id, amount, show_in_chat=True, balance_type="usdt")
+    response = send_tip(ROOBET_USER_ID, username, roobet_id, amount, show_in_chat=True, balance_type="usdt")
     confirmation_channel = bot.get_channel(TIP_CONFIRMATION_CHANNEL_ID)
 
     if not confirmation_channel:
@@ -537,19 +470,19 @@ async def tipuser(interaction: discord.Interaction, id: str, amount: float, roob
         await interaction.response.send_message("❌ Error: Tip confirmation channel not found.", ephemeral=True)
         return
 
-    masked_username = id[:-3] + "***" if len(id) > 3 else "***"
+    masked_username = username[:-3] + "***" if len(username) > 3 else "***"
     if response.get("success"):
         # Save to all_tips
-        save_manual_tip(user_id, id, amount)
+        save_manual_tip(roobet_id, username, amount)
         # Log tip to tip confirmation channel
-        await log_tip(id, amount)
+        await log_tip(username, amount)
         # Create confirmation embed
         embed = discord.Embed(
             title="💸 Manual Tip Sent! 💸",
             description=(
                 f"🎉 **{masked_username}** received a tip!\n"
                 f"💰 **Amount**: ${amount:.2f} USD\n"
-                f"🆔 **Roobet ID**: {user_id}\n"
+                f"🆔 **Roobet ID**: {roobet_id}\n"
                 f"Thank you for the generosity! 🚀"
             ),
             color=discord.Color.green()
@@ -559,14 +492,14 @@ async def tipuser(interaction: discord.Interaction, id: str, amount: float, roob
         try:
             await confirmation_channel.send(embed=embed)
             await interaction.response.send_message(f"✅ Tip of ${amount:.2f} sent to {masked_username}!", ephemeral=True)
-            logger.info(f"Manual tip sent to {id} (ID: {user_id}): ${amount}")
+            logger.info(f"Manual tip sent to {username} (ID: {roobet_id}): ${amount}")
         except discord.errors.Forbidden:
             logger.error("Bot lacks permission to send messages in tip confirmation channel.")
             await interaction.response.send_message("❌ Error: Bot lacks permission to send confirmation message.", ephemeral=True)
     else:
         error_message = response.get("message", "Unknown error")
         await interaction.response.send_message(f"❌ Failed to send tip: {error_message}", ephemeral=True)
-        logger.error(f"Failed to send manual tip to {id} (ID: {user_id}): {error_message}")
+        logger.error(f"Failed to send manual tip to {username} (ID: {roobet_id}): {error_message}")
 
 # Debug user command
 @bot.tree.command(
