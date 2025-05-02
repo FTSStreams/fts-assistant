@@ -483,6 +483,9 @@ async def tipuser(interaction: discord.Interaction, username: str, userid: str, 
         logger.error(f"Invalid tip amount: {amount} by {interaction.user}")
         return
 
+    # Defer the response to avoid interaction timeout
+    await interaction.response.defer()
+    
     # Send the tip using the existing send_tip function
     logger.info(f"Attempting to send manual tip of ${amount} to {username} (UID: {userid})")
     response = send_tip(
@@ -507,11 +510,11 @@ async def tipuser(interaction: discord.Interaction, username: str, userid: str, 
             color=discord.Color.green()
         )
         embed.set_footer(text=f"Tipped on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
         logger.info(f"Manual tip of ${amount} sent to {username} (UID: {userid})")
     else:
         error_message = response.get("message", "Unknown error")
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"❌ Failed to send tip to {username}: {error_message}", ephemeral=True
         )
         logger.error(f"Failed to send tip to {username} (UID: {userid}): {error_message}")
