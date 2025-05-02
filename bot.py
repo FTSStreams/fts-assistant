@@ -602,7 +602,7 @@ async def tipstats(interaction: discord.Interaction):
     """
     Display statistics for tips sent in various time ranges.
     """
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer()
     stats = get_tip_stats()
     embed = discord.Embed(
         title="📊 Tip Statistics",
@@ -615,7 +615,7 @@ async def tipstats(interaction: discord.Interaction):
         color=discord.Color.blue()
     )
     embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
-    await interaction.followup.send(embed=embed, ephemeral=True)
+    await interaction.followup.send(embed=embed)
     logger.info(f"Tip stats requested by {interaction.user}")
 
 # Command error handler
