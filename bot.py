@@ -312,6 +312,7 @@ async def clear_tips(interaction: discord.Interaction):
     clear="Clear all existing guild commands before syncing",
     global_clear="Clear all existing global commands before syncing"
 )
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 async def sync(interaction: discord.Interaction, clear: bool = False, global_clear: bool = False):
     try:
         await interaction.response.defer(ephemeral=True)  # Defer response immediately
@@ -320,14 +321,14 @@ async def sync(interaction: discord.Interaction, clear: bool = False, global_cle
 
         # Clear guild commands if requested
         if clear:
-            bot.tree.clear_commands(guild=guild)  # Synchronous, no await
+            bot.tree.clear_commands(guild=guild)
             logger.info(f"Cleared all commands from guild {guild.id}.")
             messages.append("Cleared all guild commands.")
             await asyncio.sleep(2)  # Avoid rate-limiting
 
         # Clear global commands if requested
         if global_clear:
-            bot.tree.clear_commands(guild=None)  # Synchronous, no await
+            bot.tree.clear_commands(guild=None)
             logger.info("Cleared all global commands.")
             messages.append("Cleared all global commands.")
             await asyncio.sleep(2)  # Avoid rate-limiting
@@ -529,7 +530,7 @@ async def before_milestone_loop():
     await bot.wait_until_ready()
 
 # Command version for conditional syncing
-COMMAND_VERSION = "1.1"  # Incremented to force sync
+COMMAND_VERSION = "1.2"  # Incremented to force sync
 
 def get_command_version():
     conn = get_db_connection()
@@ -566,16 +567,28 @@ async def on_ready():
         guild = discord.Object(id=GUILD_ID)
         current_commands = await bot.tree.fetch_commands(guild=guild)
         logger.info(f"Current guild commands: {[cmd.name for cmd in current_commands]}")
-        # Always clear and sync on startup to ensure correct commands
-        bot.tree.clear_commands(guild=guild)  # Synchronous, no await
-        logger.info(f"Cleared all commands from guild {guild.id}.")
-        await asyncio.sleep(2)  # Avoid rate-limiting
-        bot.tree.copy_global_to(guild=guild)
-        synced = await bot.tree.sync(guild=guild)
-        save_command_version(COMMAND_VERSION)
-        logger.info(f"Synced {len(synced)} commands to guild {guild.id}: {[cmd.name for cmd in synced]}")
+        expected_commands = {"clear_tips", "sync"}
+        current_command_names = {cmd.name for cmd in current_commands}
+        
+        if last_version != COMMAND_VERSION or current_command_names != expected_commands:
+            bot.tree.clear_commands(guild=guild)
+            logger.info(f"Cleared all commands from guild {guild.id}.")
+            await asyncio.sleep(2)  # Avoid rate-limiting
+            bot.tree.copy_global_to(guild=guild)
+            synced = await bot.tree.sync(guild=guild)
+            save_command_version(COMMAND_VERSION)
+            logger.info(f"Synced {len(synced)} commands to guild {guild.id}: {[cmd.name for cmd in synced]}")
+        else:
+            logger.info(f"No sync needed, version {last_version} matches and commands {current_command_names} are correct.")
     except Exception as e:
         logger.error(f"Failed to sync slash commands: {e}")
+        # Attempt recovery by forcing a sync
+        try:
+            bot.tree.copy_global_to(guild=guild)
+            synced = await bot.tree.sync(guild=guild)
+            logger.info(f"Recovery sync: Synced {len(synced)} commands to guild {guild.id}: {[cmd.name for cmd in synced]}")
+        except Exception as recovery_e:
+            logger.error(f"Recovery sync failed: {recovery_e}")
 
     update_roobet_leaderboard.start()
     check_wager_milestones.start()
