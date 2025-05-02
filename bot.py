@@ -402,7 +402,7 @@ def fetch_weighted_wager(start_date, end_date):
     wait=wait_exponential(multiplier=1, min=4, max=10),
     retry=retry_if_exception(lambda e: isinstance(e, requests.HTTPError) and e.response.status_code == 429)
 )
-def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balance_type="btc"):
+def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balance_type="usdt"):
     """
     Send a tip to a user via the Roobet Tipping API.
     
@@ -412,7 +412,7 @@ def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balanc
         to_user_id (str): Recipient's user ID.
         amount (float): Tip amount in USD.
         show_in_chat (bool): Whether to show the tip in chat.
-        balance_type (str): Balance type (e.g., "btc").
+        balance_type (str): Balance type (e.g., "usdt").
     
     Returns:
         dict: API response.
@@ -430,7 +430,7 @@ def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balanc
     try:
         response = requests.post(TIPPING_API_URL, json=payload, headers=headers, timeout=10)
         response.raise_for_status()
-        logger.info(f"Tip sent to {to_username}: ${amount}")
+        logger.info(f"Tip sent to {to_username}: ${amount} ({balance_type})")
         return response.json()
     except requests.RequestException as e:
         try:
@@ -448,6 +448,9 @@ async def process_tip_queue(queue, channel):
         tier = milestone["tier"]
         tip_amount = milestone["tip"]
 
+        # Debug log for milestone tipping
+        logger.info(f"Processing milestone tip for user_id: {user_id}, username: {username}, tier: {tier}, amount: {tip_amount}")
+
         # Check if tip was already sent
         if (user_id, tier) in SENT_TIPS:
             logger.info(f"Skipping duplicate tip for {username} ({tier})")
@@ -458,7 +461,7 @@ async def process_tip_queue(queue, channel):
         save_pending_tip(user_id, username, tier, tip_amount)
 
         # Send tip
-        response = send_tip(ROOBET_USER_ID, username, user_id, tip_amount, show_in_chat=True, balance_type="btc")
+        response = send_tip(ROOBET_USER_ID, username, user_id, tip_amount, show_in_chat=True, balance_type="usdt")
         if response.get("success"):
             # Update database
             SENT_TIPS.add((user_id, tier))
@@ -526,7 +529,7 @@ async def tipuser(interaction: discord.Interaction, id: str, amount: float, roob
             return
 
     # Send tip
-    response = send_tip(ROOBET_USER_ID, id, user_id, amount, show_in_chat=True, balance_type="btc")
+    response = send_tip(ROOBET_USER_ID, id, user_id, amount, show_in_chat=True, balance_type="usdt")
     confirmation_channel = bot.get_channel(TIP_CONFIRMATION_CHANNEL_ID)
 
     if not confirmation_channel:
@@ -564,6 +567,32 @@ async def tipuser(interaction: discord.Interaction, id: str, amount: float, roob
         error_message = response.get("message", "Unknown error")
         await interaction.response.send_message(f"❌ Failed to send tip: {error_message}", ephemeral=True)
         logger.error(f"Failed to send manual tip to {id} (ID: {user_id}): {error_message}")
+
+# Debug user command
+@bot.tree.command(
+    name="debug_user",
+    description="Debug user data from fetch_weighted_wager (admin only)",
+    guild=discord.Object(id=GUILD_ID)
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(username="The Roobet username to debug")
+async def debug_user(interaction: discord.Interaction, username: str):
+    try:
+        wager_data = fetch_weighted_wager("2025-05-01T00:00:00", "2025-05-31T23:59:59")
+        user = next((u for u in wager_data if u.get("username").lower() == username.lower()), None)
+        if user:
+            await interaction.response.send_message(
+                f"User {username}:\n"
+                f"- Username: {user.get('username')}\n"
+                f"- User ID: {user.get('uid')}\n"
+                f"- Weighted Wagered: {user.get('weightedWagered', 0):.2f}",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(f"User {username} not found in wager data.", ephemeral=True)
+    except Exception as e:
+        logger.error(f"Debug user failed for {username}: {e}")
+        await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
 
 # Total tips slash command
 @bot.tree.command(
