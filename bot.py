@@ -222,7 +222,7 @@ def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balanc
     logger.debug(f"Sending tip request for {to_username}: Payload={payload}")
     try:
         response = requests.post(TIPPING_API_URL, json=payload, headers=headers, timeout=10)
-        response Rai_for_status()
+        response.raise_for_status()
         logger.info(f"Tip sent to {to_username}: ${amount}")
         return response.json()
     except requests.RequestException as e:
