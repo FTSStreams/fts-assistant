@@ -317,15 +317,40 @@ async def sync(interaction: discord.Interaction, clear: bool = False, global_cle
     try:
         guild = discord.Object(id=GUILD_ID)
         messages = []
+
+        # Clear guild commands if requested
         if clear:
-            bot.tree.clear_commands(guild=guild)  # Clear all guild commands
+            await bot.tree.clear_commands(guild=guild)  # Clear all guild commands
             logger.info(f"Cleared all commands from guild {guild.id}.")
             messages.append("Cleared all guild commands.")
+            await asyncio.sleep(1)  # Brief delay to avoid rate-limiting
+
+        # Clear global commands if requested
         if global_clear:
-            bot.tree.clear_commands(guild=None)  # Clear all global commands
+            await bot.tree.clear_commands(guild=None)  # Clear all global commands
             logger.info("Cleared all global commands.")
             messages.append("Cleared all global commands.")
-        bot.tree.copy_global_to(guild=guild)
+            await asyncio.sleep(1)  # Brief delay to avoid rate-limiting
+
+        # Ensure commands are in the tree before syncing
+        bot.tree.add_command(
+            app_commands.Command(
+                name="clear_tips",
+                description="Clear all milestone tips from the database (admin only)",
+                callback=clear_tips
+            ),
+            guild=guild
+        )
+        bot.tree.add_command(
+            app_commands.Command(
+                name="sync",
+                description="Sync slash commands and optionally clear old ones (admin only)",
+                callback=sync
+            ),
+            guild=guild
+        )
+
+        # Sync the command tree
         synced = await bot.tree.sync(guild=guild)
         logger.info(f"Synced {len(synced)} commands to guild {guild.id}: {[cmd.name for cmd in synced]}")
         messages.append(f"Synced {len(synced)} commands to the guild: {[cmd.name for cmd in synced]}")
