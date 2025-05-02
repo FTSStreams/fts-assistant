@@ -16,7 +16,7 @@ import datetime as dt
 load_dotenv()
 
 # Validate environment variables
-required_env_vars = ["DISCORD_TOKEN", "ROOBET_API_TOKEN", "TIPPING_API_TOKEN", "ROOBET_USER_ID", "DATABASE_URL", "GUILD_ID", "LEADERBOARD_CHANNEL_ID", "MILESTONE_CHANNEL_ID", "TIP_CONFIRMATION_CHANNEL_ID"]
+required_env_vars = ["DISCORD_TOKEN", "ROOBET_API_TOKEN", "TIPPING_API_TOKEN", "ROOBET_USER_ID", "DATABASE_URL", "GUILD_ID", "LEADERBOARD_CHANNEL_ID", "MILESTONE_CHANNEL_ID"]
 for var in required_env_vars:
     if not os.getenv(var):
         raise ValueError(f"Missing required environment variable: {var}")
@@ -44,14 +44,13 @@ try:
     GUILD_ID = int(os.getenv("GUILD_ID"))
     LEADERBOARD_CHANNEL_ID = int(os.getenv("LEADERBOARD_CHANNEL_ID"))
     MILESTONE_CHANNEL_ID = int(os.getenv("MILESTONE_CHANNEL_ID"))
-    TIP_CONFIRMATION_CHANNEL_ID = int(os.getenv("TIP_CONFIRMATION_CHANNEL_ID"))
 except (TypeError, ValueError):
-    raise ValueError("GUILD_ID, LEADERBOARD_CHANNEL_ID, MILESTONE_CHANNEL_ID, and TIP_CONFIRMATION_CHANNEL_ID must be valid integers")
+    raise ValueError("GUILD_ID, LEADERBOARD_CHANNEL_ID, and MILESTONE_CHANNEL_ID must be valid integers")
 
 # Prizes distribution ($1,500 total)
 PRIZE_DISTRIBUTION = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
 
-# Milestone tiers (original float amounts)
+# Milestone tiers
 MILESTONES = [
     {"tier": "Bronze", "threshold": 500, "tip": 2.85, "color": discord.Color.orange(), "emoji": "🥉"},
     {"tier": "Silver", "threshold": 1000, "tip": 2.85, "color": discord.Color.light_grey(), "emoji": "🥈"},
@@ -96,13 +95,6 @@ def init_db():
                     tipped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (user_id, tier)
                 );
-                CREATE TABLE IF NOT EXISTS all_tips (
-                    user_id TEXT NOT NULL,
-                    username TEXT NOT NULL,
-                    amount NUMERIC NOT NULL,
-                    tier TEXT,
-                    tipped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
                 CREATE TABLE IF NOT EXISTS pending_tips (
                     user_id TEXT NOT NULL,
                     username TEXT NOT NULL,
@@ -116,7 +108,6 @@ def init_db():
                     value TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_tips_tipped_at ON tips (tipped_at);
-                CREATE INDEX IF NOT EXISTS idx_all_tips_tipped_at ON all_tips (tipped_at);
             """)
             conn.commit()
         logger.info("Database initialized.")
@@ -140,40 +131,18 @@ def load_tips():
     finally:
         release_db_connection(conn)
 
-def save_tip(user_id, tier, username, amount):
+def save_tip(user_id, tier):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            # Save to tips table (milestone tracking)
             cur.execute(
                 "INSERT INTO tips (user_id, tier) VALUES (%s, %s) ON CONFLICT DO NOTHING;",
                 (user_id, tier)
             )
-            # Save to all_tips table (all tips tracking)
-            cur.execute(
-                "INSERT INTO all_tips (user_id, username, amount, tier) VALUES (%s, %s, %s, %s);",
-                (user_id, username, amount, tier)
-            )
             conn.commit()
-        logger.info(f"Saved tip for user_id: {user_id}, tier: {tier}, username: {username}, amount: {amount}")
+        logger.info(f"Saved tip for user_id: {user_id}, tier: {tier}")
     except Exception as e:
         logger.error(f"Error saving tip to database: {e}")
-    finally:
-        release_db_connection(conn)
-
-def save_manual_tip(user_id, username, amount):
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            # Save to all_tips table only (no tier for manual tips)
-            cur.execute(
-                "INSERT INTO all_tips (user_id, username, amount, tier) VALUES (%s, %s, %s, NULL);",
-                (user_id, username, amount)
-            )
-            conn.commit()
-        logger.info(f"Saved manual tip for user_id: {user_id}, username: {username}, amount: {amount}")
-    except Exception as e:
-        logger.error(f"Error saving manual tip to database: {e}")
     finally:
         release_db_connection(conn)
 
@@ -221,19 +190,6 @@ def load_pending_tips():
     finally:
         release_db_connection(conn)
 
-async def log_tip(username, amount):
-    channel = bot.get_channel(TIP_CONFIRMATION_CHANNEL_ID)
-    if not channel:
-        logger.error("Tip log channel not found.")
-        return
-    masked_username = username[:-3] + "***" if len(username) > 3 else "***"
-    message = f"✅ A payout of ${amount:.2f} was sent to {masked_username} on Roobet"
-    try:
-        await channel.send(message)
-        logger.info(f"Logged tip to {masked_username}: ${amount}")
-    except discord.errors.Forbidden:
-        logger.error("Bot lacks permission to send messages in tip log channel.")
-
 def save_leaderboard_message_id(message_id):
     conn = get_db_connection()
     try:
@@ -271,7 +227,7 @@ leaderboard_lock = asyncio.Lock()
 milestone_lock = asyncio.Lock()
 
 # Fetch total wager with retry
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiperator=1, min=4, max=10))
 def fetch_total_wager(start_date, end_date):
     """
     Fetch total wager data from Roobet API for a given date range.
@@ -294,6 +250,7 @@ def fetch_total_wager(start_date, end_date):
         response = requests.get(AFFILIATE_API_URL, headers=headers, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
+        # Validate response structure (adjust based on actual API response)
         data = data.get("data", []) if isinstance(data, dict) else data
         if not isinstance(data, list):
             logger.warning(f"Unexpected total wager response format: {data}")
@@ -308,7 +265,7 @@ def fetch_total_wager(start_date, end_date):
         raise
 
 # Fetch weighted wager with retry
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiperator=1, min=4, max=10))
 def fetch_weighted_wager(start_date, end_date):
     """
     Fetch weighted wager data from Roobet API for a given date range.
@@ -333,6 +290,7 @@ def fetch_weighted_wager(start_date, end_date):
         response = requests.get(AFFILIATE_API_URL, headers=headers, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
+        # Validate response structure
         data = data.get("data", []) if isinstance(data, dict) else data
         if not isinstance(data, list):
             logger.warning(f"Unexpected weighted wager response format: {data}")
@@ -349,10 +307,10 @@ def fetch_weighted_wager(start_date, end_date):
 # Send tip via Tipping API with rate limit retry
 @retry(
     stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
+    wait=wait_exponential(multiperator=1, min=4, max=10),
     retry=retry_if_exception(lambda e: isinstance(e, requests.HTTPError) and e.response.status_code == 429)
 )
-def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balance_type="usdt"):
+def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balance_type="crypto"):
     """
     Send a tip to a user via the Roobet Tipping API.
     
@@ -362,7 +320,7 @@ def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balanc
         to_user_id (str): Recipient's user ID.
         amount (float): Tip amount in USD.
         show_in_chat (bool): Whether to show the tip in chat.
-        balance_type (str): Balance type (e.g., "usdt").
+        balance_type (str): Balance type (e.g., "crypto").
     
     Returns:
         dict: API response.
@@ -380,7 +338,7 @@ def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balanc
     try:
         response = requests.post(TIPPING_API_URL, json=payload, headers=headers, timeout=10)
         response.raise_for_status()
-        logger.info(f"Tip sent to {to_username}: ${amount:.2f} ({balance_type})")
+        logger.info(f"Tip sent to {to_username}: ${amount}")
         return response.json()
     except requests.RequestException as e:
         try:
@@ -398,9 +356,6 @@ async def process_tip_queue(queue, channel):
         tier = milestone["tier"]
         tip_amount = milestone["tip"]
 
-        # Debug log for milestone tipping
-        logger.info(f"Processing milestone tip for user_id: {user_id}, username: {username}, tier: {tier}, amount: {tip_amount}")
-
         # Check if tip was already sent
         if (user_id, tier) in SENT_TIPS:
             logger.info(f"Skipping duplicate tip for {username} ({tier})")
@@ -411,16 +366,14 @@ async def process_tip_queue(queue, channel):
         save_pending_tip(user_id, username, tier, tip_amount)
 
         # Send tip
-        response = send_tip(ROOBET_USER_ID, username, user_id, tip_amount, show_in_chat=True, balance_type="usdt")
+        response = send_tip(ROOBET_USER_ID, username, user_id, tip_amount, show_in_chat=True, balance_type="crypto")
         if response.get("success"):
             # Update database
             SENT_TIPS.add((user_id, tier))
-            save_tip(user_id, tier, username, tip_amount)
+            save_tip(user_id, tier)
             delete_pending_tip(user_id, tier)
             CURRENT_CYCLE_TIPS.add((user_id, tier))
-            # Log tip to tip confirmation channel
-            await log_tip(username, tip_amount)
-            # Create milestone embed for milestone channel
+            # Create embed
             embed = discord.Embed(
                 title=f"{milestone['emoji']} {tier} Wager Milestone Achieved! {milestone['emoji']}",
                 description=(
@@ -444,150 +397,6 @@ async def process_tip_queue(queue, channel):
         queue.task_done()
         await asyncio.sleep(30)  # 30-second delay between tips
 
-# Manual tip slash command
-@bot.tree.command(
-    name="tipuser",
-    description="Manually tip a user via Roobet API (admin only)",
-    guild=discord.Object(id=GUILD_ID)
-)
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(
-    roobet_id="The Roobet user ID of the recipient",
-    username="The Roobet username of the recipient",
-    amount="The tip amount in USD (supports decimals, e.g., 1.00)"
-)
-async def tipuser(interaction: discord.Interaction, roobet_id: str, username: str, amount: float):
-    if amount <= 0:
-        await interaction.response.send_message("❌ Tip amount must be greater than 0.", ephemeral=True)
-        return
-
-    # Send tip
-    response = send_tip(ROOBET_USER_ID, username, roobet_id, amount, show_in_chat=True, balance_type="usdt")
-    confirmation_channel = bot.get_channel(TIP_CONFIRMATION_CHANNEL_ID)
-
-    if not confirmation_channel:
-        logger.error("Tip confirmation channel not found.")
-        await interaction.response.send_message("❌ Error: Tip confirmation channel not found.", ephemeral=True)
-        return
-
-    masked_username = username[:-3] + "***" if len(username) > 3 else "***"
-    if response.get("success"):
-        # Save to all_tips
-        save_manual_tip(roobet_id, username, amount)
-        # Log tip to tip confirmation channel
-        await log_tip(username, amount)
-        # Create confirmation embed
-        embed = discord.Embed(
-            title="💸 Manual Tip Sent! 💸",
-            description=(
-                f"🎉 **{masked_username}** received a tip!\n"
-                f"💰 **Amount**: ${amount:.2f} USD\n"
-                f"🆔 **Roobet ID**: {roobet_id}\n"
-                f"Thank you for the generosity! 🚀"
-            ),
-            color=discord.Color.green()
-        )
-        embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
-        embed.set_footer(text=f"Tipped on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
-        try:
-            await confirmation_channel.send(embed=embed)
-            await interaction.response.send_message(f"✅ Tip of ${amount:.2f} sent to {masked_username}!", ephemeral=True)
-            logger.info(f"Manual tip sent to {username} (ID: {roobet_id}): ${amount:.2f}")
-        except discord.errors.Forbidden:
-            logger.error("Bot lacks permission to send messages in tip confirmation channel.")
-            await interaction.response.send_message("❌ Error: Bot lacks permission to send confirmation message.", ephemeral=True)
-    else:
-        error_message = response.get("message", "Unknown error")
-        await interaction.response.send_message(f"❌ Failed to send tip: {error_message}", ephemeral=True)
-        logger.error(f"Failed to send manual tip to {username} (ID: {roobet_id}): {error_message}")
-
-# Debug user command
-@bot.tree.command(
-    name="debug_user",
-    description="Debug user data from fetch_weighted_wager (admin only)",
-    guild=discord.Object(id=GUILD_ID)
-)
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(username="The Roobet username to debug")
-async def debug_user(interaction: discord.Interaction, username: str):
-    try:
-        wager_data = fetch_weighted_wager("2025-05-01T00:00:00", "2025-05-31T23:59:59")
-        user = next((u for u in wager_data if u.get("username").lower() == username.lower()), None)
-        if user:
-            await interaction.response.send_message(
-                f"User {username}:\n"
-                f"- Username: {user.get('username')}\n"
-                f"- User ID: {user.get('uid')}\n"
-                f"- Weighted Wagered: {user.get('weightedWagered', 0):.2f}",
-                ephemeral=True
-            )
-        else:
-            await interaction.response.send_message(f"User {username} not found in wager data.", ephemeral=True)
-    except Exception as e:
-        logger.error(f"Debug user failed for {username}: {e}")
-        await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
-
-# Total tips slash command
-@bot.tree.command(
-    name="totaltips",
-    description="Show total tips sent over various time periods (admin only)",
-    guild=discord.Object(id=GUILD_ID)
-)
-@app_commands.default_permissions(administrator=True)
-async def totaltips(interaction: discord.Interaction):
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            # Total tips in past 24 hours
-            cur.execute(
-                "SELECT COALESCE(SUM(amount), 0) FROM all_tips WHERE tipped_at >= %s;",
-                (datetime.now(dt.UTC) - dt.timedelta(hours=24),)
-            )
-            total_24h = cur.fetchone()[0] or 0
-
-            # Total tips in past 7 days
-            cur.execute(
-                "SELECT COALESCE(SUM(amount), 0) FROM all_tips WHERE tipped_at >= %s;",
-                (datetime.now(dt.UTC) - dt.timedelta(days=7),)
-            )
-            total_7d = cur.fetchone()[0] or 0
-
-            # Total tips in past 30 days
-            cur.execute(
-                "SELECT COALESCE(SUM(amount), 0) FROM all_tips WHERE tipped_at >= %s;",
-                (datetime.now(dt.UTC) - dt.timedelta(days=30),)
-            )
-            total_30d = cur.fetchone()[0] or 0
-
-            # Total tips since May 2, 2025
-            cur.execute(
-                "SELECT COALESCE(SUM(amount), 0) FROM all_tips WHERE tipped_at >= %s;",
-                (datetime(2025, 5, 2, tzinfo=dt.UTC),)
-            )
-            total_since_may2 = cur.fetchone()[0] or 0
-
-        # Create embed
-        embed = discord.Embed(
-            title="📊 Total Tips Sent 📊",
-            description=(
-                f"**Total Tip Amounts Sent (USD):**\n"
-                f"🕒 **Past 24 Hours**: ${total_24h:.2f}\n"
-                f"📅 **Past 7 Days**: ${total_7d:.2f}\n"
-                f"📆 **Past 30 Days**: ${total_30d:.2f}\n"
-                f"🏁 **Since May 2, 2025**: ${total_since_may2:.2f}\n"
-            ),
-            color=discord.Color.blue()
-        )
-        embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
-        embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        logger.info("Generated total tips report.")
-    except Exception as e:
-        logger.error(f"Failed to generate total tips report: {e}")
-        await interaction.response.send_message(f"❌ Error generating report: {e}", ephemeral=True)
-    finally:
-        release_db_connection(conn)
-
 # Clear tips slash command
 @bot.tree.command(
     name="clear_tips",
@@ -599,7 +408,7 @@ async def clear_tips(interaction: discord.Interaction):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("TRUNCATE tips; TRUNCATE pending_tips;")  # Note: Does not clear all_tips
+            cur.execute("TRUNCATE tips; TRUNCATE pending_tips;")
             conn.commit()
             global SENT_TIPS
             SENT_TIPS = set()
