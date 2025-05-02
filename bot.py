@@ -182,8 +182,8 @@ def get_tip_stats():
             last_7d = now - dt.timedelta(days=7)
             # 30 days ago
             last_30d = now - dt.timedelta(days=30)
-            # Since May 1, 2025
-            since_may1 = datetime(2025, 5, 1, tzinfo=dt.UTC)
+            # Since Jan 1, 2025
+            since_jan1 = datetime(2025, 1, 1, tzinfo=dt.UTC)
 
             # Query for each time range
             cur.execute("""
@@ -191,19 +191,20 @@ def get_tip_stats():
                     COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_24h,
                     COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_7d,
                     COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_30d,
-                    COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS since_may1
+                    COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS since_jan1
                 FROM tip_logs;
-            """, (last_24h, last_7d, last_30d, since_may1))
+            """, (last_24h, last_7d, last_30d, since_jan1))
             result = cur.fetchone()
+            # Add hardcoded $11,295.53 to Lifetime (since Jan 1, 2025)
             return {
                 "last_24h": float(result[0]),
                 "last_7d": float(result[1]),
                 "last_30d": float(result[2]),
-                "since_may1": float(result[3])
+                "since_jan1": float(result[3]) + 11295.53
             }
     except Exception as e:
         logger.error(f"Error retrieving tip stats: {e}")
-        return {"last_24h": 0.0, "last_7d": 0.0, "last_30d": 0.0, "since_may1": 0.0}
+        return {"last_24h": 0.0, "last_7d": 0.0, "last_30d": 0.0, "since_jan1": 11295.53}
     finally:
         release_db_connection(conn)
 
@@ -591,6 +592,53 @@ async def tipuser(interaction: discord.Interaction, username: str, userid: str, 
         )
         logger.error(f"Failed to send tip to {username} (UID: {userid}): {error_message}")
 
+# Finduid slash command
+@bot.tree.command(
+    name="finduid",
+    description="Find the Roobet UID of a player who wagered in 2025 (admin only)",
+    guild=discord.Object(id=GUILD_ID)
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    username="The Roobet username to search for"
+)
+async def finduid(interaction: discord.Interaction, username: str):
+    """
+    Find the Roobet UID of a player who wagered under the affiliate code in 2025.
+    Args:
+        username: Roobet username to search for.
+    """
+    await interaction.response.defer(ephemeral=True)
+    try:
+        # Fetch wager data for all of 2025
+        start_date = "2025-01-01T00:00:00"
+        end_date = "2025-12-31T23:59:59"
+        wager_data = fetch_weighted_wager(start_date, end_date)
+        
+        # Search for the username (case-insensitive, partial match)
+        username_lower = username.lower()
+        for entry in wager_data:
+            entry_username = entry.get("username", "").lower()
+            if username_lower in entry_username:
+                uid = entry.get("uid")
+                if uid:
+                    await interaction.followup.send(
+                        f"✅ Found UID for {entry.get('username')}: `{uid}`", ephemeral=True
+                    )
+                    logger.info(f"Found UID {uid} for username {username} requested by {interaction.user}")
+                    return
+        
+        # If no match found
+        await interaction.followup.send(
+            f"❌ No user found with username '{username}' who wagered in 2025.", ephemeral=True
+        )
+        logger.info(f"No UID found for username {username} requested by {interaction.user}")
+    except Exception as e:
+        await interaction.followup.send(
+            f"❌ Error searching for UID: {str(e)}", ephemeral=True
+        )
+        logger.error(f"Error in /finduid for username {username}: {str(e)}")
+
 # Tipstats slash command
 @bot.tree.command(
     name="tipstats",
@@ -607,10 +655,10 @@ async def tipstats(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📊 Tip Statistics",
         description=(
-            f"**24 Hour Tips**: ${stats['last_24h']:.2f} USD\n"
-            f"**7 Day Tips**: ${stats['last_7d']:.2f} USD\n"
-            f"**30 Day Tips**: ${stats['last_30d']:.2f} USD\n"
-            f"**Tips Since May 1, 2025**: ${stats['since_may1']:.2f} USD"
+            f"**Past 24 Hours**: ${stats['last_24h']:.2f} USD\n"
+            f"**Past 7 Days**: ${stats['last_7d']:.2f} USD\n"
+            f"**Past 30 Days**: ${stats['last_30d']:.2f} USD\n"
+            f"**Lifetime (Since Jan. 1st 2025)**: ${stats['since_jan1']:.2f} USD"
         ),
         color=discord.Color.blue()
     )
