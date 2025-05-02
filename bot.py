@@ -353,19 +353,23 @@ async def update_roobet_leaderboard():
     end_unix = int(datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S").timestamp())
 
     # Fetch data
+    logger.info("Fetching leaderboard data...")
     try:
         total_wager_data = fetch_total_wager(start_date, end_date)
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to fetch total wager data: {e}")
         total_wager_data = []
     try:
         weighted_wager_data = fetch_weighted_wager(start_date, end_date)
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to fetch weighted wager data: {e}")
         weighted_wager_data = []
 
     if not weighted_wager_data:
         logger.error("No weighted wager data received from API.")
         try:
             await channel.send("No leaderboard data available at the moment.")
+            logger.info("Sent no-data message to leaderboard channel.")
         except discord.errors.Forbidden:
             logger.error("Bot lacks permission to send messages in leaderboard channel.")
         return
@@ -430,12 +434,14 @@ async def update_roobet_leaderboard():
 
     # Update or send the leaderboard message
     message_id = get_leaderboard_message_id()
+    logger.info(f"Retrieved leaderboard message ID: {message_id}")
     if message_id:
         try:
             message = await channel.fetch_message(message_id)
             await message.edit(embed=embed)
             logger.info("Leaderboard message updated.")
         except discord.errors.NotFound:
+            logger.warning(f"Leaderboard message ID {message_id} not found, sending new message.")
             try:
                 message = await channel.send(embed=embed)
                 save_leaderboard_message_id(message.id)
@@ -445,6 +451,7 @@ async def update_roobet_leaderboard():
         except discord.errors.Forbidden:
             logger.error("Bot lacks permission to edit messages in leaderboard channel.")
     else:
+        logger.info("No leaderboard message ID found, sending new message.")
         try:
             message = await channel.send(embed=embed)
             save_leaderboard_message_id(message.id)
