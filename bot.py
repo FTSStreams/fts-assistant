@@ -718,6 +718,111 @@ async def monthlygoal(interaction: discord.Interaction):
             f"❌ Error retrieving monthly stats: {str(e)}", ephemeral=True
         )
         logger.error(f"Error in /monthlygoal: {str(e)}")
+
+# Mywager slash command
+@bot.tree.command(
+    name="mywager",
+    description="Check your personal wager stats for the current month using your Roobet username",
+    guild=discord.Object(id=GUILD_ID)
+)
+@app_commands.describe(
+    username="Your Roobet username"
+)
+async def mywager(interaction: discord.Interaction, username: str):
+    """
+    Display a user's total and weighted wager, current tier, and progress to the next tier.
+    """
+    await interaction.response.defer()
+
+    # Define the date range for May 2025
+    start_date = "2025-05-01T00:00:00"
+    end_date = "2025-05-31T23:59:59"
+
+    try:
+        # Fetch wager data for all of 2025 to find UID
+        weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+        
+        # Search for the username (case-insensitive)
+        username_lower = username.lower()
+        roobet_uid = None
+        for entry in weighted_wager_data:
+            entry_username = entry.get("username", "").lower()
+            if username_lower == entry_username:  # Exact match for security
+                roobet_uid = entry.get("uid")
+                username = entry.get("username")  # Use exact username from API
+                break
+        
+        if not roobet_uid:
+            await interaction.followup.send(
+                f"❌ No user found with username '{username}' who wagered in May 2025.", ephemeral=True
+            )
+            logger.info(f"No UID found for username {username} requested by {interaction.user}")
+            return
+
+        # Fetch wager data for the month
+        total_wager_data = fetch_total_wager(start_date, end_date)
+        
+        # Find user's wager
+        total_wager = 0
+        weighted_wager = 0
+        for entry in total_wager_data:
+            if entry.get("uid") == roobet_uid:
+                total_wager = entry.get("wagered", 0) if isinstance(entry.get("wagered"), (int, float)) else 0
+                break
+        for entry in weighted_wager_data:
+            if entry.get("uid") == roobet_uid:
+                weighted_wager = entry.get("weightedWagered", 0) if isinstance(entry.get("weightedWagered"), (int, float)) else 0
+                break
+
+        # Determine current and next milestone
+        current_tier = None
+        next_tier = None
+        progress = 0
+        for i, milestone in enumerate(MILESTONES):
+            if weighted_wager >= milestone["threshold"]:
+                current_tier = milestone
+            else:
+                next_tier = milestone
+                progress = weighted_wager / next_tier["threshold"]
+                break
+        if not current_tier:
+            current_tier = {"tier": "None", "threshold": 0, "emoji": "🏁"}
+        if not next_tier:
+            next_tier = {"tier": "Maxed Out", "threshold": weighted_wager, "emoji": "🎯"}
+            progress = 1.0
+
+        # Create progress bar
+        bar_length = 10
+        filled = int(bar_length * min(progress, 1.0))
+        empty = bar_length - filled
+        progress_bar = "█" * filled + "░" * empty
+        progress_percent = min(progress * 100, 100)
+
+        # Mask username
+        masked_username = username[:-3] + "***" if len(username) > 3 else "***"
+
+        # Create embed
+        embed = discord.Embed(
+            title=f"🎰 Your Wager Stats, {masked_username}! 🎰",
+            description=(
+                f"💰 **Total Wager**: **${total_wager:,.2f} USD** 💸\n"
+                f"✨ **Weighted Wager**: **${weighted_wager:,.2f} USD** 🌟\n"
+                f"🏆 **Current Tier**: {current_tier['tier']} {current_tier['emoji']} (Reached at ${current_tier['threshold']:,.2f})\n"
+                f"📊 **Progress to {next_tier['tier']} (${next_tier['threshold']:,.2f})**: [{progress_bar}] {progress_percent:.2f}%\n"
+                f"🔥 Keep betting to climb the ranks! 🎲"
+            ),
+            color=discord.Color.gold()
+        )
+        embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
+        embed.set_footer(text=f"🕒 Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
+
+        await interaction.followup.send(embed=embed)
+        logger.info(f"Wager stats requested by {interaction.user} for username {masked_username}")
+    except Exception as e:
+        await interaction.followup.send(
+            f"❌ Error retrieving wager stats: {str(e)}", ephemeral=True
+        )
+        logger.error(f"Error in /mywager for username {username} by {interaction.user}: {str(e)}")
         
 # Command error handler
 @bot.tree.error
