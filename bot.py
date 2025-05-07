@@ -665,7 +665,60 @@ async def tipstats(interaction: discord.Interaction):
     embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
     await interaction.followup.send(embed=embed)
     logger.info(f"Tip stats requested by {interaction.user}")
+    
+# Monthlygoal slash command
+@bot.tree.command(
+    name="monthlygoal",
+    description="Display total wager and weighted wager for the current month",
+    guild=discord.Object(id=GUILD_ID)
+)
+async def monthlygoal(interaction: discord.Interaction):
+    """
+    Display total wager and total weighted wager for the current month.
+    """
+    await interaction.response.defer()
 
+    # Define the date range for May 2025
+    start_date = "2025-05-01T00:00:00"
+    end_date = "2025-05-31T23:59:59"
+
+    try:
+        # Fetch total wager data
+        total_wager_data = fetch_total_wager(start_date, end_date)
+        # Fetch weighted wager data
+        weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+
+        # Calculate totals
+        total_wager = sum(
+            entry.get("wagered", 0) 
+            for entry in total_wager_data 
+            if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
+        )
+        total_weighted_wager = sum(
+            entry.get("weightedWagered", 0) 
+            for entry in weighted_wager_data 
+            if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
+        )
+
+        # Create embed
+        embed = discord.Embed(
+            title="📈 Monthly Wager Stats",
+            description=(
+                f"**TOTAL WAGER THIS MONTH**: ${total_wager:,.2f} USD\n"
+                f"**TOTAL WEIGHTED WAGER THIS MONTH**: ${total_weighted_wager:,.2f} USD"
+            ),
+            color=discord.Color.blue()
+        )
+        embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
+
+        await interaction.followup.send(embed=embed)
+        logger.info(f"Monthly goal stats requested by {interaction.user}")
+    except Exception as e:
+        await interaction.followup.send(
+            f"❌ Error retrieving monthly stats: {str(e)}", ephemeral=True
+        )
+        logger.error(f"Error in /monthlygoal: {str(e)}")
+        
 # Command error handler
 @bot.tree.error
 async def on_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
