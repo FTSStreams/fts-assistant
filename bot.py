@@ -665,6 +665,7 @@ async def tipstats(interaction: discord.Interaction):
     embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
     await interaction.followup.send(embed=embed)
     logger.info(f"Tip stats requested by {interaction.user}")
+    
 # Monthlygoal slash command
 @bot.tree.command(
     name="monthlygoal",
@@ -923,14 +924,14 @@ async def on_ready():
     except Exception as e:
         logger.error(f"Failed to sync slash commands: {e}")
 
-    up_roobet_leaderboard.start()
+    update_roobet_leaderboard.start()
     check_wager_milestones.start()
     logger.info(f"{bot.user.name} is now online and ready!")
 
 @bot.event
 async def on_shutdown():
     logger.info("Shutting down bot...")
-    up_roobet_leaderboard.cancel()
+    update_roobet_leaderboard.cancel()
     check_wager_milestones.cancel()
     if hasattr(check_wager_milestones, "tip_queue"):
         await check_wager_milestones.tip_queue.join()
