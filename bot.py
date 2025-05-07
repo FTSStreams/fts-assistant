@@ -3,19 +3,19 @@ from discord.ext import commands, tasks
 import os
 import requests
 import asyncio
-from time import time
+from datetime import datetime
 import logging
 import psycopg2
 from psycopg2 import pool
 from dotenv import load_dotenv
 from discord import app_commands
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
-import time as dt
+import datetime as dt
 
 # Load environment variables
 load_dotenv()
 
-# Vali environment variables
+# Validate environment variables
 required_env_vars = ["DISCORD_TOKEN", "ROOBET_API_TOKEN", "TIPPING_API_TOKEN", "ROOBET_USER_ID", "DATABASE_URL", "GUILD_ID", "LEADERBOARD_CHANNEL_ID", "MILESTONE_CHANNEL_ID", "TIP_CONFIRMATION_CHANNEL_ID"]
 for var in required_env_vars:
     if not os.getenv(var):
@@ -175,7 +175,7 @@ def get_tip_stats():
     try:
         with conn.cursor() as cur:
             # Current time
-            now = time.now(dt.UTC)
+            now = datetime.now(dt.UTC)
             # 24 hours ago
             last_24h = now - dt.timedelta(hours=24)
             # 7 days ago
@@ -665,60 +665,7 @@ async def tipstats(interaction: discord.Interaction):
     embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
     await interaction.followup.send(embed=embed)
     logger.info(f"Tip stats requested by {interaction.user}")
-    
-# Monthlygoal slash command
-@bot.tree.command(
-    name="monthlygoal",
-    description="Display total wager and weighted wager for the current month",
-    guild=discord.Object(id=GUILD_ID)
-)
-async def monthlygoal(interaction: discord.Interaction):
-    """
-    Display total wager and total weighted wager for the current month.
-    """
-    await interaction.response.defer()
 
-    # Define the date range for May 2025
-    start_date = "2025-05-01T00:00:00"
-    end_date = "2025-05-31T23:59:59"
-
-    try:
-        # Fetch total wager data
-        total_wager_data = fetch_total_wager(start_date, end_date)
-        # Fetch weighted wager data
-        weighted_wager_data = fetch_weighted_wager(start_date, end_date)
-
-        # Calculate totals
-        total_wager = sum(
-            entry.get("wagered", 0) 
-            for entry in total_wager_data 
-            if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
-        )
-        total_weighted_wager = sum(
-            entry.get("weightedWagered", 0) 
-            for entry in weighted_wager_data 
-            if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
-        )
-
-        # Create embed
-        embed = discord.Embed(
-            title="📈 Monthly Wager Stats",
-            description=(
-                f"**TOTAL WAGER THIS MONTH**: ${total_wager:,.2f} USD\n"
-                f"**TOTAL WEIGHTED WAGER THIS MONTH**: ${total_weighted_wager:,.2f} USD"
-            ),
-            color=discord.Color.blue()
-        )
-        embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
-
-        await interaction.followup.send(embed=embed)
-        logger.info(f"Monthly goal stats requested by {interaction.user}")
-    except Exception as e:
-        await interaction.followup.send(
-            f"❌ Error retrieving monthly stats: {str(e)}", ephemeral=True
-        )
-        logger.error(f"Error in /monthlygoal: {str(e)}")
-        
 # Command error handler
 @bot.tree.error
 async def on_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
@@ -781,7 +728,7 @@ async def update_roobet_leaderboard():
                 f"**Leaderboard Period:**\n"
                 f"From: <t:{start_unix}:F>\n"
                 f"To: <t:{end_unix}:F>\n\n"
-                f"⏰ **Last Upd:** <t:{int(time.now(dt.UTC).timestamp())}:R>\n\n"
+                f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"
                 "📜 **Leaderboard Rules & Disclosure**:\n"
                 "• Games with an RTP of **97% or less** contribute **100%** to your weighted wager.\n"
                 "• Games with an RTP **above 97%** contribute **50%** to your weighted wager.\n"
@@ -823,14 +770,14 @@ async def update_roobet_leaderboard():
 
         embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending.")
 
-        # Up or send the leaderboard message
+        # Update or send the leaderboard message
         message_id = get_leaderboard_message_id()
         logger.info(f"Retrieved leaderboard message ID: {message_id}")
         if message_id:
             try:
                 message = await channel.fetch_message(message_id)
                 await message.edit(embed=embed)
-                logger.info("Leaderboard message upd.")
+                logger.info("Leaderboard message updated.")
             except discord.errors.NotFound:
                 logger.warning(f"Leaderboard message ID {message_id} not found, sending new message.")
                 try:
@@ -866,8 +813,8 @@ async def check_wager_milestones():
             await check_wager_milestones.tip_queue.join()
 
         # Timestamps (GMT)
-        start_ = "2025-05-01T00:00:00"
-        end_ = "2025-05-31T23:59:59"
+        start_date = "2025-05-01T00:00:00"
+        end_date = "2025-05-31T23:59:59"
 
         # Load pending tips
         check_wager_milestones.tip_queue = asyncio.Queue()
@@ -878,7 +825,7 @@ async def check_wager_milestones():
 
         # Fetch weighted wager data
         try:
-            weighted_wager_data = fetch_weighted_wager(start_, end_)
+            weighted_wager_data = fetch_weighted_wager(start_date, end_date)
         except Exception:
             weighted_wager_data = []
         if not weighted_wager_data:
