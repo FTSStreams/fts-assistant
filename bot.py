@@ -679,8 +679,8 @@ async def monthlygoal(interaction: discord.Interaction):
     await interaction.response.defer()
 
     # Define the date range for May 2025
-    start_date = "2025-05-01T00:00:00"
-    end_date = "2025-05-31T23:59:59"
+    start_date = "2025-06-01T00:00:00"
+    end_date = "2025-06-31T23:59:59"
 
     try:
         # Fetch total wager data
@@ -734,9 +734,9 @@ async def mywager(interaction: discord.Interaction, username: str):
     """
     await interaction.response.defer()
 
-    # Define the date range for May 2025
-    start_date = "2025-05-01T00:00:00"
-    end_date = "2025-05-31T23:59:59"
+    # Define the date range for June 2025
+    start_date = "2025-06-01T00:00:00"
+    end_date = "2025-06-31T23:59:59"
 
     try:
         # Fetch wager data for all of 2025 to find UID
@@ -842,8 +842,8 @@ async def update_roobet_leaderboard():
             logger.error("Leaderboard channel not found.")
             return
 
-        start_date = "2025-05-01T00:00:00"
-        end_date = "2025-05-31T23:59:59"
+        start_date = "2025-06-01T00:00:00"
+        end_date = "2025-06-31T23:59:59"
 
         start_unix = int(datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S").timestamp())
         end_unix = int(datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S").timestamp())
@@ -971,8 +971,8 @@ async def check_wager_milestones():
             await check_wager_milestones.tip_queue.join()
 
         # Timestamps (GMT)
-        start_date = "2025-05-01T00:00:00"
-        end_date = "2025-05-31T23:59:59"
+        start_date = "2025-06-01T00:00:00"
+        end_date = "2025-06-31T23:59:59"
 
         # Load pending tips
         check_wager_milestones.tip_queue = asyncio.Queue()
