@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 from utils import fetch_weighted_wager, send_tip
-from db import get_db_connection, release_db_connection
+from db import get_db_connection, release_db_connection, save_tip_log
 import os
 import logging
 from datetime import datetime
@@ -77,6 +77,7 @@ class Milestones(commands.Cog):
                     # Send tip and announce
                     send_tip(user_id, username, user_id, milestone["tip"])
                     save_tip(user_id, tier)
+                    save_tip_log(user_id, username, milestone["tip"], "milestone")
                     embed = discord.Embed(
                         title=f"{milestone['emoji']} {tier} Wager Milestone Achieved! {milestone['emoji']}",
                         description=(

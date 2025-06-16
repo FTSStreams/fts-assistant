@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from utils import fetch_total_wager, fetch_weighted_wager, send_tip
-from db import get_db_connection, release_db_connection
+from db import get_db_connection, release_db_connection, save_tip_log
 import os
 from datetime import datetime
 import datetime as dt
@@ -171,6 +171,7 @@ class User(commands.Cog):
         )
         masked_username = username[:-3] + "***" if len(username) > 3 else "***"
         if response.get("success"):
+            save_tip_log(roobet_uid, username, amount, "manual")
             embed = discord.Embed(
                 title="🎉 Manual Tip Sent!",
                 description=(

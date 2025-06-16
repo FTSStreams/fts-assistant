@@ -55,3 +55,17 @@ def get_leaderboard_message_id():
         return None
     finally:
         release_db_connection(conn)
+
+def save_tip_log(user_id, username, amount, tip_type):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO tip_logs (user_id, username, amount, tip_type) VALUES (%s, %s, %s, %s);",
+                (user_id, username, amount, tip_type)
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error saving tip log to database: {e}")
+    finally:
+        release_db_connection(conn)
