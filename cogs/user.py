@@ -161,7 +161,7 @@ class User(commands.Cog):
             logger.error(f"No UID found for username {username} in /tipuser by {interaction.user}")
             return
         logger.info(f"Attempting to send manual tip of ${amount} to {username} (UID: {roobet_uid})")
-        response = send_tip(
+        response = await send_tip(
             user_id=os.getenv("ROOBET_USER_ID"),
             to_username=username,
             to_user_id=roobet_uid,

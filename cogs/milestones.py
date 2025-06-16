@@ -75,22 +75,25 @@ class Milestones(commands.Cog):
                 threshold = milestone["threshold"]
                 if weighted_wagered >= threshold and (user_id, tier) not in sent_tips:
                     # Send tip and announce
-                    send_tip(user_id, username, user_id, milestone["tip"])
-                    save_tip(user_id, tier)
-                    save_tip_log(user_id, username, milestone["tip"], "milestone")
-                    embed = discord.Embed(
-                        title=f"{milestone['emoji']} {tier} Wager Milestone Achieved! {milestone['emoji']}",
-                        description=(
-                            f"🎉 **{username}** has conquered the **{tier} Milestone**!\n"
-                            f"✨ **Weighted Wagered**: ${milestone['threshold']:,.2f}\n"
-                            f"💸 **Tip Received**: **${milestone['tip']:.2f} USD**\n"
-                            f"Keep rocking the slots! 🚀"
-                        ),
-                        color=milestone["color"]
-                    )
-                    embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
-                    embed.set_footer(text=f"Tipped on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
-                    await channel.send(embed=embed)
+                    tip_response = await send_tip(user_id, username, user_id, milestone["tip"])
+                    if tip_response.get("success"):
+                        save_tip(user_id, tier)
+                        save_tip_log(user_id, username, milestone["tip"], "milestone")
+                        embed = discord.Embed(
+                            title=f"{milestone['emoji']} {tier} Wager Milestone Achieved! {milestone['emoji']}",
+                            description=(
+                                f"🎉 **{username}** has conquered the **{tier} Milestone**!\n"
+                                f"✨ **Weighted Wagered**: ${milestone['threshold']:,.2f}\n"
+                                f"💸 **Tip Received**: **${milestone['tip']:.2f} USD**\n"
+                                f"Keep rocking the slots! 🚀"
+                            ),
+                            color=milestone["color"]
+                        )
+                        embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
+                        embed.set_footer(text=f"Tipped on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
+                        await channel.send(embed=embed)
+                    else:
+                        logger.error(f"Failed to send milestone tip to {username}: {tip_response.get('message')}")
 
     @check_wager_milestones.before_loop
     async def before_milestone_loop(self):
