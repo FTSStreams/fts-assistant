@@ -31,6 +31,10 @@ COGS = [
 @bot.event
 async def on_ready():
     logger.info(f"{bot.user.name} is now online and ready!")
+    # Remove all global commands and resync
+    await bot.tree.clear_commands(guild=None)
+    await bot.tree.sync()
+    logger.info("Global slash commands cleared and resynced.")
 
 async def load_cogs():
     for cog in COGS:
