@@ -138,6 +138,7 @@ class User(commands.Cog):
     @app_commands.default_permissions(administrator=True)
     @app_commands.describe(username="The Roobet username to search for")
     async def finduid(self, interaction: discord.Interaction, username: str):
+        logger.info(f"/finduid called by {interaction.user} for username: {username}")
         await interaction.response.defer(ephemeral=True)
         try:
             start_date = "2025-01-01T00:00:00"
@@ -159,10 +160,10 @@ class User(commands.Cog):
             )
             logger.info(f"No UID found for username {username} requested by {interaction.user}")
         except Exception as e:
+            logger.error(f"Error in /finduid for username {username}: {str(e)}")
             await interaction.followup.send(
                 f"❌ Error searching for UID: {str(e)}", ephemeral=True
             )
-            logger.error(f"Error in /finduid for username {username}: {str(e)}")
 
     @app_commands.command(name="tipuser", description="Manually tip a Roobet user (admin only)")
     @app_commands.default_permissions(administrator=True)

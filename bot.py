@@ -31,10 +31,24 @@ COGS = [
 @bot.event
 async def on_ready():
     logger.info(f"{bot.user.name} is now online and ready!")
-    # Remove all global commands and resync
+    guild_id = int(os.getenv("GUILD_ID"))
+    guild = discord.Object(id=guild_id)
+    # Step 1: Clear all commands globally and for the guild
     bot.tree.clear_commands(guild=None)
+    bot.tree.clear_commands(guild=guild)
     await bot.tree.sync()
-    logger.info("Global slash commands cleared and resynced.")
+    await bot.tree.sync(guild=guild)
+    logger.info("All commands cleared globally and for guild. Synced empty state.")
+    # Step 2: Reload cogs and sync again to re-register only current commands
+    for cog in COGS:
+        try:
+            await bot.reload_extension(cog)
+            logger.info(f"Reloaded cog: {cog}")
+        except Exception as e:
+            logger.error(f"Failed to reload cog {cog}: {e}")
+    await bot.tree.sync()
+    await bot.tree.sync(guild=guild)
+    logger.info(f"Commands re-registered and synced for guild {guild_id} and globally.")
 
 async def load_cogs():
     for cog in COGS:
