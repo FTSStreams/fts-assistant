@@ -15,7 +15,7 @@ class User(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="mywager", description="Check your personal wager stats for the current month using your Roobet username")
+    @app_commands.command(name="mywager", description="Check your personal wager stats for the current month using your Roobet username", guild=discord.Object(id=GUILD_ID))
     @app_commands.describe(username="Your Roobet username")
     async def mywager(self, interaction: discord.Interaction, username: str):
         await interaction.response.defer()
@@ -57,7 +57,7 @@ class User(commands.Cog):
         embed.set_footer(text=f"🕒 Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="monthlygoal", description="Display total wager and weighted wager for the current month")
+    @app_commands.command(name="monthlygoal", description="Display total wager and weighted wager for the current month", guild=discord.Object(id=GUILD_ID))
     async def monthlygoal(self, interaction: discord.Interaction):
         await interaction.response.defer()
         start_date = "2025-06-01T00:00:00"
@@ -89,7 +89,7 @@ class User(commands.Cog):
             await interaction.followup.send(f"❌ Error retrieving monthly stats: {str(e)}", ephemeral=True)
             logger.error(f"Error in /monthlygoal: {str(e)}")
 
-    @app_commands.command(name="tipstats", description="Display tip statistics (admin only)")
+    @app_commands.command(name="tipstats", description="Display tip statistics (admin only)", guild=discord.Object(id=GUILD_ID))
     @app_commands.default_permissions(administrator=True)
     async def tipstats(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -131,58 +131,40 @@ class User(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"❌ Error retrieving tip stats: {str(e)}", ephemeral=True)
             logger.error(f"Error in /tipstats: {str(e)}")
-        finally:
-            release_db_connection(conn)
 
-    @app_commands.command(name="finduid", description="Find the Roobet UID of a player who wagered in 2025 (admin only)")
-    @app_commands.default_permissions(administrator=True)
-    @app_commands.describe(username="The Roobet username to search for")
-    async def finduid(self, interaction: discord.Interaction, username: str):
-        logger.info(f"/finduid called by {interaction.user} for username: {username}")
-        await interaction.response.defer(ephemeral=True)
-        try:
-            start_date = "2025-01-01T00:00:00"
-            end_date = "2025-12-31T23:59:59"
-            wager_data = fetch_weighted_wager(start_date, end_date)
-            username_lower = username.lower()
-            for entry in wager_data:
-                entry_username = entry.get("username", "").lower()
-                if username_lower in entry_username:
-                    uid = entry.get("uid")
-                    if uid:
-                        await interaction.followup.send(
-                            f"✅ Found UID for {entry.get('username')}: `{uid}`", ephemeral=True
-                        )
-                        logger.info(f"Found UID {uid} for username {username} requested by {interaction.user}")
-                        return
-            await interaction.followup.send(
-                f"❌ No user found with username '{username}' who wagered in 2025.", ephemeral=True
-            )
-            logger.info(f"No UID found for username {username} requested by {interaction.user}")
-        except Exception as e:
-            logger.error(f"Error in /finduid for username {username}: {str(e)}")
-            await interaction.followup.send(
-                f"❌ Error searching for UID: {str(e)}", ephemeral=True
-            )
-
-    @app_commands.command(name="tipuser", description="Manually tip a Roobet user (admin only)")
+    @app_commands.command(name="tipuser", description="Manually tip a Roobet user by username (admin only)", guild=discord.Object(id=GUILD_ID))
     @app_commands.default_permissions(administrator=True)
     @app_commands.describe(
         username="The Roobet username of the player",
-        userid="The Roobet UID of the player",
         amount="The tip amount in USD (e.g., 5.00)"
     )
-    async def tipuser(self, interaction: discord.Interaction, username: str, userid: str, amount: float):
+    async def tipuser(self, interaction: discord.Interaction, username: str, amount: float):
         if amount <= 0:
             await interaction.response.send_message("❌ Tip amount must be greater than 0.", ephemeral=True)
             logger.error(f"Invalid tip amount: {amount} by {interaction.user}")
             return
         await interaction.response.defer()
-        logger.info(f"Attempting to send manual tip of ${amount} to {username} (UID: {userid})")
+        # Search for UID in wager data (current year)
+        start_date = "2025-01-01T00:00:00"
+        end_date = "2025-12-31T23:59:59"
+        weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+        username_lower = username.lower()
+        roobet_uid = None
+        for entry in weighted_wager_data:
+            entry_username = entry.get("username", "").lower()
+            if username_lower == entry_username:
+                roobet_uid = entry.get("uid")
+                username = entry.get("username")
+                break
+        if not roobet_uid:
+            await interaction.followup.send(f"❌ No user found with username '{username}' who wagered in 2025.", ephemeral=True)
+            logger.error(f"No UID found for username {username} in /tipuser by {interaction.user}")
+            return
+        logger.info(f"Attempting to send manual tip of ${amount} to {username} (UID: {roobet_uid})")
         response = send_tip(
             user_id=os.getenv("ROOBET_USER_ID"),
             to_username=username,
-            to_user_id=userid,
+            to_user_id=roobet_uid,
             amount=amount,
             show_in_chat=True,
             balance_type="crypto"
@@ -200,13 +182,13 @@ class User(commands.Cog):
             )
             embed.set_footer(text=f"Tipped on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
             await interaction.followup.send(embed=embed)
-            logger.info(f"Manual tip of ${amount} sent to {username} (UID: {userid})")
+            logger.info(f"Manual tip of ${amount} sent to {username} (UID: {roobet_uid})")
         else:
             error_message = response.get("message", "Unknown error")
             await interaction.followup.send(
                 f"❌ Failed to send tip to {username}: {error_message}", ephemeral=True
             )
-            logger.error(f"Failed to send tip to {username} (UID: {userid}): {error_message}")
+            logger.error(f"Failed to send tip to {username} (UID: {roobet_uid}): {error_message}")
 
 async def setup(bot):
     await bot.add_cog(User(bot))
