@@ -124,4 +124,4 @@ class Leaderboard(commands.Cog):
         await self.bot.wait_until_ready()
 
 async def setup(bot):
-    await bot.add_cog(Leaderboard(bot))
+    await bot.add_cog(Leaderboard(bot, guild=discord.Object(id=GUILD_ID)))

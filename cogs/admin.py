@@ -3,14 +3,16 @@ from discord import app_commands
 from discord.ext import commands
 from db import get_db_connection, release_db_connection
 import logging
+import os
 
 logger = logging.getLogger(__name__)
+GUILD_ID = int(os.getenv("GUILD_ID"))
 
 class Admin(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="clear_tips", description="Clear all milestone tips from the database (admin only)")
+    @app_commands.command(name="clear_tips", description="Clear all milestone tips from the database (admin only)", guild=discord.Object(id=GUILD_ID))
     @app_commands.default_permissions(administrator=True)
     async def clear_tips(self, interaction: discord.Interaction):
         conn = get_db_connection()
@@ -28,7 +30,7 @@ class Admin(commands.Cog):
         finally:
             release_db_connection(conn)
 
-    @app_commands.command(name="status", description="Check bot status (admin only)")
+    @app_commands.command(name="status", description="Check bot status (admin only)", guild=discord.Object(id=GUILD_ID))
     @app_commands.default_permissions(administrator=True)
     async def status(self, interaction: discord.Interaction):
         db_status = "Connected"

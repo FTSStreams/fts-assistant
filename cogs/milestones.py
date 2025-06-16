@@ -96,4 +96,4 @@ class Milestones(commands.Cog):
         await self.bot.wait_until_ready()
 
 async def setup(bot):
-    await bot.add_cog(Milestones(bot))
+    await bot.add_cog(Milestones(bot, guild=discord.Object(id=GUILD_ID)))
