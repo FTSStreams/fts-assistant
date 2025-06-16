@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands, tasks
-from utils import fetch_weighted_wager, send_tip
+from utils import fetch_weighted_wager, send_tip, get_current_month_range
 from db import get_db_connection, release_db_connection, save_tip_log
 import os
 import logging
@@ -86,8 +86,7 @@ class Milestones(commands.Cog):
     @tasks.loop(minutes=15)
     async def check_wager_milestones(self):
         sent_tips = load_sent_tips()
-        start_date = "2025-06-01T00:00:00"
-        end_date = "2025-06-30T23:59:59"
+        start_date, end_date = get_current_month_range()
         weighted_wager_data = fetch_weighted_wager(start_date, end_date)
         for entry in weighted_wager_data:
             user_id = entry.get("uid")

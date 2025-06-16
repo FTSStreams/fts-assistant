@@ -103,3 +103,12 @@ async def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, 
         except Exception as e:
             logger.error(f"Exception in send_tip for {to_username}: {e}")
             return {"success": False, "message": str(e)}
+
+def get_current_month_range():
+    now = datetime.now(dt.UTC)
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if now.month == 12:
+        end = start.replace(year=now.year + 1, month=1) - dt.timedelta(seconds=1)
+    else:
+        end = start.replace(month=now.month + 1) - dt.timedelta(seconds=1)
+    return start.isoformat(), end.isoformat()

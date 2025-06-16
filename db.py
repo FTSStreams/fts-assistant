@@ -69,3 +69,32 @@ def save_tip_log(user_id, username, amount, tip_type):
         logger.error(f"Error saving tip log to database: {e}")
     finally:
         release_db_connection(conn)
+
+def save_announced_goals(goals):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = %s;",
+                ("announced_goals", ",".join(str(g) for g in goals), ",".join(str(g) for g in goals))
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error saving announced goals: {e}")
+    finally:
+        release_db_connection(conn)
+
+def load_announced_goals():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value FROM settings WHERE key = %s;", ("announced_goals",))
+            result = cur.fetchone()
+            if result and result[0]:
+                return set(int(x) for x in result[0].split(",") if x)
+            return set()
+    except Exception as e:
+        logger.error(f"Error loading announced goals: {e}")
+        return set()
+    finally:
+        release_db_connection(conn)
