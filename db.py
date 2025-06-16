@@ -28,3 +28,30 @@ def release_db_connection(conn):
 
 def close_db_pool():
     db_pool.closeall()
+
+def save_leaderboard_message_id(message_id):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = %s;",
+                ("leaderboard_message_id", str(message_id), str(message_id))
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error saving leaderboard message ID: {e}")
+    finally:
+        release_db_connection(conn)
+
+def get_leaderboard_message_id():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value FROM settings WHERE key = %s;", ("leaderboard_message_id",))
+            result = cur.fetchone()
+            return int(result[0]) if result else None
+    except Exception as e:
+        logger.error(f"Error retrieving leaderboard message ID: {e}")
+        return None
+    finally:
+        release_db_connection(conn)

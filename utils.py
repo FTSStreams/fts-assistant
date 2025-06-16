@@ -4,6 +4,7 @@ from datetime import datetime
 import datetime as dt
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 import os
+import time
 
 ROOBET_API_TOKEN = os.getenv("ROOBET_API_TOKEN")
 TIPPING_API_TOKEN = os.getenv("TIPPING_API_TOKEN")
@@ -74,13 +75,15 @@ def fetch_weighted_wager(start_date, end_date):
 )
 def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balance_type="crypto"):
     headers = {"Authorization": f"Bearer {TIPPING_API_TOKEN}"}
+    nonce = str(int(time.time() * 1000))  # Use current timestamp in ms as a simple nonce
     payload = {
         "userId": user_id,
         "toUserName": to_username,
         "toUserId": to_user_id,
         "amount": amount,
         "showInChat": show_in_chat,
-        "balanceType": balance_type
+        "balanceType": balance_type,
+        "nonce": nonce
     }
     logger.debug(f"Sending tip request for {to_username}: Payload={payload}")
     try:

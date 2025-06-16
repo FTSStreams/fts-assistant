@@ -22,6 +22,33 @@ MILESTONES = [
     {"tier": "Legend", "threshold": 100000, "tip": 285.00, "color": discord.Color.green(), "emoji": "🏆"}
 ]
 
+def load_sent_tips():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id, tier FROM tips;")
+            tips = {(row[0], row[1]) for row in cur.fetchall()}
+        return tips
+    except Exception as e:
+        logger.error(f"Error loading tips from database: {e}")
+        return set()
+    finally:
+        release_db_connection(conn)
+
+def save_tip(user_id, tier):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO tips (user_id, tier) VALUES (%s, %s) ON CONFLICT DO NOTHING;",
+                (user_id, tier)
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error saving tip to database: {e}")
+    finally:
+        release_db_connection(conn)
+
 class Milestones(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -33,6 +60,7 @@ class Milestones(commands.Cog):
         if not channel:
             logger.error("Milestone channel not found.")
             return
+        sent_tips = load_sent_tips()
         start_date = "2025-06-01T00:00:00"
         end_date = "2025-06-30T23:59:59"
         weighted_wager_data = fetch_weighted_wager(start_date, end_date)
@@ -45,9 +73,10 @@ class Milestones(commands.Cog):
             for milestone in MILESTONES:
                 tier = milestone["tier"]
                 threshold = milestone["threshold"]
-                if weighted_wagered >= threshold:
-                    # Send tip and announce (simplified for brevity)
+                if weighted_wagered >= threshold and (user_id, tier) not in sent_tips:
+                    # Send tip and announce
                     send_tip(user_id, username, user_id, milestone["tip"])
+                    save_tip(user_id, tier)
                     embed = discord.Embed(
                         title=f"{milestone['emoji']} {tier} Wager Milestone Achieved! {milestone['emoji']}",
                         description=(
