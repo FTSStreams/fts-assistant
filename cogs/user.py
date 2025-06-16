@@ -15,7 +15,7 @@ class User(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="mywager", description="Check your personal wager stats for the current month using your Roobet username", guild=discord.Object(id=GUILD_ID))
+    @app_commands.command(name="mywager", description="Check your personal wager stats for the current month using your Roobet username")
     @app_commands.describe(username="Your Roobet username")
     async def mywager(self, interaction: discord.Interaction, username: str):
         await interaction.response.defer()
@@ -57,7 +57,7 @@ class User(commands.Cog):
         embed.set_footer(text=f"🕒 Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="monthlygoal", description="Display total wager and weighted wager for the current month", guild=discord.Object(id=GUILD_ID))
+    @app_commands.command(name="monthlygoal", description="Display total wager and weighted wager for the current month")
     async def monthlygoal(self, interaction: discord.Interaction):
         await interaction.response.defer()
         start_date = "2025-06-01T00:00:00"
@@ -89,7 +89,7 @@ class User(commands.Cog):
             await interaction.followup.send(f"❌ Error retrieving monthly stats: {str(e)}", ephemeral=True)
             logger.error(f"Error in /monthlygoal: {str(e)}")
 
-    @app_commands.command(name="tipstats", description="Display tip statistics (admin only)", guild=discord.Object(id=GUILD_ID))
+    @app_commands.command(name="tipstats", description="Display tip statistics (admin only)")
     @app_commands.default_permissions(administrator=True)
     async def tipstats(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -132,7 +132,7 @@ class User(commands.Cog):
             await interaction.followup.send(f"❌ Error retrieving tip stats: {str(e)}", ephemeral=True)
             logger.error(f"Error in /tipstats: {str(e)}")
 
-    @app_commands.command(name="tipuser", description="Manually tip a Roobet user by username (admin only)", guild=discord.Object(id=GUILD_ID))
+    @app_commands.command(name="tipuser", description="Manually tip a Roobet user by username (admin only)")
     @app_commands.default_permissions(administrator=True)
     @app_commands.describe(
         username="The Roobet username of the player",
