@@ -71,12 +71,14 @@ def save_tip_log(user_id, username, amount, tip_type):
         release_db_connection(conn)
 
 def save_announced_goals(goals):
+    # Ensure all goals are saved as integers (not strings)
+    goals_int = set(int(g) for g in goals)
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = %s;",
-                ("announced_goals", ",".join(str(g) for g in goals), ",".join(str(g) for g in goals))
+                ("announced_goals", ",".join(str(g) for g in goals_int), ",".join(str(g) for g in goals_int))
             )
             conn.commit()
     except Exception as e:
