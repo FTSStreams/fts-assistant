@@ -55,7 +55,10 @@ class Milestones(commands.Cog):
         self.bot = bot
         self.tip_queue = asyncio.Queue()
         self.check_wager_milestones.start()
-        self.process_tip_queue_task = self.bot.loop.create_task(self.process_tip_queue())
+        # process_tip_queue_task will be started in cog_load
+
+    async def cog_load(self):
+        self.process_tip_queue_task = asyncio.create_task(self.process_tip_queue())
 
     async def process_tip_queue(self):
         channel = self.bot.get_channel(MILESTONE_CHANNEL_ID)
