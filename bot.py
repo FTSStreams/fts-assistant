@@ -12,6 +12,7 @@ from discord import app_commands
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 import datetime as dt
 
+# This is a Discord bot that interacts with the Roobet APIs to managed all sorts of goods.
 # Load environment variables
 load_dotenv()
 
