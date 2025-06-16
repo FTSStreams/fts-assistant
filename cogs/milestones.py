@@ -6,6 +6,7 @@ import os
 import logging
 from datetime import datetime
 import datetime as dt
+import asyncio
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -52,14 +53,38 @@ def save_tip(user_id, tier):
 class Milestones(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.tip_queue = asyncio.Queue()
         self.check_wager_milestones.start()
+        self.process_tip_queue_task = self.bot.loop.create_task(self.process_tip_queue())
+
+    async def process_tip_queue(self):
+        channel = self.bot.get_channel(MILESTONE_CHANNEL_ID)
+        while True:
+            user_id, username, milestone = await self.tip_queue.get()
+            tip_response = await send_tip(user_id, username, user_id, milestone["tip"])
+            if tip_response.get("success"):
+                save_tip(user_id, milestone["tier"])
+                save_tip_log(user_id, username, milestone["tip"], "milestone")
+                embed = discord.Embed(
+                    title=f"{milestone['emoji']} {milestone['tier']} Wager Milestone Achieved! {milestone['emoji']}",
+                    description=(
+                        f"🎉 **{username}** has conquered the **{milestone['tier']} Milestone**!\n"
+                        f"✨ **Weighted Wagered**: ${milestone['threshold']:,.2f}\n"
+                        f"💸 **Tip Received**: **${milestone['tip']:.2f} USD**\n"
+                        f"Keep rocking the slots! 🚀"
+                    ),
+                    color=milestone["color"]
+                )
+                embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
+                embed.set_footer(text=f"Tipped on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
+                await channel.send(embed=embed)
+            else:
+                logger.error(f"Failed to send milestone tip to {username}: {tip_response.get('message')}")
+            await asyncio.sleep(30)
+            self.tip_queue.task_done()
 
     @tasks.loop(minutes=15)
     async def check_wager_milestones(self):
-        channel = self.bot.get_channel(MILESTONE_CHANNEL_ID)
-        if not channel:
-            logger.error("Milestone channel not found.")
-            return
         sent_tips = load_sent_tips()
         start_date = "2025-06-01T00:00:00"
         end_date = "2025-06-30T23:59:59"
@@ -74,26 +99,7 @@ class Milestones(commands.Cog):
                 tier = milestone["tier"]
                 threshold = milestone["threshold"]
                 if weighted_wagered >= threshold and (user_id, tier) not in sent_tips:
-                    # Send tip and announce
-                    tip_response = await send_tip(user_id, username, user_id, milestone["tip"])
-                    if tip_response.get("success"):
-                        save_tip(user_id, tier)
-                        save_tip_log(user_id, username, milestone["tip"], "milestone")
-                        embed = discord.Embed(
-                            title=f"{milestone['emoji']} {tier} Wager Milestone Achieved! {milestone['emoji']}",
-                            description=(
-                                f"🎉 **{username}** has conquered the **{tier} Milestone**!\n"
-                                f"✨ **Weighted Wagered**: ${milestone['threshold']:,.2f}\n"
-                                f"💸 **Tip Received**: **${milestone['tip']:.2f} USD**\n"
-                                f"Keep rocking the slots! 🚀"
-                            ),
-                            color=milestone["color"]
-                        )
-                        embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
-                        embed.set_footer(text=f"Tipped on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
-                        await channel.send(embed=embed)
-                    else:
-                        logger.error(f"Failed to send milestone tip to {username}: {tip_response.get('message')}")
+                    await self.tip_queue.put((user_id, username, milestone))
 
     @check_wager_milestones.before_loop
     async def before_milestone_loop(self):
