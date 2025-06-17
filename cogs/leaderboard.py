@@ -20,7 +20,10 @@ GOAL_THRESHOLDS = [
 class Leaderboard(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.announced_goals = load_announced_goals()
+        now = datetime.now(dt.UTC)
+        year_month = f"{now.year}_{now.month:02d}"
+        self.announced_goals = load_announced_goals(year_month)
+        self.year_month = year_month
         self.auto_post_monthly_goal.start()
         self.update_roobet_leaderboard.start()
 
@@ -132,6 +135,11 @@ class Leaderboard(commands.Cog):
             logger.error("Monthly goal channel not found.")
             return
         start_date, end_date = get_current_month_range()
+        now = datetime.now(dt.UTC)
+        year_month = f"{now.year}_{now.month:02d}"
+        if year_month != self.year_month:
+            self.announced_goals = set()
+            self.year_month = year_month
         try:
             total_wager_data = fetch_total_wager(start_date, end_date)
             weighted_wager_data = fetch_weighted_wager(start_date, end_date)
@@ -149,7 +157,7 @@ class Leaderboard(commands.Cog):
             if crossed:
                 threshold = max(crossed)
                 self.announced_goals.add(threshold)
-                save_announced_goals(self.announced_goals)
+                save_announced_goals(self.announced_goals, self.year_month)
                 embed = discord.Embed(
                     title="📈 Monthly Wager Stats",
                     description=(

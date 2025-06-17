@@ -3,6 +3,8 @@ import logging
 import psycopg2
 from psycopg2 import pool
 from dotenv import load_dotenv
+from datetime import datetime
+import datetime as dt
 
 load_dotenv()
 
@@ -70,15 +72,19 @@ def save_tip_log(user_id, username, amount, tip_type):
     finally:
         release_db_connection(conn)
 
-def save_announced_goals(goals):
+def save_announced_goals(goals, year_month=None):
     # Ensure all goals are saved as integers (not strings)
     goals_int = set(int(g) for g in goals)
+    if year_month is None:
+        now = datetime.now()
+        year_month = f"{now.year}_{now.month:02d}"
+    key = f"announced_goals_{year_month}"
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = %s;",
-                ("announced_goals", ",".join(str(g) for g in goals_int), ",".join(str(g) for g in goals_int))
+                (key, ",".join(str(g) for g in goals_int), ",".join(str(g) for g in goals_int))
             )
             conn.commit()
     except Exception as e:
@@ -86,11 +92,15 @@ def save_announced_goals(goals):
     finally:
         release_db_connection(conn)
 
-def load_announced_goals():
+def load_announced_goals(year_month=None):
+    if year_month is None:
+        now = datetime.now()
+        year_month = f"{now.year}_{now.month:02d}"
+    key = f"announced_goals_{year_month}"
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT value FROM settings WHERE key = %s;", ("announced_goals",))
+            cur.execute("SELECT value FROM settings WHERE key = %s;", (key,))
             result = cur.fetchone()
             if result and result[0]:
                 return set(int(x) for x in result[0].split(",") if x)
