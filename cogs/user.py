@@ -231,5 +231,36 @@ class User(commands.Cog):
         embed.set_image(url="attachment://monthtomonth.png")
         await interaction.followup.send(embed=embed, file=file)
 
+    @app_commands.command(name="lifetimestats", description="Show total wager and weighted wager since Jan 1st, 2025")
+    async def lifetimestats(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        from datetime import datetime
+        import datetime as dt
+        start_date = "2025-01-01T00:00:00"
+        now = datetime.now(dt.UTC)
+        end_date = now.strftime("%Y-%m-%dT%H:%M:%S")
+        total_wager_data = fetch_total_wager(start_date, end_date)
+        weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+        total_wager = sum(
+            entry.get("wagered", 0)
+            for entry in total_wager_data
+            if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
+        )
+        total_weighted_wager = sum(
+            entry.get("weightedWagered", 0)
+            for entry in weighted_wager_data
+            if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
+        )
+        embed = discord.Embed(
+            title="🏆 Lifetime Wager Stats",
+            description=(
+                f"**TOTAL WAGER (Since Jan 1st, 2025):** ${total_wager:,.2f} USD\n"
+                f"**TOTAL WEIGHTED WAGER (Since Jan 1st, 2025):** ${total_weighted_wager:,.2f} USD"
+            ),
+            color=discord.Color.purple()
+        )
+        embed.set_footer(text=f"Generated on {now.strftime('%Y-%m-%d %H:%M:%S')} GMT")
+        await interaction.followup.send(embed=embed)
+
 async def setup(bot):
     await bot.add_cog(User(bot))
