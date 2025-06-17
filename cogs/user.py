@@ -190,5 +190,45 @@ class User(commands.Cog):
             )
             logger.error(f"Failed to send tip to {username} (UID: {roobet_uid}): {error_message}")
 
+    @app_commands.command(name="monthtomonth", description="Show a month-to-month wager line chart")
+    async def monthtomonth(self, interaction: discord.Interaction):
+        import matplotlib.pyplot as plt
+        import io
+
+        # Hardcoded values for now
+        months = [
+            "January", "February", "March", "April", "May", "June"
+        ]
+        wagers = [
+            121784.00, 312112.00, 283245.00, 108998.00, 151137.00
+        ]
+        # Fetch current month wager dynamically
+        start_date, end_date = get_current_month_range()
+        total_wager_data = fetch_total_wager(start_date, end_date)
+        total_wager = sum(
+            entry.get("wagered", 0)
+            for entry in total_wager_data
+            if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
+        )
+        wagers.append(total_wager)
+
+        plt.figure(figsize=(10, 5))
+        plt.plot(months, wagers, marker='o', color='b')
+        plt.title('Month-to-Month Wager Totals')
+        plt.xlabel('Month')
+        plt.ylabel('Total Wager (USD)')
+        plt.grid(True)
+        plt.tight_layout()
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)
+        plt.close()
+
+        file = discord.File(buf, filename="monthtomonth.png")
+        embed = discord.Embed(title="📈 Month-to-Month Wager Totals", color=discord.Color.green())
+        embed.set_image(url="attachment://monthtomonth.png")
+        await interaction.response.send_message(embed=embed, file=file)
+
 async def setup(bot):
     await bot.add_cog(User(bot))
