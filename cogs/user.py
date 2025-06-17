@@ -196,28 +196,28 @@ class User(commands.Cog):
         import matplotlib.pyplot as plt
         import io
 
-        # Hardcoded values for now
+        # Hardcoded values for now (WEIGHTED wager)
         months = [
             "January", "February", "March", "April", "May", "June"
         ]
         wagers = [
             121784.00, 312112.00, 283245.00, 108998.00, 151137.00
         ]
-        # Fetch current month wager dynamically
+        # Fetch current month WEIGHTED wager dynamically
         start_date, end_date = get_current_month_range()
-        total_wager_data = fetch_total_wager(start_date, end_date)
-        total_wager = sum(
-            entry.get("wagered", 0)
-            for entry in total_wager_data
-            if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
+        weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+        total_weighted_wager = sum(
+            entry.get("weightedWagered", 0)
+            for entry in weighted_wager_data
+            if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
         )
-        wagers.append(total_wager)
+        wagers.append(total_weighted_wager)
 
         plt.figure(figsize=(10, 5))
         plt.plot(months, wagers, marker='o', color='b')
-        plt.title('Month-to-Month Wager Totals')
+        plt.title('Month-to-Month WEIGHTED Wager Totals')
         plt.xlabel('Month')
-        plt.ylabel('Total Wager (USD)')
+        plt.ylabel('Weighted Wager (USD)')
         plt.grid(True)
         plt.tight_layout()
 
@@ -227,7 +227,7 @@ class User(commands.Cog):
         plt.close()
 
         file = discord.File(buf, filename="monthtomonth.png")
-        embed = discord.Embed(title="📈 Month-to-Month Wager Totals", color=discord.Color.green())
+        embed = discord.Embed(title="📈 Month-to-Month WEIGHTED Wager Totals", color=discord.Color.green())
         embed.set_image(url="attachment://monthtomonth.png")
         await interaction.followup.send(embed=embed, file=file)
 
