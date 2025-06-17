@@ -113,7 +113,7 @@ class User(commands.Cog):
                     "last_7d": float(result[1]),
                     "last_30d": float(result[2]),
                     # Updated hardcoded base to match your account's actual total
-                    "since_jan1": float(result[3]) + 5254.43
+                    "since_jan1": float(result[3]) + 11295.53
                 }
             embed = discord.Embed(
                 title="📊 Tip Statistics",
