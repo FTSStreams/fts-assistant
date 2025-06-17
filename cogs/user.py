@@ -192,6 +192,7 @@ class User(commands.Cog):
 
     @app_commands.command(name="monthtomonth", description="Show a month-to-month wager line chart")
     async def monthtomonth(self, interaction: discord.Interaction):
+        await interaction.response.defer()
         import matplotlib.pyplot as plt
         import io
 
@@ -228,7 +229,7 @@ class User(commands.Cog):
         file = discord.File(buf, filename="monthtomonth.png")
         embed = discord.Embed(title="📈 Month-to-Month Wager Totals", color=discord.Color.green())
         embed.set_image(url="attachment://monthtomonth.png")
-        await interaction.response.send_message(embed=embed, file=file)
+        await interaction.followup.send(embed=embed, file=file)
 
 async def setup(bot):
     await bot.add_cog(User(bot))
