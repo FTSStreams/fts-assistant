@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 from utils import fetch_weighted_wager, send_tip, get_current_month_range
-from db import get_db_connection, release_db_connection, save_tip_log
+from db import get_db_connection, release_db_connection, save_tip_log, load_sent_tips, save_tip
 import os
 import logging
 from datetime import datetime
@@ -23,33 +23,6 @@ MILESTONES = [
     {"tier": "Legend", "threshold": 100000, "tip": 285.00, "color": discord.Color.green(), "emoji": "🏆"}
 ]
 
-def load_sent_tips():
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT user_id, tier FROM tips;")
-            tips = {(row[0], row[1]) for row in cur.fetchall()}
-        return tips
-    except Exception as e:
-        logger.error(f"Error loading tips from database: {e}")
-        return set()
-    finally:
-        release_db_connection(conn)
-
-def save_tip(user_id, tier):
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO tips (user_id, tier) VALUES (%s, %s) ON CONFLICT DO NOTHING;",
-                (user_id, tier)
-            )
-            conn.commit()
-    except Exception as e:
-        logger.error(f"Error saving tip to database: {e}")
-    finally:
-        release_db_connection(conn)
-
 class Milestones(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -63,10 +36,10 @@ class Milestones(commands.Cog):
     async def process_tip_queue(self):
         channel = self.bot.get_channel(MILESTONE_CHANNEL_ID)
         while True:
-            user_id, username, milestone = await self.tip_queue.get()
+            user_id, username, milestone, month, year = await self.tip_queue.get()
             tip_response = await send_tip(user_id, username, user_id, milestone["tip"])
             if tip_response.get("success"):
-                save_tip(user_id, milestone["tier"])
+                save_tip(user_id, milestone["tier"], month, year)
                 save_tip_log(user_id, username, milestone["tip"], "milestone")
                 embed = discord.Embed(
                     title=f"{milestone['emoji']} {milestone['tier']} Wager Milestone Achieved! {milestone['emoji']}",
@@ -88,7 +61,10 @@ class Milestones(commands.Cog):
 
     @tasks.loop(minutes=15)
     async def check_wager_milestones(self):
-        sent_tips = load_sent_tips()
+        now = datetime.now(dt.UTC)
+        month = now.month
+        year = now.year
+        sent_tips = load_sent_tips(month, year)
         start_date, end_date = get_current_month_range()
         weighted_wager_data = fetch_weighted_wager(start_date, end_date)
         for entry in weighted_wager_data:
@@ -101,7 +77,7 @@ class Milestones(commands.Cog):
                 tier = milestone["tier"]
                 threshold = milestone["threshold"]
                 if weighted_wagered >= threshold and (user_id, tier) not in sent_tips:
-                    await self.tip_queue.put((user_id, username, milestone))
+                    await self.tip_queue.put((user_id, username, milestone, month, year))
 
     @check_wager_milestones.before_loop
     async def before_milestone_loop(self):

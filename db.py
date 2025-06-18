@@ -110,3 +110,30 @@ def load_announced_goals(year_month=None):
         return set()
     finally:
         release_db_connection(conn)
+
+def load_sent_tips(month, year):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id, tier FROM milestonetips WHERE month = %s AND year = %s;", (month, year))
+            tips = {(row[0], row[1]) for row in cur.fetchall()}
+        return tips
+    except Exception as e:
+        logger.error(f"Error loading tips from database: {e}")
+        return set()
+    finally:
+        release_db_connection(conn)
+
+def save_tip(user_id, tier, month, year, tipped_at=None):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO milestonetips (user_id, tier, month, year, tipped_at) VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING;",
+                (user_id, tier, month, year, tipped_at or datetime.now())
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error saving tip to database: {e}")
+    finally:
+        release_db_connection(conn)
