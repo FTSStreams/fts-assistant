@@ -53,7 +53,7 @@ class Milestones(commands.Cog):
             tip_response = await send_tip(bot_user_id, username, user_id, milestone["tip"])
             if tip_response.get("success"):
                 save_tip(user_id, milestone["tier"], month, year)
-                save_tip_log(user_id, username, milestone["tip"], "milestone")
+                save_tip_log(user_id, username, milestone["tip"], "milestone", month, year)
                 embed = discord.Embed(
                     title=f"{milestone['emoji']} {milestone['tier']} Wager Milestone Achieved! {milestone['emoji']}",
                     description=(

@@ -58,13 +58,13 @@ def get_leaderboard_message_id():
     finally:
         release_db_connection(conn)
 
-def save_tip_log(user_id, username, amount, tip_type):
+def save_tip_log(user_id, username, amount, tip_type, month=None, year=None):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO manualtips (user_id, username, amount, tip_type) VALUES (%s, %s, %s, %s);",
-                (user_id, username, amount, tip_type)
+                "INSERT INTO manualtips (user_id, username, amount, tip_type, month, year) VALUES (%s, %s, %s, %s, %s, %s);",
+                (user_id, username, amount, tip_type, month, year)
             )
             conn.commit()
     except Exception as e:

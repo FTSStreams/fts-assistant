@@ -170,7 +170,7 @@ class User(commands.Cog):
         )
         masked_username = username[:-3] + "***" if len(username) > 3 else "***"
         if response.get("success"):
-            save_tip_log(roobet_uid, username, amount, "manual")
+            save_tip_log(roobet_uid, username, amount, "manual", month=datetime.now(dt.UTC).month, year=datetime.now(dt.UTC).year)
             embed = discord.Embed(
                 title="🎉 Manual Tip Sent!",
                 description=(
