@@ -18,7 +18,7 @@ class Admin(commands.Cog):
         conn = get_db_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute("TRUNCATE tips; TRUNCATE pending_tips;")
+                cur.execute("TRUNCATE milestonetips; TRUNCATE pending_tips;")
                 conn.commit()
             global SENT_TIPS
             SENT_TIPS = set()

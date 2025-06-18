@@ -105,7 +105,7 @@ class User(commands.Cog):
                         COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_7d,
                         COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_30d,
                         COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS since_jan1
-                    FROM tip_logs;
+                    FROM manualtips;
                 """, (last_24h, last_7d, last_30d, since_jan1))
                 result = cur.fetchone()
                 stats = {

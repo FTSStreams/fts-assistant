@@ -63,7 +63,7 @@ def save_tip_log(user_id, username, amount, tip_type):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO tip_logs (user_id, username, amount, tip_type) VALUES (%s, %s, %s, %s);",
+                "INSERT INTO manualtips (user_id, username, amount, tip_type) VALUES (%s, %s, %s, %s);",
                 (user_id, username, amount, tip_type)
             )
             conn.commit()
