@@ -25,8 +25,7 @@ COGS = [
     "cogs.admin",
     "cogs.leaderboard",
     "cogs.milestones",
-    "cogs.user",
-    "cogs.favorite"  # Added favorite cog
+    "cogs.user"
 ]
 
 @bot.event
