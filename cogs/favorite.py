@@ -27,6 +27,7 @@ class Favorite(commands.Cog):
                 roobet_uid = entry.get("uid")
                 username = entry.get("username")
                 break
+        print(f"/favorite debug: username={username}, roobet_uid={roobet_uid}")
         if not roobet_uid:
             await interaction.followup.send(f"❌ No user found with username '{username}' who wagered in 2025.", ephemeral=True)
             return
@@ -36,6 +37,7 @@ class Favorite(commands.Cog):
             "Authorization": f"Bearer {os.getenv('ROOBET_API_TOKEN')}"
         }
         params = {"userId": roobet_uid}
+        print(f"/favorite debug: API GET {url} params={params} headers={headers}")
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, params=params) as resp:
                 data = await resp.json()
