@@ -10,7 +10,7 @@ class Favorite(commands.Cog):
         self.bot = bot
         self.logger = logging.getLogger(__name__)
 
-    @app_commands.command(name="Favorite", description="Get all affiliate stats for a user and print to console.")
+    @app_commands.command(name="favorite", description="Get all affiliate stats for a user and print to console.")
     @app_commands.describe(username="The affiliate's username.")
     async def favorite(self, interaction: discord.Interaction, username: str):
         await interaction.response.defer(thinking=True, ephemeral=True)
