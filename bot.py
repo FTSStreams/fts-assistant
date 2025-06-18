@@ -39,6 +39,9 @@ async def on_ready():
     await bot.tree.sync(guild=guild)
     logger.info(f"Guild slash commands copied and synced for guild {guild_id}.")
 
+    # Ensure all cogs are loaded before attempting to reload
+    await load_cogs()
+
     # Step 2: Reload cogs and sync again to re-register only current commands
     for cog in COGS:
         try:
