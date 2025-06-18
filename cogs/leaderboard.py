@@ -38,11 +38,13 @@ class Leaderboard(commands.Cog):
         end_unix = int(datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S%z").timestamp())
         try:
             total_wager_data = fetch_total_wager(start_date, end_date)
+            logger.info(f"[Leaderboard] Total Wager API Response for leaderboard: {len(total_wager_data)} entries (Period: {start_date} to {end_date})")
         except Exception as e:
             logger.error(f"Failed to fetch total wager data: {e}")
             total_wager_data = []
         try:
             weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+            logger.info(f"[Leaderboard] Weighted Wager API Response for leaderboard: {len(weighted_wager_data)} entries (Period: {start_date} to {end_date})")
         except Exception as e:
             logger.error(f"Failed to fetch weighted wager data: {e}")
             weighted_wager_data = []
@@ -103,28 +105,28 @@ class Leaderboard(commands.Cog):
             )
         embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending.")
         message_id = get_leaderboard_message_id()
-        logger.info(f"Retrieved leaderboard message ID: {message_id}")
+        logger.info(f"[Leaderboard] Retrieved leaderboard message ID: {message_id}")
         if message_id:
             try:
                 message = await channel.fetch_message(message_id)
                 await message.edit(embed=embed)
-                logger.info("Leaderboard message updated.")
+                logger.info("[Leaderboard] Leaderboard message updated.")
             except discord.errors.NotFound:
                 logger.warning(f"Leaderboard message ID {message_id} not found, sending new message.")
                 try:
                     message = await channel.send(embed=embed)
                     save_leaderboard_message_id(message.id)
-                    logger.info("New leaderboard message sent.")
+                    logger.info("[Leaderboard] New leaderboard message sent.")
                 except discord.errors.Forbidden:
                     logger.error("Bot lacks permission to send messages in leaderboard channel.")
             except discord.errors.Forbidden:
                 logger.error("Bot lacks permission to edit messages in leaderboard channel.")
         else:
-            logger.info("No leaderboard message ID found, sending new message.")
+            logger.info("[Leaderboard] No leaderboard message ID found, sending new message.")
             try:
                 message = await channel.send(embed=embed)
                 save_leaderboard_message_id(message.id)
-                logger.info("New leaderboard message sent.")
+                logger.info("[Leaderboard] New leaderboard message sent.")
             except discord.errors.Forbidden:
                 logger.error("Bot lacks permission to send messages in leaderboard channel.")
 
@@ -142,7 +144,9 @@ class Leaderboard(commands.Cog):
             self.year_month = year_month
         try:
             total_wager_data = fetch_total_wager(start_date, end_date)
+            logger.info(f"[MonthlyGoal] Total Wager API Response for monthly goal: {len(total_wager_data)} entries (Period: {start_date} to {end_date})")
             weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+            logger.info(f"[MonthlyGoal] Weighted Wager API Response for monthly goal: {len(weighted_wager_data)} entries (Period: {start_date} to {end_date})")
             total_wager = sum(
                 entry.get("wagered", 0)
                 for entry in total_wager_data
