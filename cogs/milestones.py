@@ -34,8 +34,20 @@ class Milestones(commands.Cog):
         self.process_tip_queue_task = asyncio.create_task(self.process_tip_queue())
 
     async def process_tip_queue(self):
-        channel = self.bot.get_channel(MILESTONE_CHANNEL_ID)
         while True:
+            # Always get or fetch the channel each time
+            channel = self.bot.get_channel(MILESTONE_CHANNEL_ID)
+            if channel is None:
+                try:
+                    channel = await self.bot.fetch_channel(MILESTONE_CHANNEL_ID)
+                except Exception as e:
+                    logger.error(f"Failed to fetch milestone channel: {e}")
+                    channel = None
+            if channel is None:
+                logger.error(f"Milestone channel with ID {MILESTONE_CHANNEL_ID} not found. Cannot send milestone embed.")
+                self.tip_queue.task_done()
+                await asyncio.sleep(5)
+                continue
             user_id, username, milestone, month, year = await self.tip_queue.get()
             bot_user_id = os.getenv("ROOBET_USER_ID")
             tip_response = await send_tip(bot_user_id, username, user_id, milestone["tip"])
