@@ -37,7 +37,8 @@ class Milestones(commands.Cog):
         channel = self.bot.get_channel(MILESTONE_CHANNEL_ID)
         while True:
             user_id, username, milestone, month, year = await self.tip_queue.get()
-            tip_response = await send_tip(user_id, username, user_id, milestone["tip"])
+            bot_user_id = os.getenv("ROOBET_USER_ID")
+            tip_response = await send_tip(bot_user_id, username, user_id, milestone["tip"])
             if tip_response.get("success"):
                 save_tip(user_id, milestone["tier"], month, year)
                 save_tip_log(user_id, username, milestone["tip"], "milestone")
