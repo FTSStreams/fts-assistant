@@ -200,24 +200,36 @@ class User(commands.Cog):
         months = [
             "January", "February", "March", "April", "May", "June"
         ]
-        wagers = [
+        weighted_wagers = [
             121784.00, 312112.00, 283245.00, 108998.00, 151137.00
         ]
-        # Fetch current month WEIGHTED wager dynamically
+        total_wagers = [
+            200000.00, 400000.00, 350000.00, 150000.00, 180000.00
+        ]
+        # Fetch current month WEIGHTED and TOTAL wager dynamically
         start_date, end_date = get_current_month_range()
         weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+        total_wager_data = fetch_total_wager(start_date, end_date)
         total_weighted_wager = sum(
             entry.get("weightedWagered", 0)
             for entry in weighted_wager_data
             if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
         )
-        wagers.append(total_weighted_wager)
+        total_wager = sum(
+            entry.get("wagered", 0)
+            for entry in total_wager_data
+            if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
+        )
+        weighted_wagers.append(total_weighted_wager)
+        total_wagers.append(total_wager)
 
         plt.figure(figsize=(10, 5))
-        plt.plot(months, wagers, marker='o', color='b')
-        plt.title('Month-to-Month WEIGHTED Wager Totals')
+        plt.plot(months, weighted_wagers, marker='o', color='b', label='Weighted Wager')
+        plt.plot(months, total_wagers, marker='o', color='r', label='Total Wager')
+        plt.title('Month-to-Month Wager Totals')
         plt.xlabel('Month')
-        plt.ylabel('Weighted Wager (USD)')
+        plt.ylabel('Wager (USD)')
+        plt.legend()
         plt.grid(True)
         plt.tight_layout()
 
@@ -227,7 +239,7 @@ class User(commands.Cog):
         plt.close()
 
         file = discord.File(buf, filename="monthtomonth.png")
-        embed = discord.Embed(title="📈 Month-to-Month WEIGHTED Wager Totals", color=discord.Color.green())
+        embed = discord.Embed(title="📈 Month-to-Month Wager Totals", color=discord.Color.green())
         embed.set_image(url="attachment://monthtomonth.png")
         await interaction.followup.send(embed=embed, file=file)
 
