@@ -87,6 +87,8 @@ async def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, 
         "nonce": nonce
     }
     logger.debug(f"Sending tip request for {to_username}: Payload={payload}")
+    logger.debug(f"[DEBUG] Tip payload for {to_username}: {payload}")
+    logger.debug(f"[DEBUG] Tip headers: {headers}")
     async with aiohttp.ClientSession() as session:
         try:
             async with session.post(TIPPING_API_URL, json=payload, headers=headers, timeout=10) as response:
