@@ -20,7 +20,7 @@ intents.members = True
 intents.message_content = False
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# List of cogs to load
+# List of cogs to load...
 COGS = [
     "cogs.admin",
     "cogs.leaderboard",
