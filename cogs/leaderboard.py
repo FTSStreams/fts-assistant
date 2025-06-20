@@ -8,6 +8,7 @@ from datetime import datetime
 import datetime as dt
 import asyncio
 import json
+import subprocess
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -127,6 +128,20 @@ class Leaderboard(commands.Cog):
                 })
         with open("latestLBResults.json", "w") as f:
             json.dump(leaderboard_results, f, indent=2)
+        # Git add, commit, and push the file to GitHub
+        github_token = os.getenv("GITHUB_TOKEN")
+        repo_url = os.getenv("GIT_REPO_URL")  # e.g., https://github.com/yourusername/yourrepo.git
+        branch = os.getenv("GIT_BRANCH", "main")
+        try:
+            subprocess.run(["git", "config", "--global", "user.email", "bot@example.com"], check=True)
+            subprocess.run(["git", "config", "--global", "user.name", "Leaderboard Bot"], check=True)
+            subprocess.run(["git", "add", "latestLBResults.json"], check=True)
+            subprocess.run(["git", "commit", "-m", "Update leaderboard results"], check=True)
+            if github_token and repo_url:
+                authed_url = repo_url.replace("https://", f"https://{github_token}@")
+                subprocess.run(["git", "push", authed_url, branch], check=True)
+        except Exception as e:
+            logger.error(f"Failed to push leaderboard results to GitHub: {e}")
         if message_id:
             try:
                 message = await channel.fetch_message(message_id)
