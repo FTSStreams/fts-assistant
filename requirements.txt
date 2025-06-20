@@ -6,3 +6,4 @@ tenacity==8.2.3
 PyNaCl==1.5.0
 aiohttp
 matplotlib
+requests
