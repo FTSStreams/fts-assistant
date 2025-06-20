@@ -9,6 +9,8 @@ import datetime as dt
 import asyncio
 import json
 import subprocess
+import base64
+import requests
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -216,6 +218,45 @@ class Leaderboard(commands.Cog):
     @auto_post_monthly_goal.before_loop
     async def before_leaderboard_loop(self):
         await self.bot.wait_until_ready()
+
+def upload_leaderboard_to_github(json_path="latestLBResults.json"):
+    """
+    Uploads or updates the leaderboard JSON file to the GitHub repo using the GitHub API.
+    """
+    GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+    REPO_OWNER = "FTSStreams"
+    REPO_NAME = "fts-assistant"
+    BRANCH = "main"
+    FILE_PATH = "latestLBResults.json"
+    API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
+    headers = {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    # Read the file and encode as base64
+    with open(json_path, "rb") as f:
+        content = base64.b64encode(f.read()).decode()
+    # Get the current file SHA if it exists
+    resp = requests.get(API_URL, headers=headers)
+    if resp.status_code == 200:
+        sha = resp.json()["sha"]
+    else:
+        sha = None
+    data = {
+        "message": "Update leaderboard results",
+        "content": content,
+        "branch": BRANCH
+    }
+    if sha:
+        data["sha"] = sha
+    put_resp = requests.put(API_URL, headers=headers, json=data)
+    if put_resp.status_code in (200, 201):
+        print("Leaderboard uploaded to GitHub successfully.")
+    else:
+        print(f"Failed to upload leaderboard: {put_resp.status_code} {put_resp.text}")
+
+# Call this after saving latestLBResults.json
+# upload_leaderboard_to_github()
 
 async def setup(bot):
     await bot.add_cog(Leaderboard(bot))
