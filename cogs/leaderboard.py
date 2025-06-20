@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands, tasks
-from utils import fetch_total_wager, fetch_weighted_wager, get_current_month_range, fetch_user_stats
+from utils import fetch_total_wager, fetch_weighted_wager, get_current_month_range
 from db import get_leaderboard_message_id, save_leaderboard_message_id, save_announced_goals, load_announced_goals
 import os
 import logging
