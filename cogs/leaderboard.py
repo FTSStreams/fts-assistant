@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands, tasks
-from utils import fetch_total_wager, fetch_weighted_wager, get_current_month_range
+from utils import fetch_total_wager, fetch_weighted_wager, get_current_month_range, fetch_user_stats
 from db import get_leaderboard_message_id, save_leaderboard_message_id, save_announced_goals, load_announced_goals
 import os
 import logging
@@ -8,7 +8,6 @@ from datetime import datetime
 import datetime as dt
 import asyncio
 import json
-import subprocess
 import base64
 import requests
 
@@ -115,35 +114,18 @@ class Leaderboard(commands.Cog):
         for i in range(10):
             if i < len(weighted_wager_data):
                 entry = weighted_wager_data[i]
-                username = entry.get("username", "Unknown")
                 uid = entry.get("uid")
-                total_wagered = total_wager_dict.get(uid, 0) if uid in total_wager_dict else 0
-                weighted_wagered = entry.get("weightedWagered", 0) if isinstance(entry.get("weightedWagered"), (int, float)) else 0
-                prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
-                leaderboard_results.append({
-                    "rank": i + 1,
-                    "username": username,
-                    "uid": uid,
-                    "total_wagered": total_wagered,
-                    "weighted_wagered": weighted_wagered,
-                    "prize": prize
-                })
+                try:
+                    user_stats = await fetch_user_stats(uid)
+                    if user_stats:
+                        user_stats["rank"] = i + 1  # Optionally add rank
+                        leaderboard_results.append(user_stats)
+                except Exception as e:
+                    logger.error(f"Error fetching user stats for {uid}: {e}")
         with open("latestLBResults.json", "w") as f:
             json.dump(leaderboard_results, f, indent=2)
-        # Git add, commit, and push the file to GitHub
-        github_token = os.getenv("GITHUB_TOKEN")
-        repo_url = os.getenv("GIT_REPO_URL")  # e.g., https://github.com/yourusername/yourrepo.git
-        branch = os.getenv("GIT_BRANCH", "main")
-        try:
-            subprocess.run(["git", "config", "--global", "user.email", "bot@example.com"], check=True)
-            subprocess.run(["git", "config", "--global", "user.name", "Leaderboard Bot"], check=True)
-            subprocess.run(["git", "add", "latestLBResults.json"], check=True)
-            subprocess.run(["git", "commit", "-m", "Update leaderboard results"], check=True)
-            if github_token and repo_url:
-                authed_url = repo_url.replace("https://", f"https://{github_token}@")
-                subprocess.run(["git", "push", authed_url, branch], check=True)
-        except Exception as e:
-            logger.error(f"Failed to push leaderboard results to GitHub: {e}")
+        # Upload to GitHub using the API
+        upload_leaderboard_to_github("latestLBResults.json")
         if message_id:
             try:
                 message = await channel.fetch_message(message_id)
