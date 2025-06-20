@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 import datetime as dt
 import asyncio
+import json
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -106,6 +107,26 @@ class Leaderboard(commands.Cog):
         embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending.")
         message_id = get_leaderboard_message_id()
         logger.info(f"[Leaderboard] Retrieved leaderboard message ID: {message_id}")
+        # Save leaderboard data to latestLBResults.json
+        leaderboard_results = []
+        for i in range(10):
+            if i < len(weighted_wager_data):
+                entry = weighted_wager_data[i]
+                username = entry.get("username", "Unknown")
+                uid = entry.get("uid")
+                total_wagered = total_wager_dict.get(uid, 0) if uid in total_wager_dict else 0
+                weighted_wagered = entry.get("weightedWagered", 0) if isinstance(entry.get("weightedWagered"), (int, float)) else 0
+                prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
+                leaderboard_results.append({
+                    "rank": i + 1,
+                    "username": username,
+                    "uid": uid,
+                    "total_wagered": total_wagered,
+                    "weighted_wagered": weighted_wagered,
+                    "prize": prize
+                })
+        with open("latestLBResults.json", "w") as f:
+            json.dump(leaderboard_results, f, indent=2)
         if message_id:
             try:
                 message = await channel.fetch_message(message_id)
