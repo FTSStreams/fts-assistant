@@ -137,3 +137,67 @@ def save_tip(user_id, tier, month, year, tipped_at=None):
         logger.error(f"Error saving tip to database: {e}")
     finally:
         release_db_connection(conn)
+
+def get_active_slot_challenge():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM active_slot_challenge LIMIT 1;")
+            row = cur.fetchone()
+            if row:
+                return {
+                    "id": row[0],
+                    "game_identifier": row[1],
+                    "game_name": row[2],
+                    "required_multi": row[3],
+                    "prize": row[4],
+                    "start_time": row[5],
+                    "posted_by": row[6],
+                    "posted_by_username": row[7]
+                }
+            return None
+    except Exception as e:
+        logger.error(f"Error fetching active slot challenge: {e}")
+        return None
+    finally:
+        release_db_connection(conn)
+
+def set_active_slot_challenge(game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM active_slot_challenge;")
+            cur.execute(
+                "INSERT INTO active_slot_challenge (game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username) VALUES (%s, %s, %s, %s, %s, %s, %s);",
+                (game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username)
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error setting active slot challenge: {e}")
+    finally:
+        release_db_connection(conn)
+
+def clear_active_slot_challenge():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM active_slot_challenge;")
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error clearing active slot challenge: {e}")
+    finally:
+        release_db_connection(conn)
+
+def log_slot_challenge(game_identifier, game_name, required_multi, prize, start_time, end_time, posted_by, posted_by_username, winner_uid, winner_username, winner_multiplier, status):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO slot_challenge_logs (game_identifier, game_name, required_multi, prize, start_time, end_time, posted_by, posted_by_username, winner_uid, winner_username, winner_multiplier, status) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
+                (game_identifier, game_name, required_multi, prize, start_time, end_time, posted_by, posted_by_username, winner_uid, winner_username, winner_multiplier, status)
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error logging slot challenge: {e}")
+    finally:
+        release_db_connection(conn)
