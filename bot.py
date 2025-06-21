@@ -25,7 +25,8 @@ COGS = [
     "cogs.admin",
     "cogs.leaderboard",
     "cogs.milestones",
-    "cogs.user"
+    "cogs.user",
+    "cogs.MultiLeaderboard"
 ]
 
 @bot.event
