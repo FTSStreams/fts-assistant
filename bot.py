@@ -26,7 +26,8 @@ COGS = [
     "cogs.leaderboard",
     "cogs.milestones",
     "cogs.user",
-    "cogs.MultiLeaderboard"
+    "cogs.MultiLeaderboard",
+    "cogs.slotchallenge"
 ]
 
 @bot.event
