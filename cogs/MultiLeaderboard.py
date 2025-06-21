@@ -54,18 +54,24 @@ class MultiLeaderboard(commands.Cog):
                 else:
                     username = "***"
                 multiplier = entry["highestMultiplier"].get("multiplier", 0)
-                game = entry["highestMultiplier"].get("game", "Unknown")
+                game = entry["highestMultiplier"].get("gameTitle", "Unknown")
+                wagered = entry["highestMultiplier"].get("wagered", 0)
+                payout = entry["highestMultiplier"].get("payout", 0)
                 prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
             else:
                 username = "N/A"
                 multiplier = 0
                 game = "Unknown"
+                wagered = 0
+                payout = 0
                 prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
             embed.add_field(
                 name=f"**#{i + 1} - {username}**",
                 value=(
                     f"💥 **Highest Multiplier**: x{multiplier:,.2f}\n"
                     f"🎮 **Game**: {game}\n"
+                    f"💸 **Bet Size**: ${wagered:,.2f}\n"
+                    f"💰 **Payout**: ${payout:,.2f}\n"
                     f"🎁 **Prize**: **${prize} USD**"
                 ),
                 inline=False
