@@ -10,7 +10,7 @@ import datetime as dt
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
 MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID", "1352322188102991932"))
-PRIZE_DISTRIBUTION = [75, 50, 25]
+PRIZE_DISTRIBUTION = [75, 50, 25, 10, 5]
 
 class MultiLeaderboard(commands.Cog):
     def __init__(self, bot):
@@ -37,15 +37,15 @@ class MultiLeaderboard(commands.Cog):
             title="🏆 **Top Multipliers Leaderboard** 🏆",
             description=(
                 f"**Leaderboard Period:**\n"
-                f"From: {start_date}\n"
-                f"To: {end_date}\n\n"
+                f"From: <t:{int(datetime.strptime(start_date, '%Y-%m-%dT%H:%M:%S%z').timestamp())}:F>\n"
+                f"To: <t:{int(datetime.strptime(end_date, '%Y-%m-%dT%H:%M:%S%z').timestamp())}:F>\n\n"
                 f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"
                 "This leaderboard ranks users by their highest single multiplier hit this month.\n\n"
                 "💵 **All amounts displayed are in USD.**\n\n"
             ),
             color=discord.Color.purple()
         )
-        for i in range(10):
+        for i in range(5):
             if i < len(multi_data):
                 entry = multi_data[i]
                 username = entry.get("username", "Unknown")
@@ -54,15 +54,18 @@ class MultiLeaderboard(commands.Cog):
                 else:
                     username = "***"
                 multiplier = entry["highestMultiplier"].get("multiplier", 0)
+                game = entry["highestMultiplier"].get("game", "Unknown")
                 prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
             else:
                 username = "N/A"
                 multiplier = 0
+                game = "Unknown"
                 prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
             embed.add_field(
                 name=f"**#{i + 1} - {username}**",
                 value=(
                     f"💥 **Highest Multiplier**: x{multiplier:,.2f}\n"
+                    f"🎮 **Game**: {game}\n"
                     f"🎁 **Prize**: **${prize} USD**"
                 ),
                 inline=False
