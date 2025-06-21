@@ -1,4 +1,5 @@
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 from utils import fetch_weighted_wager, send_tip, get_current_month_range
 from db import get_db_connection, release_db_connection
@@ -20,11 +21,11 @@ class SlotChallenge(commands.Cog):
         self.challenge_winner = None
         self.check_challenge.start()
 
-    @commands.command(name="setchallenge")
-    @commands.has_permissions(administrator=True)
-    async def set_challenge(self, ctx, game_identifier: str, required_multi: float, prize: float):
-        if ctx.author.id != BOT_OWNER_ID:
-            await ctx.send("You do not have permission to set a challenge.")
+    @app_commands.command(name="setchallenge", description="Set a slot challenge for a specific game and multiplier.")
+    @app_commands.describe(game_identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)", required_multi="Required multiplier (e.g. 100)", prize="Prize amount in USD")
+    async def set_challenge(self, interaction: discord.Interaction, game_identifier: str, required_multi: float, prize: float):
+        if interaction.user.id != BOT_OWNER_ID:
+            await interaction.response.send_message("You do not have permission to set a challenge.", ephemeral=True)
             return
         self.challenge = {
             "game_identifier": game_identifier,
@@ -36,7 +37,7 @@ class SlotChallenge(commands.Cog):
         channel = self.bot.get_channel(CHALLENGE_CHANNEL_ID)
         if channel:
             await channel.send(f"🎰 **Slot Challenge Started!** 🎰\nGame: `{game_identifier}`\nRequired Multiplier: x{required_multi}\nPrize: ${prize}\nFirst to hit it wins!")
-        await ctx.send("Slot challenge set and announced.")
+        await interaction.response.send_message("Slot challenge set and announced.", ephemeral=True)
 
     @tasks.loop(minutes=7.5)
     async def check_challenge(self):
