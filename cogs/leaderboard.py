@@ -104,7 +104,7 @@ class Leaderboard(commands.Cog):
                 inline=False
             )
         embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending.")
-        message_id = get_leaderboard_message_id()
+        message_id = get_leaderboard_message_id(key="leaderboard_message_id")
         logger.info(f"[Leaderboard] Retrieved leaderboard message ID: {message_id}")
         if message_id:
             try:
@@ -115,7 +115,7 @@ class Leaderboard(commands.Cog):
                 logger.warning(f"Leaderboard message ID {message_id} not found, sending new message.")
                 try:
                     message = await channel.send(embed=embed)
-                    save_leaderboard_message_id(message.id)
+                    save_leaderboard_message_id(message.id, key="leaderboard_message_id")
                     logger.info("[Leaderboard] New leaderboard message sent.")
                 except discord.errors.Forbidden:
                     logger.error("Bot lacks permission to send messages in leaderboard channel.")
@@ -125,7 +125,7 @@ class Leaderboard(commands.Cog):
             logger.info("[Leaderboard] No leaderboard message ID found, sending new message.")
             try:
                 message = await channel.send(embed=embed)
-                save_leaderboard_message_id(message.id)
+                save_leaderboard_message_id(message.id, key="leaderboard_message_id")
                 logger.info("[Leaderboard] New leaderboard message sent.")
             except discord.errors.Forbidden:
                 logger.error("Bot lacks permission to send messages in leaderboard channel.")

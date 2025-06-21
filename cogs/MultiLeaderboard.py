@@ -78,7 +78,8 @@ class MultiLeaderboard(commands.Cog):
             )
         embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending.")
         # Post or update the leaderboard message
-        message_id = get_leaderboard_message_id()
+        # Use a unique key for the multi leaderboard message
+        message_id = get_leaderboard_message_id(key="multi_leaderboard_message_id")
         if message_id:
             try:
                 message = await channel.fetch_message(message_id)
@@ -88,7 +89,7 @@ class MultiLeaderboard(commands.Cog):
                 logger.warning(f"MultiLeaderboard message ID {message_id} not found, sending new message.")
                 try:
                     message = await channel.send(embed=embed)
-                    save_leaderboard_message_id(message.id)
+                    save_leaderboard_message_id(message.id, key="multi_leaderboard_message_id")
                     logger.info("[MultiLeaderboard] New leaderboard message sent.")
                 except discord.errors.Forbidden:
                     logger.error("Bot lacks permission to send messages in MultiLeaderboard channel.")
@@ -98,7 +99,7 @@ class MultiLeaderboard(commands.Cog):
             logger.info("[MultiLeaderboard] No leaderboard message ID found, sending new message.")
             try:
                 message = await channel.send(embed=embed)
-                save_leaderboard_message_id(message.id)
+                save_leaderboard_message_id(message.id, key="multi_leaderboard_message_id")
                 logger.info("[MultiLeaderboard] New leaderboard message sent.")
             except discord.errors.Forbidden:
                 logger.error("Bot lacks permission to send messages in MultiLeaderboard channel.")
