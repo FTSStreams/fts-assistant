@@ -34,8 +34,10 @@ class SlotChallenge(commands.Cog):
             await interaction.response.send_message("There are already 10 active slot challenges. Please cancel one before adding another.", ephemeral=True)
             return
         challenge_start_utc = datetime.now(dt.UTC).replace(microsecond=0).isoformat()
+        # Remove any quotes from game_name before saving
+        clean_game_name = game_name.replace('"', '').replace("'", "")
         challenge_id = add_active_slot_challenge(
-            game_identifier, game_name, required_multi, prize, challenge_start_utc,
+            game_identifier, clean_game_name, required_multi, prize, challenge_start_utc,
             interaction.user.id, interaction.user.display_name, None, emoji, min_bet
         )
         # Update or create the single embed listing all challenges
