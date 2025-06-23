@@ -52,9 +52,9 @@ class SlotChallenge(commands.Cog):
         # Build a styled description for all challenges
         now_ts = int(datetime.now(dt.UTC).timestamp())
         desc = f"⏰ **Last Updated:** <t:{now_ts}:R>\n\n"
-        desc += "*First to hit the required multiplier wins the prize!*\n"
+        desc += "First to hit the required multiplier wins the prize!\n"
         desc += "All prizes are paid out automatically by our secure system.\n"
-        desc += "See <#multi-challenge-payouts> for payout logs!\n\n"
+        desc += "See <#{}> for payout logs!\n\n".format(LOGS_CHANNEL_ID)
         for challenge in active:
             try:
                 dt_obj = challenge['start_time']
@@ -84,12 +84,17 @@ class SlotChallenge(commands.Cog):
             try:
                 msg = await channel.fetch_message(message_id)
                 await msg.edit(embed=embed)
-            except Exception:
+            except discord.errors.NotFound:
+                # Message was deleted, send a new one and update all active challenges with new message id
                 msg = await channel.send(embed=embed)
-                update_challenge_message_id(active[0]['challenge_id'], msg.id)
+                for challenge in active:
+                    update_challenge_message_id(challenge['challenge_id'], msg.id)
+            except discord.errors.Forbidden:
+                logger.error("Bot lacks permission to edit or send messages in challenge channel.")
         else:
             msg = await channel.send(embed=embed)
-            update_challenge_message_id(active[0]['challenge_id'], msg.id)
+            for challenge in active:
+                update_challenge_message_id(challenge['challenge_id'], msg.id)
 
     @app_commands.command(name="cancelchallenge", description="Cancel a specific slot challenge by its ID.")
     @app_commands.describe(challenge_id="The ID of the challenge to cancel.")
