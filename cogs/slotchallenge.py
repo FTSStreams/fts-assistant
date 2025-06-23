@@ -51,7 +51,7 @@ class SlotChallenge(commands.Cog):
             return
         # Build a styled description for all challenges
         now_ts = int(datetime.now(dt.UTC).timestamp())
-        desc = f"⏰ **Last Updated:** <t:{now_ts}:R>\n"
+        desc = f"⏰ **Last Updated:** <t:{now_ts}:R>\n\n"
         desc += "*First to hit the required multiplier wins the prize!*\n"
         desc += "All prizes are paid out automatically by our secure system.\n"
         desc += "See <#multi-challenge-payouts> for payout logs!\n\n"
