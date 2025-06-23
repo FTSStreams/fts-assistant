@@ -21,6 +21,7 @@ class SlotChallenge(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.check_challenge.start()
+        self.ensure_challenge_embed.start()
 
     @app_commands.command(name="setchallenge", description="Set a slot challenge for a specific game and multiplier.")
     @app_commands.describe(game_identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)", game_name="Game name for display", required_multi="Required multiplier (e.g. 100)", prize="Prize amount in USD", emoji="Optional emoji for this challenge", min_bet="Minimum bet size in USD (optional)")
@@ -213,6 +214,14 @@ class SlotChallenge(commands.Cog):
 
     @check_challenge.before_loop
     async def before_challenge_loop(self):
+        await self.bot.wait_until_ready()
+
+    @tasks.loop(minutes=5)
+    async def ensure_challenge_embed(self):
+        await self.update_challenges_embed()
+
+    @ensure_challenge_embed.before_loop
+    async def before_ensure_challenge_embed(self):
         await self.bot.wait_until_ready()
 
 async def setup(bot):
