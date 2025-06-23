@@ -23,8 +23,8 @@ class SlotChallenge(commands.Cog):
         self.check_challenge.start()
 
     @app_commands.command(name="setchallenge", description="Set a slot challenge for a specific game and multiplier.")
-    @app_commands.describe(game_identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)", game_name="Game name for display", required_multi="Required multiplier (e.g. 100)", prize="Prize amount in USD", emoji="Optional emoji for this challenge")
-    async def set_challenge(self, interaction: discord.Interaction, game_identifier: str, game_name: str, required_multi: float, prize: float, emoji: str = None):
+    @app_commands.describe(game_identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)", game_name="Game name for display", required_multi="Required multiplier (e.g. 100)", prize="Prize amount in USD", emoji="Optional emoji for this challenge", min_bet="Minimum bet size in USD (optional)")
+    async def set_challenge(self, interaction: discord.Interaction, game_identifier: str, game_name: str, required_multi: float, prize: float, emoji: str = None, min_bet: float = None):
         if interaction.user.id != BOT_OWNER_ID:
             await interaction.response.send_message("You do not have permission to set a challenge.", ephemeral=True)
             return
@@ -35,7 +35,7 @@ class SlotChallenge(commands.Cog):
         challenge_start_utc = datetime.now(dt.UTC).replace(microsecond=0).isoformat()
         challenge_id = add_active_slot_challenge(
             game_identifier, game_name, required_multi, prize, challenge_start_utc,
-            interaction.user.id, interaction.user.display_name, None, emoji
+            interaction.user.id, interaction.user.display_name, None, emoji, min_bet
         )
         # Update or create the single embed listing all challenges
         await self.update_challenges_embed()
@@ -61,8 +61,9 @@ class SlotChallenge(commands.Cog):
             except Exception:
                 start_str = str(challenge['start_time'])
             emoji = challenge.get('emoji') or '🎰'
+            min_bet_str = f"  **Min Bet:** `${challenge['min_bet']}`" if challenge.get('min_bet') else ""
             desc += f"**`#{challenge['challenge_id']}` | {emoji} {challenge['game_name']}**\n"
-            desc += f"**Multiplier:** `x{challenge['required_multi']}`  **Prize:** `${challenge['prize']}`\n"
+            desc += f"**Multiplier:** `x{challenge['required_multi']}`  **Prize:** `${challenge['prize']}`{min_bet_str}\n"
             desc += f"**Start:** {start_str}\n\n"
         embed = discord.Embed(
             title="🎰 __Active Slot Challenges__ 🎰",
@@ -138,14 +139,20 @@ class SlotChallenge(commands.Cog):
                 hm = entry.get("highestMultiplier")
                 if not hm:
                     continue
+                # Only count as winner if bet meets min_bet (if set)
+                bet = hm.get("bet", 0)
+                min_bet = challenge.get("min_bet")
                 if (
                     hm.get("gameId") == challenge["game_identifier"]
                     and hm.get("multiplier", 0) >= challenge["required_multi"]
+                    and (min_bet is None or bet >= min_bet)
                 ):
                     winners.append({
                         "uid": entry.get("uid"),
                         "username": entry.get("username"),
-                        "multiplier": hm.get("multiplier", 0)
+                        "multiplier": hm.get("multiplier", 0),
+                        "bet": bet,
+                        "payout": hm.get("payout", 0)
                     })
             if winners:
                 # Sort by multiplier, show up to top 2
@@ -168,13 +175,14 @@ class SlotChallenge(commands.Cog):
                     )
                     if second:
                         embed.description += f"\n\n**2nd Place:** {second['username']}\nMultiplier: x{second['multiplier']:.2f}"
-                    # Add more details if available (bet size, payout, etc.)
-                    # If your API provides these, add them here:
-                    # embed.add_field(name="Bet Size", value=f"${winner.get('bet', '?')}", inline=True)
-                    # embed.add_field(name="Payout", value=f"${winner.get('payout', '?')}", inline=True)
+                    # Show bet and payout if available
+                    embed.add_field(name="Bet Size", value=f"${winner.get('bet', '?')}", inline=True)
+                    embed.add_field(name="Payout", value=f"${winner.get('payout', '?')}", inline=True)
                     embed.add_field(name="Required Multiplier", value=f"x{challenge['required_multi']}", inline=True)
                     embed.add_field(name="Prize", value=f"${challenge['prize']}", inline=True)
                     embed.add_field(name="Game", value=challenge['game_name'], inline=True)
+                    if challenge.get('min_bet'):
+                        embed.add_field(name="Minimum Bet", value=f"${challenge['min_bet']}", inline=True)
                     embed.set_footer(text=f"Challenge start: <t:{int(datetime.fromisoformat(str(challenge['start_time'])).timestamp())}:f>")
                     if logs_channel:
                         await logs_channel.send(embed=embed)

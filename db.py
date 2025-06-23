@@ -219,7 +219,8 @@ def get_all_active_slot_challenges():
                     "posted_by": row[6],
                     "posted_by_username": row[7],
                     "message_id": row[8],
-                    "emoji": row[9] if len(row) > 9 else None
+                    "emoji": row[9] if len(row) > 9 else None,
+                    "min_bet": row[10] if len(row) > 10 else None
                 }
                 for row in rows
             ]
@@ -229,13 +230,13 @@ def get_all_active_slot_challenges():
     finally:
         release_db_connection(conn)
 
-def add_active_slot_challenge(game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username, message_id=None, emoji=None):
+def add_active_slot_challenge(game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username, message_id=None, emoji=None, min_bet=None):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO active_slot_challenge (game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username, message_id, emoji) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING challenge_id;",
-                (game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username, message_id, emoji)
+                "INSERT INTO active_slot_challenge (game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username, message_id, emoji, min_bet) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING challenge_id;",
+                (game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username, message_id, emoji, min_bet)
             )
             challenge_id = cur.fetchone()[0]
             conn.commit()
