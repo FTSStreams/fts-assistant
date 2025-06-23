@@ -57,6 +57,7 @@ class MultiLeaderboard(commands.Cog):
                     username = "***"
                 multiplier = entry["highestMultiplier"].get("multiplier", 0)
                 game = entry["highestMultiplier"].get("gameTitle", "Unknown")
+                game_identifier = entry["highestMultiplier"].get("gameIdentifier", None)
                 wagered = entry["highestMultiplier"].get("wagered", 0)
                 payout = entry["highestMultiplier"].get("payout", 0)
                 prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
@@ -64,14 +65,21 @@ class MultiLeaderboard(commands.Cog):
                 username = "N/A"
                 multiplier = 0
                 game = "Unknown"
+                game_identifier = None
                 wagered = 0
                 payout = 0
                 prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
+            # Hyperlink the game if identifier exists
+            if game_identifier:
+                game_url = f"https://roobet.com/casino/game/{game_identifier}"
+                game_display = f"[{game}]({game_url})"
+            else:
+                game_display = game
             embed.add_field(
                 name=f"**#{i + 1} - {username}**",
                 value=(
                     f"💥 **Highest Multiplier:** `x{multiplier:,.2f}`\n"
-                    f"🎮 **Game:** {game}\n"
+                    f"🎮 **Game:** {game_display}\n"
                     f"💰 **Payout:** `${payout:,.2f}` (`${wagered:,.2f}` Base Bet)\n"
                     f"🎁 **Prize:** `${prize} USD`"
                 ),

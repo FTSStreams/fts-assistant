@@ -67,7 +67,7 @@ class SlotChallenge(commands.Cog):
                 start_str = str(challenge['start_time'])
             emoji = challenge.get('emoji') or '🎰'
             min_bet_str = f"  **Min Bet:** `${challenge['min_bet']}`" if challenge.get('min_bet') else ""
-            # Make the game name a hyperlink
+            # Make the game name a hyperlink (no quotes)
             game_url = f"https://roobet.com/casino/game/{challenge['game_identifier']}"
             game_name_link = f"[{challenge['game_name']}]({game_url})"
             desc += f"**`#{challenge['challenge_id']}` | {emoji} {game_name_link}**\n"
