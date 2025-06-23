@@ -55,12 +55,13 @@ class SlotChallenge(commands.Cog):
             color=discord.Color.gold()
         )
         for challenge in active:
-            # Format start time as UTC, clean and readable
+            # Format start time as Discord timestamp
             try:
                 dt_obj = challenge['start_time']
                 if isinstance(dt_obj, str):
                     dt_obj = datetime.fromisoformat(dt_obj)
-                start_str = dt_obj.strftime('%Y-%m-%d %H:%M UTC')
+                unix_ts = int(dt_obj.timestamp())
+                start_str = f'<t:{unix_ts}:f>'  # Discord timestamp (long date/time)
             except Exception:
                 start_str = str(challenge['start_time'])
             embed.add_field(
