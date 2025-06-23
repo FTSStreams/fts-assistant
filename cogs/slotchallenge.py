@@ -23,8 +23,8 @@ class SlotChallenge(commands.Cog):
         self.check_challenge.start()
 
     @app_commands.command(name="setchallenge", description="Set a slot challenge for a specific game and multiplier.")
-    @app_commands.describe(game_identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)", game_name="Game name for display", required_multi="Required multiplier (e.g. 100)", prize="Prize amount in USD")
-    async def set_challenge(self, interaction: discord.Interaction, game_identifier: str, game_name: str, required_multi: float, prize: float):
+    @app_commands.describe(game_identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)", game_name="Game name for display", required_multi="Required multiplier (e.g. 100)", prize="Prize amount in USD", emoji="Optional emoji for this challenge")
+    async def set_challenge(self, interaction: discord.Interaction, game_identifier: str, game_name: str, required_multi: float, prize: float, emoji: str = None):
         if interaction.user.id != BOT_OWNER_ID:
             await interaction.response.send_message("You do not have permission to set a challenge.", ephemeral=True)
             return
@@ -35,7 +35,7 @@ class SlotChallenge(commands.Cog):
         challenge_start_utc = datetime.now(dt.UTC).replace(microsecond=0).isoformat()
         challenge_id = add_active_slot_challenge(
             game_identifier, game_name, required_multi, prize, challenge_start_utc,
-            interaction.user.id, interaction.user.display_name
+            interaction.user.id, interaction.user.display_name, None, emoji
         )
         # Update or create the single embed listing all challenges
         await self.update_challenges_embed()
@@ -49,13 +49,9 @@ class SlotChallenge(commands.Cog):
         if not active:
             # Optionally delete the embed if no challenges remain
             return
-        embed = discord.Embed(
-            title="🎰 Active Slot Challenges 🎰",
-            description="First to hit the required multiplier wins the prize!",
-            color=discord.Color.gold()
-        )
+        # Build a styled description for all challenges
+        desc = "*First to hit the required multiplier wins the prize!*\n\n"
         for challenge in active:
-            # Format start time as Discord timestamp
             try:
                 dt_obj = challenge['start_time']
                 if isinstance(dt_obj, str):
@@ -64,11 +60,15 @@ class SlotChallenge(commands.Cog):
                 start_str = f'<t:{unix_ts}:f>'  # Discord timestamp (long date/time)
             except Exception:
                 start_str = str(challenge['start_time'])
-            embed.add_field(
-                name=f"ID: {challenge['challenge_id']} | {challenge['game_name']}",
-                value=f"Multiplier: x{challenge['required_multi']} | Prize: ${challenge['prize']}\nStart: {start_str}",
-                inline=False
-            )
+            emoji = challenge.get('emoji') or '🎰'
+            desc += f"**`#{challenge['challenge_id']}` | {emoji} {challenge['game_name']}**\n"
+            desc += f"**Multiplier:** `x{challenge['required_multi']}`  **Prize:** `${challenge['prize']}`\n"
+            desc += f"**Start:** {start_str}\n\n"
+        embed = discord.Embed(
+            title="🎰 __Active Slot Challenges__ 🎰",
+            description=desc,
+            color=discord.Color.gold()
+        )
         # Find the existing embed message (if any)
         message_id = None
         for challenge in active:
@@ -148,8 +148,11 @@ class SlotChallenge(commands.Cog):
                         "multiplier": hm.get("multiplier", 0)
                     })
             if winners:
-                winner = max(winners, key=lambda x: x["multiplier"])
-                # Tip out the prize
+                # Sort by multiplier, show up to top 2
+                winners_sorted = sorted(winners, key=lambda x: x["multiplier"], reverse=True)
+                winner = winners_sorted[0]
+                second = winners_sorted[1] if len(winners_sorted) > 1 else None
+                # Tip out the prize to first place
                 tip_response = await send_tip(
                     user_id=os.getenv("ROOBET_USER_ID"),
                     to_username=winner["username"],
@@ -159,13 +162,20 @@ class SlotChallenge(commands.Cog):
                 logs_channel = self.bot.get_channel(LOGS_CHANNEL_ID)
                 if tip_response.get("success"):
                     embed = discord.Embed(
-                        title="🏆 Slot Challenge Winner! 🏆",
-                        description=f"Congrats to {winner['username']} for hitting x{winner['multiplier']:.2f} on {challenge['game_name']}! Prize: ${challenge['prize']} has been tipped out.",
+                        title="🏆 Slot Challenge Results! 🏆",
+                        description=f"**1st Place:** {winner['username']}\nMultiplier: x{winner['multiplier']:.2f}",
                         color=discord.Color.green()
                     )
+                    if second:
+                        embed.description += f"\n\n**2nd Place:** {second['username']}\nMultiplier: x{second['multiplier']:.2f}"
+                    # Add more details if available (bet size, payout, etc.)
+                    # If your API provides these, add them here:
+                    # embed.add_field(name="Bet Size", value=f"${winner.get('bet', '?')}", inline=True)
+                    # embed.add_field(name="Payout", value=f"${winner.get('payout', '?')}", inline=True)
                     embed.add_field(name="Required Multiplier", value=f"x{challenge['required_multi']}", inline=True)
                     embed.add_field(name="Prize", value=f"${challenge['prize']}", inline=True)
-                    embed.set_footer(text=f"Challenge start time (UTC): {challenge['start_time']}")
+                    embed.add_field(name="Game", value=challenge['game_name'], inline=True)
+                    embed.set_footer(text=f"Challenge start: <t:{int(datetime.fromisoformat(str(challenge['start_time'])).timestamp())}:f>")
                     if logs_channel:
                         await logs_channel.send(embed=embed)
                     log_slot_challenge(

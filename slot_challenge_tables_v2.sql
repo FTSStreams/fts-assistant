@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS active_slot_challenge (
     start_time TIMESTAMPTZ NOT NULL,
     posted_by BIGINT NOT NULL,
     posted_by_username TEXT NOT NULL,
-    message_id BIGINT -- for updating the embed if needed
+    message_id BIGINT, -- for updating the embed if needed
+    emoji TEXT -- new column for custom emoji
 );
 
 -- Table for challenge logs remains the same
