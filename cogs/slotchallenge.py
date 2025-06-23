@@ -55,9 +55,17 @@ class SlotChallenge(commands.Cog):
             color=discord.Color.gold()
         )
         for challenge in active:
+            # Format start time as UTC, clean and readable
+            try:
+                dt_obj = challenge['start_time']
+                if isinstance(dt_obj, str):
+                    dt_obj = datetime.fromisoformat(dt_obj)
+                start_str = dt_obj.strftime('%Y-%m-%d %H:%M UTC')
+            except Exception:
+                start_str = str(challenge['start_time'])
             embed.add_field(
                 name=f"ID: {challenge['challenge_id']} | {challenge['game_name']}",
-                value=f"Multiplier: x{challenge['required_multi']} | Prize: ${challenge['prize']}\nStart: {challenge['start_time']} UTC\nSet by: {challenge['posted_by_username']}",
+                value=f"Multiplier: x{challenge['required_multi']} | Prize: ${challenge['prize']}\nStart: {start_str}",
                 inline=False
             )
         # Find the existing embed message (if any)
