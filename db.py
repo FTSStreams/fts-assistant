@@ -201,3 +201,68 @@ def log_slot_challenge(game_identifier, game_name, required_multi, prize, start_
         logger.error(f"Error logging slot challenge: {e}")
     finally:
         release_db_connection(conn)
+
+def get_all_active_slot_challenges():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM active_slot_challenge ORDER BY start_time ASC;")
+            rows = cur.fetchall()
+            return [
+                {
+                    "challenge_id": row[0],
+                    "game_identifier": row[1],
+                    "game_name": row[2],
+                    "required_multi": row[3],
+                    "prize": row[4],
+                    "start_time": row[5],
+                    "posted_by": row[6],
+                    "posted_by_username": row[7],
+                    "message_id": row[8]
+                }
+                for row in rows
+            ]
+    except Exception as e:
+        logger.error(f"Error fetching all active slot challenges: {e}")
+        return []
+    finally:
+        release_db_connection(conn)
+
+def add_active_slot_challenge(game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username, message_id=None):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO active_slot_challenge (game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username, message_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING challenge_id;",
+                (game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username, message_id)
+            )
+            challenge_id = cur.fetchone()[0]
+            conn.commit()
+            return challenge_id
+    except Exception as e:
+        logger.error(f"Error adding active slot challenge: {e}")
+        return None
+    finally:
+        release_db_connection(conn)
+
+def remove_active_slot_challenge(challenge_id):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM active_slot_challenge WHERE challenge_id = %s;", (challenge_id,))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error removing active slot challenge: {e}")
+    finally:
+        release_db_connection(conn)
+
+def update_challenge_message_id(challenge_id, message_id):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE active_slot_challenge SET message_id = %s WHERE challenge_id = %s;", (message_id, challenge_id))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error updating challenge message_id: {e}")
+    finally:
+        release_db_connection(conn)
