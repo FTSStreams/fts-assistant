@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 from utils import fetch_weighted_wager, send_tip, get_current_month_range
 from db import (
-    get_active_slot_challenge, set_active_slot_challenge, clear_active_slot_challenge, log_slot_challenge
+    get_all_active_slot_challenges, add_active_slot_challenge, remove_active_slot_challenge, update_challenge_message_id, log_slot_challenge
 )
 import os
 import logging
@@ -14,6 +14,7 @@ import asyncio
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
 CHALLENGE_CHANNEL_ID = int(os.getenv("CHALLENGE_CHANNEL_ID"))
+LOGS_CHANNEL_ID = 1386537169170071572  # Winner/cancel log channel
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID"))
 
 class SlotChallenge(commands.Cog):
@@ -27,102 +28,152 @@ class SlotChallenge(commands.Cog):
         if interaction.user.id != BOT_OWNER_ID:
             await interaction.response.send_message("You do not have permission to set a challenge.", ephemeral=True)
             return
-        # Check if a challenge is already active
-        active = get_active_slot_challenge()
-        if active:
-            await interaction.response.send_message("A slot challenge is already active. Please cancel it or wait for it to be completed.", ephemeral=True)
+        active = get_all_active_slot_challenges()
+        if len(active) >= 10:
+            await interaction.response.send_message("There are already 10 active slot challenges. Please cancel one before adding another.", ephemeral=True)
             return
         challenge_start_utc = datetime.now(dt.UTC).replace(microsecond=0).isoformat()
-        set_active_slot_challenge(
+        challenge_id = add_active_slot_challenge(
             game_identifier, game_name, required_multi, prize, challenge_start_utc,
             interaction.user.id, interaction.user.display_name
         )
-        channel = self.bot.get_channel(CHALLENGE_CHANNEL_ID)
-        if channel:
-            embed = discord.Embed(
-                title="🎰 Slot Challenge Started! 🎰",
-                description=f"First to hit it wins!",
-                color=discord.Color.gold()
-            )
-            embed.add_field(name="Game", value=game_name, inline=False)
-            embed.add_field(name="Required Multiplier", value=f"x{required_multi}", inline=True)
-            embed.add_field(name="Prize", value=f"${prize}", inline=True)
-            embed.set_footer(text=f"Challenge start time (UTC): {challenge_start_utc}")
-            await channel.send(embed=embed)
-        await interaction.response.send_message("Slot challenge set and announced.", ephemeral=True)
+        # Update or create the single embed listing all challenges
+        await self.update_challenges_embed()
+        await interaction.response.send_message(f"Slot challenge set and announced. Challenge ID: {challenge_id}", ephemeral=True)
 
-    @app_commands.command(name="cancelchallenge", description="Cancel the current slot challenge.")
-    async def cancel_challenge(self, interaction: discord.Interaction):
+    async def update_challenges_embed(self):
+        channel = self.bot.get_channel(CHALLENGE_CHANNEL_ID)
+        if not channel:
+            return
+        active = get_all_active_slot_challenges()
+        if not active:
+            # Optionally delete the embed if no challenges remain
+            return
+        embed = discord.Embed(
+            title="🎰 Active Slot Challenges 🎰",
+            description="First to hit the required multiplier wins the prize!",
+            color=discord.Color.gold()
+        )
+        for challenge in active:
+            embed.add_field(
+                name=f"ID: {challenge['challenge_id']} | {challenge['game_name']}",
+                value=f"Multiplier: x{challenge['required_multi']} | Prize: ${challenge['prize']}\nStart: {challenge['start_time']} UTC\nSet by: {challenge['posted_by_username']}",
+                inline=False
+            )
+        # Find the existing embed message (if any)
+        message_id = None
+        for challenge in active:
+            if challenge['message_id']:
+                message_id = challenge['message_id']
+                break
+        if message_id:
+            try:
+                msg = await channel.fetch_message(message_id)
+                await msg.edit(embed=embed)
+            except Exception:
+                msg = await channel.send(embed=embed)
+                update_challenge_message_id(active[0]['challenge_id'], msg.id)
+        else:
+            msg = await channel.send(embed=embed)
+            update_challenge_message_id(active[0]['challenge_id'], msg.id)
+
+    @app_commands.command(name="cancelchallenge", description="Cancel a specific slot challenge by its ID.")
+    @app_commands.describe(challenge_id="The ID of the challenge to cancel.")
+    async def cancel_challenge(self, interaction: discord.Interaction, challenge_id: int):
         if interaction.user.id != BOT_OWNER_ID:
             await interaction.response.send_message("You do not have permission to cancel a challenge.", ephemeral=True)
             return
-        active = get_active_slot_challenge()
-        if not active:
-            await interaction.response.send_message("No active slot challenge to cancel.", ephemeral=True)
+        active = get_all_active_slot_challenges()
+        challenge = next((c for c in active if c['challenge_id'] == challenge_id), None)
+        if not challenge:
+            await interaction.response.send_message(f"No active slot challenge found with ID {challenge_id}.", ephemeral=True)
             return
         log_slot_challenge(
-            active["game_identifier"], active["game_name"], active["required_multi"], active["prize"],
-            active["start_time"], datetime.now(dt.UTC).replace(microsecond=0).isoformat(),
-            active["posted_by"], active["posted_by_username"], None, None, None, "cancelled"
+            challenge["game_identifier"], challenge["game_name"], challenge["required_multi"], challenge["prize"],
+            challenge["start_time"], datetime.now(dt.UTC).replace(microsecond=0).isoformat(),
+            challenge["posted_by"], challenge["posted_by_username"], None, None, None, "cancelled"
         )
-        clear_active_slot_challenge()
-        await interaction.response.send_message("Slot challenge cancelled.", ephemeral=True)
-        channel = self.bot.get_channel(CHALLENGE_CHANNEL_ID)
-        if channel:
-            await channel.send("❌ The current slot challenge has been cancelled by an admin.")
+        remove_active_slot_challenge(challenge_id)
+        await self.update_challenges_embed()
+        await interaction.response.send_message(f"Slot challenge ID {challenge_id} cancelled.", ephemeral=True)
+        # Log to logs channel
+        logs_channel = self.bot.get_channel(LOGS_CHANNEL_ID)
+        if logs_channel:
+            embed = discord.Embed(
+                title="❌ Slot Challenge Cancelled",
+                description=f"Challenge ID {challenge_id} ({challenge['game_name']}) was cancelled by an admin.",
+                color=discord.Color.red()
+            )
+            embed.add_field(name="Required Multiplier", value=f"x{challenge['required_multi']}", inline=True)
+            embed.add_field(name="Prize", value=f"${challenge['prize']}", inline=True)
+            embed.set_footer(text=f"Challenge start time (UTC): {challenge['start_time']}")
+            await logs_channel.send(embed=embed)
 
     @tasks.loop(minutes=7.5)
     async def check_challenge(self):
-        active = get_active_slot_challenge()
+        active = get_all_active_slot_challenges()
         if not active:
             return
-        start_date = active["start_time"]
+        # Gather all start times for active challenges
+        start_dates = [c["start_time"] for c in active]
         _, end_date = get_current_month_range()
         try:
-            data = fetch_weighted_wager(start_date, end_date)
+            data = fetch_weighted_wager(min(start_dates), end_date)
         except Exception as e:
             logger.error(f"Failed to fetch weighted wager data: {e}")
             return
-        winners = []
-        for entry in data:
-            hm = entry.get("highestMultiplier")
-            if not hm:
-                continue
-            if (
-                hm.get("gameId") == active["game_identifier"]
-                and hm.get("multiplier", 0) >= active["required_multi"]
-            ):
-                winners.append({
-                    "uid": entry.get("uid"),
-                    "username": entry.get("username"),
-                    "multiplier": hm.get("multiplier", 0)
-                })
-        if winners:
-            winner = max(winners, key=lambda x: x["multiplier"])
-            # Tip out the prize
-            tip_response = await send_tip(
-                user_id=os.getenv("ROOBET_USER_ID"),
-                to_username=winner["username"],
-                to_user_id=winner["uid"],
-                amount=active["prize"]
-            )
-            channel = self.bot.get_channel(CHALLENGE_CHANNEL_ID)
-            if tip_response.get("success"):
-                embed = discord.Embed(
-                    title="🏆 Slot Challenge Winner! 🏆",
-                    description=f"Congrats to {winner['username']} for hitting x{winner['multiplier']:.2f} on {active['game_name']}! Prize: ${active['prize']} has been tipped out.",
-                    color=discord.Color.green()
+        completed_ids = set()
+        for challenge in active:
+            winners = []
+            for entry in data:
+                hm = entry.get("highestMultiplier")
+                if not hm:
+                    continue
+                if (
+                    hm.get("gameId") == challenge["game_identifier"]
+                    and hm.get("multiplier", 0) >= challenge["required_multi"]
+                ):
+                    winners.append({
+                        "uid": entry.get("uid"),
+                        "username": entry.get("username"),
+                        "multiplier": hm.get("multiplier", 0)
+                    })
+            if winners:
+                winner = max(winners, key=lambda x: x["multiplier"])
+                # Tip out the prize
+                tip_response = await send_tip(
+                    user_id=os.getenv("ROOBET_USER_ID"),
+                    to_username=winner["username"],
+                    to_user_id=winner["uid"],
+                    amount=challenge["prize"]
                 )
-                await channel.send(embed=embed)
-                log_slot_challenge(
-                    active["game_identifier"], active["game_name"], active["required_multi"], active["prize"],
-                    active["start_time"], datetime.now(dt.UTC).replace(microsecond=0).isoformat(),
-                    active["posted_by"], active["posted_by_username"],
-                    winner["uid"], winner["username"], winner["multiplier"], "completed"
-                )
-            else:
-                await channel.send(f"❌ Failed to tip prize to {winner['username']}. Please check logs.")
-            clear_active_slot_challenge()
+                logs_channel = self.bot.get_channel(LOGS_CHANNEL_ID)
+                if tip_response.get("success"):
+                    embed = discord.Embed(
+                        title="🏆 Slot Challenge Winner! 🏆",
+                        description=f"Congrats to {winner['username']} for hitting x{winner['multiplier']:.2f} on {challenge['game_name']}! Prize: ${challenge['prize']} has been tipped out.",
+                        color=discord.Color.green()
+                    )
+                    embed.add_field(name="Required Multiplier", value=f"x{challenge['required_multi']}", inline=True)
+                    embed.add_field(name="Prize", value=f"${challenge['prize']}", inline=True)
+                    embed.set_footer(text=f"Challenge start time (UTC): {challenge['start_time']}")
+                    if logs_channel:
+                        await logs_channel.send(embed=embed)
+                    log_slot_challenge(
+                        challenge["game_identifier"], challenge["game_name"], challenge["required_multi"], challenge["prize"],
+                        challenge["start_time"], datetime.now(dt.UTC).replace(microsecond=0).isoformat(),
+                        challenge["posted_by"], challenge["posted_by_username"],
+                        winner["uid"], winner["username"], winner["multiplier"], "completed"
+                    )
+                else:
+                    if logs_channel:
+                        await logs_channel.send(f"❌ Failed to tip prize to {winner['username']}. Please check logs.")
+                completed_ids.add(challenge["challenge_id"])
+        # Remove completed challenges and update embed
+        for cid in completed_ids:
+            remove_active_slot_challenge(cid)
+        if completed_ids:
+            await self.update_challenges_embed()
 
     @check_challenge.before_loop
     async def before_challenge_loop(self):
