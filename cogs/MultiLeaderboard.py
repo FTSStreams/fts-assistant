@@ -9,7 +9,9 @@ import datetime as dt
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
-MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID", "1352322188102991932"))
+MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID"))  # No default, must be set in env
+if not MULTI_LEADERBOARD_CHANNEL_ID:
+    raise RuntimeError("MULTI_LEADERBOARD_CHANNEL_ID environment variable must be set!")
 PRIZE_DISTRIBUTION = [75, 50, 25, 10, 5]
 
 class MultiLeaderboard(commands.Cog):
