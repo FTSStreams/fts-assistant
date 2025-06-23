@@ -66,12 +66,12 @@ class MultiLeaderboard(commands.Cog):
                 payout = 0
                 prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
             embed.add_field(
-                name=f"#{i + 1} - {username}",
+                name=f"**#{i + 1} - {username}**",
                 value=(
-                    f"💥 Highest Multiplier: x{multiplier:,.2f}\n"
-                    f"🎮 Game: {game}\n"
-                    f"💰 Payout: ${payout:,.2f} (${wagered:,.2f} Base Bet)\n"
-                    f"🎁 Prize: ${prize} USD"
+                    f"💥 **Highest Multiplier:** `x{multiplier:,.2f}`\n"
+                    f"🎮 **Game:** {game}\n"
+                    f"💰 **Payout:** `${payout:,.2f}` (`${wagered:,.2f}` Base Bet)\n"
+                    f"🎁 **Prize:** `${prize} USD`"
                 ),
                 inline=False
             )
