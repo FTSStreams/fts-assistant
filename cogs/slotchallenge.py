@@ -50,7 +50,11 @@ class SlotChallenge(commands.Cog):
             # Optionally delete the embed if no challenges remain
             return
         # Build a styled description for all challenges
-        desc = "*First to hit the required multiplier wins the prize!*\n\n"
+        now_ts = int(datetime.now(dt.UTC).timestamp())
+        desc = f"⏰ **Last Updated:** <t:{now_ts}:R>\n"
+        desc += "*First to hit the required multiplier wins the prize!*\n"
+        desc += "All prizes are paid out automatically by our secure system.\n"
+        desc += "See <#multi-challenge-payouts> for payout logs!\n\n"
         for challenge in active:
             try:
                 dt_obj = challenge['start_time']
