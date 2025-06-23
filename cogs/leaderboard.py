@@ -62,7 +62,22 @@ class Leaderboard(commands.Cog):
             reverse=True
         )
         # Build leaderboard entries as a code block
-        leaderboard_lines = []
+        embed = discord.Embed(
+            title="🏆 **$1,500 USD Roobet Monthly Leaderboard** 🏆",
+            description=(
+                f"🗓️ **Leaderboard Period:**\n"
+                f"From: <t:{start_unix}:F>\n"
+                f"To: <t:{end_unix}:F>\n\n"
+                f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"
+                "📜 **Leaderboard Rules & Disclosure**:\n"
+                "• Games with an RTP of **97% or less** contribute **100%** to your weighted wager.\n"
+                "• Games with an RTP **above 97%** contribute **50%** to your weighted wager.\n"
+                "• Games with an RTP **98% and above** contribute **10%** to your weighted wager.\n"
+                "• **Only Slots and House Games count** (Dice is excluded).\n\n"
+                "💵 **All amounts displayed are in USD.**\n\n"
+            ),
+            color=discord.Color.gold()
+        )
         for i in range(10):
             if i < len(weighted_wager_data):
                 entry = weighted_wager_data[i]
@@ -80,30 +95,15 @@ class Leaderboard(commands.Cog):
                 total_wagered = 0
                 weighted_wagered = 0
                 prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
-            leaderboard_lines.append(
-                f"#{i + 1} - {username}\n"
-                f"✨ Weighted Wagered: ${weighted_wagered:,.2f}\n"
-                f"💰 Total Wagered: ${total_wagered:,.2f}\n"
-                f"🎁 Prize: ${prize} USD\n"
+            embed.add_field(
+                name=f"#{i + 1} - {username}",
+                value=(
+                    f"✨ Weighted Wagered: ```${weighted_wagered:,.2f}```\n"
+                    f"💰 Total Wagered: ```${total_wagered:,.2f}```\n"
+                    f"🎁 Prize: ```${prize} USD```"
+                ),
+                inline=False
             )
-        leaderboard_block = '```\n' + '\n'.join(leaderboard_lines) + '```'
-        embed = discord.Embed(
-            title="🏆 **$1,500 USD Roobet Monthly Leaderboard** 🏆",
-            description=(
-                f"🗓️ **Leaderboard Period:**\n"
-                f"From: <t:{start_unix}:F>\n"
-                f"To: <t:{end_unix}:F>\n\n"
-                f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"
-                "📜 **Leaderboard Rules & Disclosure**:\n"
-                "• Games with an RTP of **97% or less** contribute **100%** to your weighted wager.\n"
-                "• Games with an RTP **above 97%** contribute **50%** to your weighted wager.\n"
-                "• Games with an RTP **98% and above** contribute **10%** to your weighted wager.\n"
-                "• **Only Slots and House Games count** (Dice is excluded).\n\n"
-                "💵 **All amounts displayed are in USD.**\n\n"
-                + leaderboard_block
-            ),
-            color=discord.Color.gold()
-        )
         message_id = get_leaderboard_message_id(key="leaderboard_message_id")
         logger.info(f"[Leaderboard] Retrieved leaderboard message ID: {message_id}")
         if message_id:
