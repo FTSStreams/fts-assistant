@@ -173,7 +173,7 @@ class Leaderboard(commands.Cog):
                 )
                 embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
                 await channel.send(embed=embed)
-                await channel.send(f"🎉 Thanks to everyone who helped reach ${threshold:,.0f} wager this month. Your support is truly appreciated! 🚀")
+                await channel.send(f"🎉 Thanks to @everyone who helped reach ${threshold:,.0f} wager this month. Your support is truly appreciated! 🚀")
         except Exception as e:
             logger.error(f"Error in auto_post_monthly_goal: {e}")
 
