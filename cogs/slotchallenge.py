@@ -228,12 +228,16 @@ class SlotChallenge(commands.Cog):
         Returns a list of dicts: [{"uid": ..., "username": ...}, ...]
         """
         from utils import fetch_weighted_wager
-        # Fetch all wager data for the game since the challenge start
         data = fetch_weighted_wager(start_date, None)
         users = []
         seen = set()
         for entry in data:
-            if entry.get("uid") and entry.get("username") and entry.get("favoriteGameId") == game_identifier:
+            # Check if user has highestMultiplier for this game
+            hm = entry.get("highestMultiplier")
+            if (
+                entry.get("uid") and entry.get("username") and hm and
+                hm.get("gameId") == game_identifier and hm.get("wagered", 0) > 0
+            ):
                 key = (entry["uid"], entry["username"])
                 if key not in seen:
                     users.append({"uid": entry["uid"], "username": entry["username"]})
