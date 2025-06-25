@@ -191,9 +191,9 @@ class SlotChallenge(commands.Cog):
         completed_ids = set()
         for challenge in active:
             winners = []
-            user_list = self.get_all_known_users(challenge['game_identifier'], challenge['start_time'])
+            user_list = await asyncio.to_thread(self.get_all_known_users, challenge['game_identifier'], challenge['start_time'])
             for user in user_list:
-                stats = fetch_user_game_stats(user['uid'], challenge['game_identifier'], challenge['start_time'])
+                stats = await asyncio.to_thread(fetch_user_game_stats, user['uid'], challenge['game_identifier'], challenge['start_time'])
                 if not stats:
                     continue
                 wagered = stats.get('wagered', 0)
@@ -260,14 +260,13 @@ class SlotChallenge(commands.Cog):
     @app_commands.describe(identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)", username="Username to search (case-sensitive, must match exactly)")
     async def gamestats(self, interaction: discord.Interaction, identifier: str, username: str = None):
         await interaction.response.defer(thinking=True)
-        # Dynamically get all users who wagered on this game this month
         start_date, _ = get_current_month_range()
-        user_list = self.get_all_known_users(identifier, start_date)
+        user_list = await asyncio.to_thread(self.get_all_known_users, identifier, start_date)
         results = []
         for user in user_list:
             if username and user['username'] != username:
                 continue
-            stats = fetch_user_game_stats(user['uid'], identifier, start_date)
+            stats = await asyncio.to_thread(fetch_user_game_stats, user['uid'], identifier, start_date)
             if stats:
                 results.append({
                     "username": user['username'],
@@ -316,15 +315,13 @@ class SlotChallenge(commands.Cog):
                 seen.add(key)
         desc = ""
         for challenge in all_challenges:
-            # Fetch all weighted wager data for this game and window
             start_date = challenge['start_time']
             end_date = None  # None means up to now
             try:
-                data = fetch_weighted_wager(start_date, end_date)
+                data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date)
             except Exception as e:
                 desc += f"\n**{challenge['game_name']}**: Error fetching data: {e}\n"
                 continue
-            # Filter for this game and users with a highestMultiplier for this game
             results = []
             for entry in data:
                 hm = entry.get("highestMultiplier")
