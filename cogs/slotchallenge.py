@@ -321,7 +321,7 @@ class SlotChallenge(commands.Cog):
         conn = get_db_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT game_identifier, game, challenge_start FROM slot_challenge_logs WHERE status = 'completed'")
+                cur.execute("SELECT game_identifier, game, challenge_start FROM slot_challenge_logs")
                 completed = cur.fetchall()
         finally:
             release_db_connection(conn)
