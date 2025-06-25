@@ -418,7 +418,11 @@ class SlotChallenge(commands.Cog):
                 break
         embed = discord.Embed(title="Slot Challenge History", description=desc[:4096], color=discord.Color.gold())
         if history_message:
-            await history_message.edit(embed=embed)
+            try:
+                await history_message.edit(embed=embed)
+            except discord.NotFound:
+                logger.warning("Multi-challenge history embed message was deleted. Reposting.")
+                await channel.send(embed=embed)
         else:
             await channel.send(embed=embed)
 
