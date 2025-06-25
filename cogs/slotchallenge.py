@@ -191,24 +191,32 @@ class SlotChallenge(commands.Cog):
         completed_ids = set()
         for challenge in active:
             winners = []
-            user_list = await asyncio.to_thread(self.get_all_known_users, challenge['game_identifier'], challenge['start_time'])
-            for user in user_list:
-                stats = await asyncio.to_thread(fetch_user_game_stats, user['uid'], challenge['game_identifier'], challenge['start_time'])
-                if not stats:
+            # Use the same per-game API call as /challenge_results
+            from utils import fetch_weighted_wager
+            import json
+            try:
+                data = await asyncio.to_thread(fetch_weighted_wager, challenge['start_time'], None, challenge['game_identifier'])
+                logger.info(f"[PAYOUT-API] fetch_weighted_wager(start_date={challenge['start_time']}, game_identifier={challenge['game_identifier']}) | Entries: {len(data)} | Data: {json.dumps(data, indent=2)[:1000]}")
+            except Exception as e:
+                logger.error(f"[PAYOUT-ERROR] Error fetching data for challenge {challenge['game_name']}: {e}")
+                continue
+            for entry in data:
+                hm = entry.get("highestMultiplier")
+                if not (entry.get("uid") and entry.get("username") and hm):
                     continue
-                wagered = stats.get('wagered', 0)
-                multiplier = stats.get('weightedWagered', 0)
+                wagered = hm.get('wagered', 0)
+                multiplier = hm.get('multiplier', 0)
                 min_bet = challenge.get('min_bet')
                 if (
                     multiplier >= challenge['required_multi']
                     and (min_bet is None or wagered >= min_bet)
                 ):
                     winners.append({
-                        "uid": user['uid'],
-                        "username": user['username'],
+                        "uid": entry['uid'],
+                        "username": entry['username'],
                         "multiplier": multiplier,
                         "bet": wagered,
-                        "payout": None
+                        "payout": hm.get('payout', 0)
                     })
             if winners:
                 winners_sorted = sorted(winners, key=lambda x: x["multiplier"], reverse=True)
@@ -357,6 +365,7 @@ class SlotChallenge(commands.Cog):
             desc += f"\n**{challenge['game_name']}** (`{challenge['game_identifier']}`)\n"
             for i, r in enumerate(results[:5], 1):
                 desc += f"#{i} {r['username']} — `x{r['multiplier']}` | Bet: `${r['bet']}` | Payout: `${r['payout']}`\n"
+            await asyncio.sleep(30)  # Add 30 second delay between each API call
         await interaction.followup.send(desc or "No challenge results found.", ephemeral=True)
 
 async def setup(bot):
