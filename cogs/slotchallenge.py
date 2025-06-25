@@ -332,6 +332,9 @@ class SlotChallenge(commands.Cog):
             for entry in data:
                 hm = entry.get("highestMultiplier")
                 logger.info(f"[ENTRY] username={entry.get('username')} uid={entry.get('uid')} highestMultiplier={json.dumps(hm)[:500]}")
+                # DEBUG: Log all gameIds for this user
+                if entry.get('username') == 'YOUR_ALT_USERNAME':
+                    logger.info(f"[DEBUG] Alt user entry: {json.dumps(entry, indent=2)[:1000]}")
                 if hm and hm.get("gameId") == challenge['game_identifier']:
                     filtered.append(entry)
             logger.info(f"[FILTER] gameId={challenge['game_identifier']} | Filtered Entries: {len(filtered)}")
