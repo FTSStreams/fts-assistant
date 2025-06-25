@@ -392,15 +392,20 @@ class SlotChallenge(commands.Cog):
         for c in challenges:
             ts_str = c['challenge_start'].strftime('%Y-%m-%d %H:%M:%S UTC')
             # Use game_identifier for hyperlink if available
-            game_identifier = c.get('game_identifier') or c.get('challenge_id') or ''
-            if 'game_identifier' in c and c['game_identifier']:
+            if c.get('game_identifier'):
                 game_url = f"https://roobet.com/casino/game/{c['game_identifier']}"
                 game_display = f"[{c['game']}]({game_url})"
             else:
                 game_display = c['game']
+            # Censor username like in leaderboard
+            username = c['winner_username']
+            if len(username) > 3:
+                username = username[:-3] + '***'
+            else:
+                username = '***'
             desc += (
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f":trophy: {game_display} | :moneybag: ${c['prize']:.2f} | :crown: {c['winner_username']}\n"
+                f":trophy: {game_display} | :moneybag: ${c['prize']:.2f} | :crown: {username}\n"
                 f":heavy_multiplication_x: Achieved/Required Multi: x{c['multiplier']:.2f}/{c['required_multiplier']} | :dollar: Payout: ${c['payout']:.2f} (Base Bet: ${c['bet']:.2f})\n"
                 f":date: {ts_str}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"

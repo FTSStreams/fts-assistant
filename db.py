@@ -278,7 +278,7 @@ def get_all_completed_slot_challenges():
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT challenge_id, game, winner_uid, winner_username, multiplier, bet, payout, required_multiplier, prize, min_bet, challenge_start
+                SELECT challenge_id, game, game_identifier, winner_uid, winner_username, multiplier, bet, payout, required_multiplier, prize, min_bet, challenge_start
                 FROM slot_challenge_logs
                 ORDER BY challenge_start DESC;
             """)
@@ -287,15 +287,16 @@ def get_all_completed_slot_challenges():
                 {
                     "challenge_id": row[0],
                     "game": row[1],
-                    "winner_uid": row[2],
-                    "winner_username": row[3],
-                    "multiplier": row[4],
-                    "bet": row[5],
-                    "payout": row[6],
-                    "required_multiplier": row[7],
-                    "prize": row[8],
-                    "min_bet": row[9],
-                    "challenge_start": row[10],
+                    "game_identifier": row[2],
+                    "winner_uid": row[3],
+                    "winner_username": row[4],
+                    "multiplier": row[5],
+                    "bet": row[6],
+                    "payout": row[7],
+                    "required_multiplier": row[8],
+                    "prize": row[9],
+                    "min_bet": row[10],
+                    "challenge_start": row[11],
                 }
                 for row in rows
             ]
