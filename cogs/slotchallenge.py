@@ -188,20 +188,16 @@ class SlotChallenge(commands.Cog):
         active = get_all_active_slot_challenges()
         if not active:
             return
-        # For each challenge, check all users who have participated (from previous leaderboard data or a known user list)
-        # For demo, we'll use a static list or you can fetch from your user DB
-        user_list = self.get_all_known_users()  # Implement this method to return all user IDs and usernames
         completed_ids = set()
         for challenge in active:
             winners = []
+            user_list = self.get_all_known_users(challenge['game_identifier'], challenge['start_time'])
             for user in user_list:
                 stats = fetch_user_game_stats(user['uid'], challenge['game_identifier'], challenge['start_time'])
                 if not stats:
                     continue
                 wagered = stats.get('wagered', 0)
-                multiplier = stats.get('weightedWagered', 0)  # Or use another field if needed
-                # For slot challenges, you may need to fetch the highest multiplier from another API if available
-                # Here, we use weightedWagered as a placeholder
+                multiplier = stats.get('weightedWagered', 0)
                 min_bet = challenge.get('min_bet')
                 if (
                     multiplier >= challenge['required_multi']
@@ -212,7 +208,7 @@ class SlotChallenge(commands.Cog):
                         "username": user['username'],
                         "multiplier": multiplier,
                         "bet": wagered,
-                        "payout": None  # Not available in aggregate stats
+                        "payout": None
                     })
             if winners:
                 winners_sorted = sorted(winners, key=lambda x: x["multiplier"], reverse=True)
@@ -226,10 +222,23 @@ class SlotChallenge(commands.Cog):
         if completed_ids:
             await self.update_challenges_embed()
 
-    def get_all_known_users(self):
-        # TODO: Replace with actual logic to fetch all users who have participated
-        # Example: return [{"uid": "user_id1", "username": "User1"}, ...]
-        return []
+    def get_all_known_users(self, game_identifier, start_date):
+        """
+        Retrieve all users who wagered on a specific game since the challenge start date.
+        Returns a list of dicts: [{"uid": ..., "username": ...}, ...]
+        """
+        from utils import fetch_weighted_wager
+        # Fetch all wager data for the game since the challenge start
+        data = fetch_weighted_wager(start_date, None)
+        users = []
+        seen = set()
+        for entry in data:
+            if entry.get("uid") and entry.get("username") and entry.get("favoriteGameId") == game_identifier:
+                key = (entry["uid"], entry["username"])
+                if key not in seen:
+                    users.append({"uid": entry["uid"], "username": entry["username"]})
+                    seen.add(key)
+        return users
 
     @check_challenge.before_loop
     async def before_challenge_loop(self):
@@ -247,13 +256,14 @@ class SlotChallenge(commands.Cog):
     @app_commands.describe(identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)", username="Username to search (case-sensitive, must match exactly)")
     async def gamestats(self, interaction: discord.Interaction, identifier: str, username: str = None):
         await interaction.response.defer(thinking=True)
-        # For demo, use a static user list or fetch from your DB
-        user_list = self.get_all_known_users()
+        # Dynamically get all users who wagered on this game this month
+        start_date, _ = get_current_month_range()
+        user_list = self.get_all_known_users(identifier, start_date)
         results = []
         for user in user_list:
             if username and user['username'] != username:
                 continue
-            stats = fetch_user_game_stats(user['uid'], identifier, get_current_month_range()[0])
+            stats = fetch_user_game_stats(user['uid'], identifier, start_date)
             if stats:
                 results.append({
                     "username": user['username'],
@@ -299,9 +309,9 @@ class SlotChallenge(commands.Cog):
             if key not in seen:
                 all_challenges.append({'game_identifier': game_identifier, 'game_name': game_name, 'start_time': start_time})
                 seen.add(key)
-        user_list = self.get_all_known_users()
         desc = ""
         for challenge in all_challenges:
+            user_list = self.get_all_known_users(challenge['game_identifier'], challenge['start_time'])
             results = []
             for user in user_list:
                 stats = fetch_user_game_stats(user['uid'], challenge['game_identifier'], challenge['start_time'])
