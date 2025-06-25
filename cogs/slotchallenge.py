@@ -320,11 +320,10 @@ class SlotChallenge(commands.Cog):
             start_date = challenge['start_time']
             end_date = None  # None means up to now
             # LOG: Challenge context
-            logger.debug(f"[DEBUG] Challenge: {challenge['game_name']} ({challenge['game_identifier']}) Start: {start_date}")
+            logger.info(f"[CHALLENGE] {challenge['game_name']} ({challenge['game_identifier']}) Start: {start_date}")
             try:
                 data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date)
-                logger.debug(f"[DEBUG] API Call: fetch_weighted_wager(start_date={start_date}, end_date={end_date})")
-                logger.debug(f"[DEBUG] Raw API Response ({len(data)} entries):\n{json.dumps(data, indent=2)[:2000]}")
+                logger.info(f"[API] fetch_weighted_wager(start_date={start_date}, end_date={end_date}) | Entries: {len(data)} | Data: {json.dumps(data, indent=2)[:1000]}")
             except Exception as e:
                 desc += f"\n**{challenge['game_name']}**: Error fetching data: {e}\n"
                 continue
@@ -332,10 +331,10 @@ class SlotChallenge(commands.Cog):
             filtered = []
             for entry in data:
                 hm = entry.get("highestMultiplier")
-                logger.debug(f"[DEBUG] Entry username={entry.get('username')} uid={entry.get('uid')} highestMultiplier={json.dumps(hm)[:500]}")
+                logger.info(f"[ENTRY] username={entry.get('username')} uid={entry.get('uid')} highestMultiplier={json.dumps(hm)[:500]}")
                 if hm and hm.get("gameId") == challenge['game_identifier']:
                     filtered.append(entry)
-            logger.debug(f"[DEBUG] Filtered for gameId={challenge['game_identifier']}: {len(filtered)} entries")
+            logger.info(f"[FILTER] gameId={challenge['game_identifier']} | Filtered Entries: {len(filtered)}")
             results = []
             for entry in filtered:
                 hm = entry.get("highestMultiplier")
@@ -347,10 +346,10 @@ class SlotChallenge(commands.Cog):
                 })
             if not results:
                 desc += f"\n**{challenge['game_name']}** (`{challenge['game_identifier']}`): No results.\n"
-                logger.debug(f"[DEBUG] No results after filtering for multipliers.")
+                logger.info(f"[RESULTS] No results after filtering for multipliers.")
                 continue
             results.sort(key=lambda x: x["multiplier"], reverse=True)
-            logger.debug(f"[DEBUG] Sorted results: {json.dumps(results, indent=2)[:1000]}")
+            logger.info(f"[RESULTS] Sorted: {json.dumps(results, indent=2)[:1000]}")
             desc += f"\n**{challenge['game_name']}** (`{challenge['game_identifier']}`)\n"
             for i, r in enumerate(results[:5], 1):
                 desc += f"#{i} {r['username']} — `x{r['multiplier']}` | Bet: `${r['bet']}` | Payout: `${r['payout']}`\n"
