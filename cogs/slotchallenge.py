@@ -229,5 +229,38 @@ class SlotChallenge(commands.Cog):
     async def before_ensure_challenge_embed(self):
         await self.bot.wait_until_ready()
 
+    @app_commands.command(name="gamestats", description="Get all players' highest multiplier for a specific game.")
+    @app_commands.describe(identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)")
+    async def gamestats(self, interaction: discord.Interaction, identifier: str):
+        await interaction.response.defer(thinking=True)
+        # Get wager data for the current month
+        start_date, end_date = get_current_month_range()
+        try:
+            data = fetch_weighted_wager(start_date, end_date)
+        except Exception as e:
+            await interaction.followup.send(f"Failed to fetch wager data: {e}", ephemeral=True)
+            return
+        # Find all users with a highestMultiplier for this game
+        results = []
+        for entry in data:
+            hm = entry.get("highestMultiplier")
+            if hm and hm.get("gameId") == identifier:
+                results.append({
+                    "username": entry.get("username", "Unknown"),
+                    "multiplier": hm.get("multiplier", 0),
+                    "bet": hm.get("bet", 0),
+                    "payout": hm.get("payout", 0)
+                })
+        if not results:
+            await interaction.followup.send(f"No results found for game identifier `{identifier}`.", ephemeral=True)
+            return
+        # Sort by multiplier descending
+        results.sort(key=lambda x: x["multiplier"], reverse=True)
+        # Build a response (show up to top 10)
+        desc = f"**Top Multipliers for `{identifier}` this month:**\n\n"
+        for i, r in enumerate(results[:10], 1):
+            desc += f"**#{i} {r['username']}** — `x{r['multiplier']}` | Bet: `${r['bet']}` | Payout: `${r['payout']}`\n"
+        await interaction.followup.send(desc, ephemeral=True)
+
 async def setup(bot):
     await bot.add_cog(SlotChallenge(bot))
