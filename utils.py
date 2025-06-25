@@ -42,7 +42,7 @@ def fetch_total_wager(start_date, end_date):
         raise
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-def fetch_weighted_wager(start_date, end_date):
+def fetch_weighted_wager(start_date, end_date, game_identifier=None):
     headers = {"Authorization": f"Bearer {ROOBET_API_TOKEN}"}
     params = {
         "userId": ROOBET_USER_ID,
@@ -52,6 +52,8 @@ def fetch_weighted_wager(start_date, end_date):
         "categories": "slots,provably fair",
         "gameIdentifiers": "-housegames:dice"
     }
+    if game_identifier:
+        params["gameIdentifiers"] = game_identifier
     try:
         response = requests.get(AFFILIATE_API_URL, headers=headers, params=params, timeout=10)
         response.raise_for_status()

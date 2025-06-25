@@ -322,8 +322,9 @@ class SlotChallenge(commands.Cog):
             # LOG: Challenge context
             logger.info(f"[CHALLENGE] {challenge['game_name']} ({challenge['game_identifier']}) Start: {start_date}")
             try:
-                data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date)
-                logger.info(f"[API] fetch_weighted_wager(start_date={start_date}, end_date={end_date}) | Entries: {len(data)} | Data: {json.dumps(data, indent=2)[:1000]}")
+                # Fetch only for this game identifier
+                data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date, challenge['game_identifier'])
+                logger.info(f"[API] fetch_weighted_wager(start_date={start_date}, end_date={end_date}, game_identifier={challenge['game_identifier']}) | Entries: {len(data)} | Data: {json.dumps(data, indent=2)[:1000]}")
             except Exception as e:
                 desc += f"\n**{challenge['game_name']}**: Error fetching data: {e}\n"
                 continue
