@@ -390,20 +390,29 @@ class SlotChallenge(commands.Cog):
         now_ts = int(datetime.now(dt.UTC).timestamp())
         desc = f"⏰ **Last Updated:** <t:{now_ts}:R>\n\n"
         for c in challenges:
-            ts_str = c['challenge_start'].strftime('%Y-%m-%d %H:%M:%S UTC')
+            # Format as Discord timestamp if possible
+            import dateutil.parser
+            try:
+                dt_obj = c['challenge_start']
+                if isinstance(dt_obj, str):
+                    dt_obj = dateutil.parser.isoparse(dt_obj)
+                unix_ts = int(dt_obj.timestamp())
+                ts_str = f'<t:{unix_ts}:F>'  # Discord timestamp, full format
+            except Exception:
+                ts_str = str(c['challenge_start'])
             # Use game_identifier for hyperlink if available, escape underscores in game name
             if c.get('game_identifier'):
-                safe_game_name = c['game'].replace('_', '\\_')
+                safe_game_name = c['game'].replace('_', '\_')
                 game_url = f"https://roobet.com/casino/game/{c['game_identifier']}"
                 game_display = f"[{safe_game_name}]({game_url})"
             else:
-                game_display = c['game'].replace('_', '\\_')
-            # Censor username like in leaderboard (replace last 3 chars with \*\*\*)
+                game_display = c['game'].replace('_', '\_')
+            # Censor username like in leaderboard (replace last 3 chars with ***)
             username = c['winner_username']
             if len(username) > 3:
-                username = username[:-3] + r'\*\*\*'
+                username = username[:-3] + r'***'
             else:
-                username = r'\*\*\*'
+                username = r'***'
             desc += (
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f":trophy: {game_display} | :moneybag: ${c['prize']:.2f} | :crown: {username}\n"
