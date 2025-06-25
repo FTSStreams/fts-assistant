@@ -203,15 +203,26 @@ class SlotChallenge(commands.Cog):
                 hm = entry.get("highestMultiplier")
                 if not hm:
                     continue
-                # Debug: print the full highestMultiplier dict for this entry
-                print(f"DEBUG: highestMultiplier for {entry.get('username')}: {hm}")
-                # Only count as winner if bet meets min_bet (if set)
+                # Debug: print the wager timestamp and challenge start time
+                wager_time = hm.get("createdAt")
+                challenge_start = challenge["start_time"]
+                print(f"DEBUG: {entry.get('username')} wager_time={wager_time} challenge_start={challenge_start}")
+                # Only count as winner if bet meets min_bet (if set) and wager is after challenge start
                 bet = hm.get("wagered", 0)
                 min_bet = challenge.get("min_bet")
+                # Convert both to datetime for comparison
+                try:
+                    from dateutil import parser as dtparser
+                    wager_dt = dtparser.parse(str(wager_time)) if wager_time else None
+                    challenge_dt = dtparser.parse(str(challenge_start)) if challenge_start else None
+                except Exception:
+                    wager_dt = wager_time
+                    challenge_dt = challenge_start
                 if (
                     hm.get("gameId") == challenge["game_identifier"]
                     and hm.get("multiplier", 0) >= challenge["required_multi"]
                     and (min_bet is None or bet >= min_bet)
+                    and wager_dt and challenge_dt and wager_dt >= challenge_dt
                 ):
                     winners.append({
                         "uid": entry.get("uid"),
