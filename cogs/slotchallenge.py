@@ -321,7 +321,7 @@ class SlotChallenge(commands.Cog):
         conn = get_db_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT game_identifier, game, start_time FROM slot_challenge_logs WHERE status = 'completed'")
+                cur.execute("SELECT game_identifier, game, challenge_start FROM slot_challenge_logs WHERE status = 'completed'")
                 completed = cur.fetchall()
         finally:
             release_db_connection(conn)
@@ -332,10 +332,10 @@ class SlotChallenge(commands.Cog):
             if key not in seen:
                 all_challenges.append({'game_identifier': c['game_identifier'], 'game_name': c['game_name'], 'start_time': c['start_time']})
                 seen.add(key)
-        for game_identifier, game, start_time in completed:
-            key = (game_identifier, str(start_time))
+        for game_identifier, game, challenge_start in completed:
+            key = (game_identifier, str(challenge_start))
             if key not in seen:
-                all_challenges.append({'game_identifier': game_identifier, 'game_name': game, 'start_time': start_time})
+                all_challenges.append({'game_identifier': game_identifier, 'game_name': game, 'start_time': challenge_start})
                 seen.add(key)
         desc = ""
         for challenge in all_challenges:
