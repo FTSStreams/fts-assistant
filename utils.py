@@ -119,6 +119,7 @@ def fetch_user_game_stats(user_id, game_identifier, start_date, end_date=None):
     """
     Fetch aggregate stats for a single user/game in a time window.
     Returns a dict with wagered, weightedWagered, etc.
+    Gracefully handles 400 errors (no data for user/game/time window).
     """
     headers = {"Authorization": f"Bearer {ROOBET_API_TOKEN}"}
     params = {
@@ -131,6 +132,8 @@ def fetch_user_game_stats(user_id, game_identifier, start_date, end_date=None):
         params["gameIdentifiers"] = game_identifier
     try:
         response = requests.get(AFFILIATE_API_URL, headers=headers, params=params, timeout=10)
+        if response.status_code == 400:
+            return None  # No data for this user/game/time window
         response.raise_for_status()
         data = response.json()
         # API returns a list of one entry per user
