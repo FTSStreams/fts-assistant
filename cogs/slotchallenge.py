@@ -113,6 +113,7 @@ class SlotChallenge(commands.Cog):
         if not challenge:
             await interaction.response.send_message(f"No active slot challenge found with ID {challenge_id}.", ephemeral=True)
             return
+        logger.info(f"Calling log_slot_challenge for CANCELLED: id={challenge['challenge_id']} game={challenge['game_name']} by={challenge['posted_by_username']}")
         log_slot_challenge(
             challenge["game_identifier"], challenge["game_name"], challenge["required_multi"], challenge["prize"],
             challenge["start_time"], datetime.now(dt.UTC).replace(microsecond=0).isoformat(),
@@ -154,6 +155,8 @@ class SlotChallenge(commands.Cog):
                 hm = entry.get("highestMultiplier")
                 if not hm:
                     continue
+                # Debug: print the full highestMultiplier dict for this entry
+                print(f"DEBUG: highestMultiplier for {entry.get('username')}: {hm}")
                 # Only count as winner if bet meets min_bet (if set)
                 bet = hm.get("bet", 0)
                 min_bet = challenge.get("min_bet")
@@ -201,6 +204,7 @@ class SlotChallenge(commands.Cog):
                     embed.set_footer(text=f"Challenge start: <t:{int(datetime.fromisoformat(str(challenge['start_time'])).timestamp())}:f>")
                     if logs_channel:
                         await logs_channel.send(embed=embed)
+                    logger.info(f"Calling log_slot_challenge for COMPLETED: id={challenge['challenge_id']} game={challenge['game_name']} winner={winner['username']}")
                     log_slot_challenge(
                         challenge["game_identifier"], challenge["game_name"], challenge["required_multi"], challenge["prize"],
                         challenge["start_time"], datetime.now(dt.UTC).replace(microsecond=0).isoformat(),
