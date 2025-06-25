@@ -63,6 +63,7 @@ class SlotChallenge(commands.Cog):
                 log_slot_challenge(
                     challenge["challenge_id"],
                     challenge["game_name"],
+                    challenge["game_identifier"],
                     winner["uid"],
                     winner["username"],
                     winner["multiplier"],
@@ -171,9 +172,12 @@ class SlotChallenge(commands.Cog):
             return
         logger.info(f"Calling log_slot_challenge for CANCELLED: id={challenge['challenge_id']} game={challenge['game_name']} by={challenge['posted_by_username']}")
         log_slot_challenge(
-            challenge["game_identifier"], challenge["game_name"], challenge["required_multi"], challenge["prize"],
-            challenge["start_time"], datetime.now(dt.UTC).replace(microsecond=0).isoformat(),
-            challenge["posted_by"], challenge["posted_by_username"], None, None, None, "cancelled"
+            challenge["challenge_id"],
+            challenge["game_name"],
+            challenge["game_identifier"],
+            challenge["posted_by"],
+            challenge["posted_by_username"],
+            None, None, None, None, None, challenge["start_time"]
         )
         remove_active_slot_challenge(challenge_id)
         await self.update_challenges_embed()

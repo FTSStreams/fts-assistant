@@ -188,17 +188,17 @@ def clear_active_slot_challenge():
     finally:
         release_db_connection(conn)
 
-def log_slot_challenge(challenge_id, game, winner_uid, winner_username, multiplier, bet, payout, required_multiplier, prize, min_bet, challenge_start):
+def log_slot_challenge(challenge_id, game, game_identifier, winner_uid, winner_username, multiplier, bet, payout, required_multiplier, prize, min_bet, challenge_start):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO slot_challenge_logs (
-                    challenge_id, game, winner_uid, winner_username, multiplier, bet, payout, required_multiplier, prize, min_bet, challenge_start
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                    challenge_id, game, game_identifier, winner_uid, winner_username, multiplier, bet, payout, required_multiplier, prize, min_bet, challenge_start
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
                 """,
-                (challenge_id, game, winner_uid, winner_username, multiplier, bet, payout, required_multiplier, prize, min_bet, challenge_start)
+                (challenge_id, game, game_identifier, winner_uid, winner_username, multiplier, bet, payout, required_multiplier, prize, min_bet, challenge_start)
             )
             conn.commit()
     except Exception as e:
