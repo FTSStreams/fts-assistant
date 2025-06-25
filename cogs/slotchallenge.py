@@ -22,6 +22,54 @@ class SlotChallenge(commands.Cog):
         self.bot = bot
         self.check_challenge.start()
         self.ensure_challenge_embed.start()
+        self.payout_queue = asyncio.Queue()
+        self.process_payout_queue_task = asyncio.create_task(self.process_payout_queue())
+
+    async def process_payout_queue(self):
+        while True:
+            challenge, winner, second, logs_channel = await self.payout_queue.get()
+            tip_response = await send_tip(
+                user_id=os.getenv("ROOBET_USER_ID"),
+                to_username=winner["username"],
+                to_user_id=winner["uid"],
+                amount=challenge["prize"]
+            )
+            if tip_response.get("success"):
+                embed = discord.Embed(
+                    title="🏆 Slot Challenge Results! 🏆",
+                    description=f"**1st Place:** {winner['username']}\nMultiplier: x{winner['multiplier']:.2f}",
+                    color=discord.Color.green()
+                )
+                if second:
+                    embed.description += f"\n\n**2nd Place:** {second['username']}\nMultiplier: x{second['multiplier']:.2f}"
+                embed.add_field(name="Bet Size", value=f"${winner.get('bet', '?')}", inline=True)
+                embed.add_field(name="Payout", value=f"${winner.get('payout', '?')}", inline=True)
+                embed.add_field(name="Required Multiplier", value=f"x{challenge['required_multi']}", inline=True)
+                embed.add_field(name="Prize", value=f"${challenge['prize']}", inline=True)
+                embed.add_field(name="Game", value=challenge['game_name'], inline=True)
+                if challenge.get('min_bet'):
+                    embed.add_field(name="Minimum Bet", value=f"${challenge['min_bet']}", inline=True)
+                # Use plain text for the start time in the footer
+                try:
+                    dt_obj = datetime.fromisoformat(str(challenge['start_time']))
+                    start_time_str = dt_obj.strftime('%Y-%m-%d %H:%M:%S UTC')
+                except Exception:
+                    start_time_str = str(challenge['start_time'])
+                embed.set_footer(text=f"Challenge start: {start_time_str}")
+                if logs_channel:
+                    await logs_channel.send(embed=embed)
+                logger.info(f"Calling log_slot_challenge for COMPLETED: id={challenge['challenge_id']} game={challenge['game_name']} winner={winner['username']}")
+                log_slot_challenge(
+                    challenge["game_identifier"], challenge["game_name"], challenge["required_multi"], challenge["prize"],
+                    challenge["start_time"], datetime.now(dt.UTC).replace(microsecond=0).isoformat(),
+                    challenge["posted_by"], challenge["posted_by_username"],
+                    winner["uid"], winner["username"], winner["multiplier"], "completed"
+                )
+            else:
+                if logs_channel:
+                    await logs_channel.send(f"❌ Failed to tip prize to {winner['username']}. Please check logs.")
+            await asyncio.sleep(30)
+            self.payout_queue.task_done()
 
     @app_commands.command(name="setchallenge", description="Set a slot challenge for a specific game and multiplier.")
     @app_commands.describe(game_identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)", game_name="Game name for display", required_multi="Required multiplier (e.g. 100)", prize="Prize amount in USD", emoji="Optional emoji for this challenge", min_bet="Minimum bet size in USD (optional)")
@@ -178,42 +226,8 @@ class SlotChallenge(commands.Cog):
                 winner = winners_sorted[0]
                 second = winners_sorted[1] if len(winners_sorted) > 1 else None
                 # Tip out the prize to first place
-                tip_response = await send_tip(
-                    user_id=os.getenv("ROOBET_USER_ID"),
-                    to_username=winner["username"],
-                    to_user_id=winner["uid"],
-                    amount=challenge["prize"]
-                )
                 logs_channel = self.bot.get_channel(LOGS_CHANNEL_ID)
-                if tip_response.get("success"):
-                    embed = discord.Embed(
-                        title="🏆 Slot Challenge Results! 🏆",
-                        description=f"**1st Place:** {winner['username']}\nMultiplier: x{winner['multiplier']:.2f}",
-                        color=discord.Color.green()
-                    )
-                    if second:
-                        embed.description += f"\n\n**2nd Place:** {second['username']}\nMultiplier: x{second['multiplier']:.2f}"
-                    # Show bet and payout if available
-                    embed.add_field(name="Bet Size", value=f"${winner.get('bet', '?')}", inline=True)
-                    embed.add_field(name="Payout", value=f"${winner.get('payout', '?')}", inline=True)
-                    embed.add_field(name="Required Multiplier", value=f"x{challenge['required_multi']}", inline=True)
-                    embed.add_field(name="Prize", value=f"${challenge['prize']}", inline=True)
-                    embed.add_field(name="Game", value=challenge['game_name'], inline=True)
-                    if challenge.get('min_bet'):
-                        embed.add_field(name="Minimum Bet", value=f"${challenge['min_bet']}", inline=True)
-                    embed.set_footer(text=f"Challenge start: <t:{int(datetime.fromisoformat(str(challenge['start_time'])).timestamp())}:f>")
-                    if logs_channel:
-                        await logs_channel.send(embed=embed)
-                    logger.info(f"Calling log_slot_challenge for COMPLETED: id={challenge['challenge_id']} game={challenge['game_name']} winner={winner['username']}")
-                    log_slot_challenge(
-                        challenge["game_identifier"], challenge["game_name"], challenge["required_multi"], challenge["prize"],
-                        challenge["start_time"], datetime.now(dt.UTC).replace(microsecond=0).isoformat(),
-                        challenge["posted_by"], challenge["posted_by_username"],
-                        winner["uid"], winner["username"], winner["multiplier"], "completed"
-                    )
-                else:
-                    if logs_channel:
-                        await logs_channel.send(f"❌ Failed to tip prize to {winner['username']}. Please check logs.")
+                self.payout_queue.put_nowait((challenge, winner, second, logs_channel))
                 completed_ids.add(challenge["challenge_id"])
         # Remove completed challenges and update embed
         for cid in completed_ids:
