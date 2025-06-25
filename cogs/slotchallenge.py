@@ -60,6 +60,9 @@ class SlotChallenge(commands.Cog):
                 if logs_channel:
                     await logs_channel.send(embed=embed)
                 logger.info(f"Calling log_slot_challenge for COMPLETED: id={challenge['challenge_id']} game={challenge['game_name']} winner={winner['username']}")
+                # Use the actual completion time for logging
+                from datetime import datetime, timezone
+                completion_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
                 log_slot_challenge(
                     challenge["challenge_id"],
                     challenge["game_name"],
@@ -72,7 +75,7 @@ class SlotChallenge(commands.Cog):
                     challenge["required_multi"],
                     challenge["prize"],
                     challenge.get("min_bet", 0),
-                    challenge["start_time"]
+                    completion_time
                 )
             else:
                 if logs_channel:
