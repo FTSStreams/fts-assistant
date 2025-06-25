@@ -72,8 +72,9 @@ class Milestones(commands.Cog):
             await asyncio.sleep(30)
             self.tip_queue.task_done()
 
-    @tasks.loop(minutes=15)
+    @tasks.loop(minutes=14)
     async def check_wager_milestones(self):
+        await asyncio.sleep(840)  # 14 minute offset
         now = datetime.now(dt.UTC)
         month = now.month
         year = now.year

@@ -6,6 +6,7 @@ import os
 import logging
 from datetime import datetime
 import datetime as dt
+import asyncio
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -19,8 +20,9 @@ class MultiLeaderboard(commands.Cog):
         self.bot = bot
         self.update_multi_leaderboard.start()
 
-    @tasks.loop(minutes=5)
+    @tasks.loop(minutes=14)
     async def update_multi_leaderboard(self):
+        await asyncio.sleep(480)  # 8 minute offset
         channel = self.bot.get_channel(MULTI_LEADERBOARD_CHANNEL_ID)
         if not channel:
             logger.error("MultiLeaderboard channel not found.")

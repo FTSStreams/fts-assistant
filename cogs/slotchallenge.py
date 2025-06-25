@@ -195,8 +195,9 @@ class SlotChallenge(commands.Cog):
             embed.set_footer(text=f"Challenge start time (UTC): {challenge['start_time']}")
             await logs_channel.send(embed=embed)
 
-    @tasks.loop(minutes=7.5)
+    @tasks.loop(minutes=14)
     async def check_challenge(self):
+        await asyncio.sleep(120)  # 2 minute offset
         active = get_all_active_slot_challenges()
         if not active:
             return
@@ -268,8 +269,9 @@ class SlotChallenge(commands.Cog):
     async def before_challenge_loop(self):
         await self.bot.wait_until_ready()
 
-    @tasks.loop(minutes=5)
+    @tasks.loop(minutes=14)
     async def ensure_challenge_embed(self):
+        await asyncio.sleep(240)  # 4 minute offset
         await self.update_challenges_embed()
 
     @ensure_challenge_embed.before_loop
@@ -382,6 +384,7 @@ class SlotChallenge(commands.Cog):
 
     @tasks.loop(minutes=5)
     async def update_multi_challenge_history(self):
+        await asyncio.sleep(600)  # 10 minute offset
         await self.bot.wait_until_ready()
         channel = self.bot.get_channel(1387301442598998016)
         if not channel:
@@ -392,7 +395,8 @@ class SlotChallenge(commands.Cog):
         if not challenges:
             return
         # Sort by challenge_start descending (already sorted in query)
-        desc = ""
+        now_ts = int(datetime.now(dt.UTC).timestamp())
+        desc = f"⏰ **Last Updated:** <t:{now_ts}:R>\n\n"
         for c in challenges:
             ts_str = c['challenge_start'].strftime('%Y-%m-%d %H:%M:%S UTC')
             # Use game_identifier for hyperlink if available, escape underscores in game name

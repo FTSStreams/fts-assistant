@@ -27,8 +27,9 @@ class Leaderboard(commands.Cog):
         self.auto_post_monthly_goal.start()
         self.update_roobet_leaderboard.start()
 
-    @tasks.loop(minutes=5)
+    @tasks.loop(minutes=14)
     async def update_roobet_leaderboard(self):
+        await asyncio.sleep(360)  # 6 minute offset
         channel = self.bot.get_channel(LEADERBOARD_CHANNEL_ID)
         if not channel:
             logger.error("Leaderboard channel not found.")
@@ -129,8 +130,9 @@ class Leaderboard(commands.Cog):
             except discord.errors.Forbidden:
                 logger.error("Bot lacks permission to send messages in leaderboard channel.")
 
-    @tasks.loop(minutes=5)
+    @tasks.loop(minutes=14)
     async def auto_post_monthly_goal(self):
+        await asyncio.sleep(720)  # 12 minute offset
         channel = self.bot.get_channel(MONTHLY_GOAL_CHANNEL_ID)
         if not channel:
             logger.error("Monthly goal channel not found.")
