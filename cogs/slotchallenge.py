@@ -294,6 +294,7 @@ class SlotChallenge(commands.Cog):
         import json
         from db import get_all_active_slot_challenges, get_db_connection, release_db_connection
         from utils import fetch_weighted_wager
+        logger = logging.getLogger(__name__)
         active = get_all_active_slot_challenges()
         conn = get_db_connection()
         try:
@@ -319,11 +320,11 @@ class SlotChallenge(commands.Cog):
             start_date = challenge['start_time']
             end_date = None  # None means up to now
             # LOG: Challenge context
-            print(f"\n[DEBUG] Challenge: {challenge['game_name']} ({challenge['game_identifier']}) Start: {start_date}")
+            logger.debug(f"[DEBUG] Challenge: {challenge['game_name']} ({challenge['game_identifier']}) Start: {start_date}")
             try:
                 data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date)
-                print(f"[DEBUG] API Call: fetch_weighted_wager(start_date={start_date}, end_date={end_date})")
-                print(f"[DEBUG] Raw API Response ({len(data)} entries):\n{json.dumps(data, indent=2)[:2000]}")
+                logger.debug(f"[DEBUG] API Call: fetch_weighted_wager(start_date={start_date}, end_date={end_date})")
+                logger.debug(f"[DEBUG] Raw API Response ({len(data)} entries):\n{json.dumps(data, indent=2)[:2000]}")
             except Exception as e:
                 desc += f"\n**{challenge['game_name']}**: Error fetching data: {e}\n"
                 continue
@@ -331,10 +332,10 @@ class SlotChallenge(commands.Cog):
             filtered = []
             for entry in data:
                 hm = entry.get("highestMultiplier")
-                print(f"[DEBUG] Entry username={entry.get('username')} uid={entry.get('uid')} highestMultiplier={json.dumps(hm)[:500]}")
+                logger.debug(f"[DEBUG] Entry username={entry.get('username')} uid={entry.get('uid')} highestMultiplier={json.dumps(hm)[:500]}")
                 if hm and hm.get("gameId") == challenge['game_identifier']:
                     filtered.append(entry)
-            print(f"[DEBUG] Filtered for gameId={challenge['game_identifier']}: {len(filtered)} entries")
+            logger.debug(f"[DEBUG] Filtered for gameId={challenge['game_identifier']}: {len(filtered)} entries")
             results = []
             for entry in filtered:
                 hm = entry.get("highestMultiplier")
@@ -346,10 +347,10 @@ class SlotChallenge(commands.Cog):
                 })
             if not results:
                 desc += f"\n**{challenge['game_name']}** (`{challenge['game_identifier']}`): No results.\n"
-                print(f"[DEBUG] No results after filtering for multipliers.")
+                logger.debug(f"[DEBUG] No results after filtering for multipliers.")
                 continue
             results.sort(key=lambda x: x["multiplier"], reverse=True)
-            print(f"[DEBUG] Sorted results: {json.dumps(results, indent=2)[:1000]}")
+            logger.debug(f"[DEBUG] Sorted results: {json.dumps(results, indent=2)[:1000]}")
             desc += f"\n**{challenge['game_name']}** (`{challenge['game_identifier']}`)\n"
             for i, r in enumerate(results[:5], 1):
                 desc += f"#{i} {r['username']} — `x{r['multiplier']}` | Bet: `${r['bet']}` | Payout: `${r['payout']}`\n"
