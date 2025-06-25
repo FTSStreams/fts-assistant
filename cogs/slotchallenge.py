@@ -394,8 +394,8 @@ class SlotChallenge(commands.Cog):
             ts = int(c['challenge_start'].timestamp())
             desc += (
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🏆 {c['game']} | 💰 ${c['prize']:.2f} | 👑 {c['winner_username']}\n"
-                f":heavy_multiplication_x: Multi/Required: x{c['multiplier']:.2f}/{c['required_multiplier']} | 💵 ${c['payout']:.2f} | Base Bet: ```${c['bet']:.2f}```\n"
+                f"🏆 {c['game']} | 💰 `${c['prize']:.2f}` | 👑 {c['winner_username']}\n"
+                f":heavy_multiplication_x: Multi/Required: `x{c['multiplier']:.2f}`/`x{c['required_multiplier']}` | 💵 `${c['payout']:.2f}` | Base Bet: `${c['bet']:.2f}`\n"
                 f":date: <t:{ts}:f>\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             )
