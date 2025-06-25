@@ -293,6 +293,7 @@ class SlotChallenge(commands.Cog):
     async def challenge_results(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
         from db import get_all_active_slot_challenges, get_db_connection, release_db_connection
+        from utils import fetch_weighted_wager
         active = get_all_active_slot_challenges()
         conn = get_db_connection()
         try:
@@ -315,16 +316,24 @@ class SlotChallenge(commands.Cog):
                 seen.add(key)
         desc = ""
         for challenge in all_challenges:
-            user_list = self.get_all_known_users(challenge['game_identifier'], challenge['start_time'])
+            # Fetch all weighted wager data for this game and window
+            start_date = challenge['start_time']
+            end_date = None  # None means up to now
+            try:
+                data = fetch_weighted_wager(start_date, end_date)
+            except Exception as e:
+                desc += f"\n**{challenge['game_name']}**: Error fetching data: {e}\n"
+                continue
+            # Filter for this game and users with a highestMultiplier for this game
             results = []
-            for user in user_list:
-                stats = fetch_user_game_stats(user['uid'], challenge['game_identifier'], challenge['start_time'])
-                if stats:
+            for entry in data:
+                hm = entry.get("highestMultiplier")
+                if hm and hm.get("gameId") == challenge['game_identifier']:
                     results.append({
-                        "username": user['username'],
-                        "multiplier": stats.get('weightedWagered', 0),
-                        "bet": stats.get('wagered', 0),
-                        "payout": None
+                        "username": entry.get("username", "Unknown"),
+                        "multiplier": hm.get("multiplier", 0),
+                        "bet": hm.get("wagered", 0),
+                        "payout": hm.get("payout", 0)
                     })
             if not results:
                 desc += f"\n**{challenge['game_name']}** (`{challenge['game_identifier']}`): No results.\n"
@@ -332,7 +341,7 @@ class SlotChallenge(commands.Cog):
             results.sort(key=lambda x: x["multiplier"], reverse=True)
             desc += f"\n**{challenge['game_name']}** (`{challenge['game_identifier']}`)\n"
             for i, r in enumerate(results[:5], 1):
-                desc += f"#{i} {r['username']} — `x{r['multiplier']}` | Bet: `${r['bet']}`\n"
+                desc += f"#{i} {r['username']} — `x{r['multiplier']}` | Bet: `${r['bet']}` | Payout: `${r['payout']}`\n"
         await interaction.followup.send(desc or "No challenge results found.", ephemeral=True)
 
 async def setup(bot):
