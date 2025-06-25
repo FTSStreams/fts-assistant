@@ -402,12 +402,12 @@ class SlotChallenge(commands.Cog):
                 game_display = f"[{safe_game_name}]({game_url})"
             else:
                 game_display = c['game'].replace('_', '\\_')
-            # Censor username like in leaderboard (replace last 3 chars with ***)
+            # Censor username like in leaderboard (replace last 3 chars with \*\*\*)
             username = c['winner_username']
             if len(username) > 3:
-                username = username[:-3] + '***'
+                username = username[:-3] + '\*\*\*'
             else:
-                username = '***'
+                username = '\*\*\*'
             desc += (
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f":trophy: {game_display} | :moneybag: ${c['prize']:.2f} | :crown: {username}\n"
