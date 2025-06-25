@@ -390,13 +390,18 @@ class SlotChallenge(commands.Cog):
         # Sort by challenge_start descending (already sorted in query)
         desc = ""
         for c in challenges:
-            # Convert challenge_start to Discord timestamp (seconds since epoch)
-            ts = int(c['challenge_start'].timestamp())
+            ts_str = c['challenge_start'].strftime('%Y-%m-%d %H:%M:%S UTC')
+            # Build game hyperlink
+            game_url = f"https://roobet.com/casino/game/{c.get('game_identifier', '')}" if c.get('game_identifier') else None
+            if game_url:
+                game_display = f"[{c['game']}]({game_url})"
+            else:
+                game_display = c['game']
             desc += (
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🏆 {c['game']} | 💰 `${c['prize']:.2f}` | 👑 {c['winner_username']}\n"
-                f":heavy_multiplication_x: Multi/Required: `x{c['multiplier']:.2f}`/`x{c['required_multiplier']}` | 💵 `${c['payout']:.2f}` | Base Bet: `${c['bet']:.2f}`\n"
-                f":date: <t:{ts}:f>\n"
+                f":trophy: {game_display} | :moneybag: ${c['prize']:.2f} | :crown: {c['winner_username']}\n"
+                f":heavy_multiplication_x: Achieved/Required Multi: x{c['multiplier']:.2f}/{c['required_multiplier']} | :dollar: Payout: ${c['payout']:.2f} (Base Bet: ${c['bet']:.2f})\n"
+                f":date: {ts_str}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             )
         # Find or create the embed message
