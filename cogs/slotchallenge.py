@@ -318,24 +318,13 @@ class SlotChallenge(commands.Cog):
         from utils import fetch_weighted_wager
         logger = logging.getLogger(__name__)
         active = get_all_active_slot_challenges()
-        conn = get_db_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT game_identifier, game, challenge_start FROM slot_challenge_logs")
-                completed = cur.fetchall()
-        finally:
-            release_db_connection(conn)
-        seen = set()
+        # Only show live (active) challenges, not completed/logged ones
         all_challenges = []
+        seen = set()
         for c in active:
             key = (c['game_identifier'], str(c['start_time']))
             if key not in seen:
                 all_challenges.append({'game_identifier': c['game_identifier'], 'game_name': c['game_name'], 'start_time': c['start_time']})
-                seen.add(key)
-        for game_identifier, game, challenge_start in completed:
-            key = (game_identifier, str(challenge_start))
-            if key not in seen:
-                all_challenges.append({'game_identifier': game_identifier, 'game_name': game, 'start_time': challenge_start})
                 seen.add(key)
         desc = ""
         for challenge in all_challenges:
@@ -379,7 +368,7 @@ class SlotChallenge(commands.Cog):
             desc += f"\n**{challenge['game_name']}** (`{challenge['game_identifier']}`)\n"
             for i, r in enumerate(results[:5], 1):
                 desc += f"#{i} {r['username']} — `x{r['multiplier']}` | Bet: `${r['bet']}` | Payout: `${r['payout']}`\n"
-            await asyncio.sleep(30)  # Add 30 second delay between each API call
+            await asyncio.sleep(10)  # Add 10 second delay between each API call
         await interaction.followup.send(desc or "No challenge results found.", ephemeral=True)
 
     @tasks.loop(minutes=5)
