@@ -158,7 +158,7 @@ class SlotChallenge(commands.Cog):
                 # Debug: print the full highestMultiplier dict for this entry
                 print(f"DEBUG: highestMultiplier for {entry.get('username')}: {hm}")
                 # Only count as winner if bet meets min_bet (if set)
-                bet = hm.get("bet", 0)
+                bet = hm.get("wagered", 0)
                 min_bet = challenge.get("min_bet")
                 if (
                     hm.get("gameId") == challenge["game_identifier"]
