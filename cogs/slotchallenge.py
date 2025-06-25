@@ -391,9 +391,10 @@ class SlotChallenge(commands.Cog):
         desc = ""
         for c in challenges:
             ts_str = c['challenge_start'].strftime('%Y-%m-%d %H:%M:%S UTC')
-            # Build game hyperlink
-            game_url = f"https://roobet.com/casino/game/{c.get('game_identifier', '')}" if c.get('game_identifier') else None
-            if game_url:
+            # Use game_identifier for hyperlink if available
+            game_identifier = c.get('game_identifier') or c.get('challenge_id') or ''
+            if 'game_identifier' in c and c['game_identifier']:
+                game_url = f"https://roobet.com/casino/game/{c['game_identifier']}"
                 game_display = f"[{c['game']}]({game_url})"
             else:
                 game_display = c['game']
