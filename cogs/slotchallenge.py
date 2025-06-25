@@ -280,5 +280,64 @@ class SlotChallenge(commands.Cog):
             desc += f"**#{i} {r['username']}** — `x{r['multiplier']}` | Bet: `${r['bet']}` | Payout: `${r['payout']}`\n"
         await interaction.followup.send(desc, ephemeral=True)
 
+    @app_commands.command(name="challenge_results", description="Show top multipliers for each challenge since it started.")
+    async def challenge_results(self, interaction: discord.Interaction):
+        await interaction.response.defer(thinking=True)
+        # Get all completed and active challenges (from logs and active table)
+        from db import get_all_active_slot_challenges, get_db_connection, release_db_connection
+        # Get active challenges
+        active = get_all_active_slot_challenges()
+        # Get completed challenges from logs
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT game_identifier, game_name, start_time FROM slot_challenge_logs WHERE status = 'completed'")
+                completed = cur.fetchall()
+        finally:
+            release_db_connection(conn)
+        # Combine active and completed (avoid duplicates by game_identifier+start_time)
+        seen = set()
+        all_challenges = []
+        for c in active:
+            key = (c['game_identifier'], str(c['start_time']))
+            if key not in seen:
+                all_challenges.append({'game_identifier': c['game_identifier'], 'game_name': c['game_name'], 'start_time': c['start_time']})
+                seen.add(key)
+        for game_identifier, game_name, start_time in completed:
+            key = (game_identifier, str(start_time))
+            if key not in seen:
+                all_challenges.append({'game_identifier': game_identifier, 'game_name': game_name, 'start_time': start_time})
+                seen.add(key)
+        # For each challenge, fetch wager data since its start_time
+        desc = ""
+        for challenge in all_challenges:
+            start_date = challenge['start_time']
+            end_date = None  # None means up to now
+            # Use leaderboard logic to fetch wager data for this game since start_date
+            try:
+                data = fetch_weighted_wager(start_date, end_date)
+            except Exception as e:
+                desc += f"\n**{challenge['game_name']}**: Error fetching data: {e}\n"
+                continue
+            # Filter for this game
+            results = []
+            for entry in data:
+                hm = entry.get("highestMultiplier")
+                if hm and hm.get("gameId") == challenge['game_identifier']:
+                    results.append({
+                        "username": entry.get("username", "Unknown"),
+                        "multiplier": hm.get("multiplier", 0),
+                        "bet": hm.get("wagered", 0),
+                        "payout": hm.get("payout", 0)
+                    })
+            if not results:
+                desc += f"\n**{challenge['game_name']}** (`{challenge['game_identifier']}`): No results.\n"
+                continue
+            results.sort(key=lambda x: x["multiplier"], reverse=True)
+            desc += f"\n**{challenge['game_name']}** (`{challenge['game_identifier']}`)\n"
+            for i, r in enumerate(results[:5], 1):
+                desc += f"#{i} {r['username']} — `x{r['multiplier']}` | Bet: `${r['bet']}` | Payout: `${r['payout']}`\n"
+        await interaction.followup.send(desc or "No challenge results found.", ephemeral=True)
+
 async def setup(bot):
     await bot.add_cog(SlotChallenge(bot))
