@@ -188,13 +188,17 @@ def clear_active_slot_challenge():
     finally:
         release_db_connection(conn)
 
-def log_slot_challenge(game_identifier, game_name, required_multi, prize, start_time, end_time, posted_by, posted_by_username, winner_uid, winner_username, winner_multiplier, status):
+def log_slot_challenge(challenge_id, game, winner_uid, winner_username, multiplier, bet, payout, required_multiplier, prize, min_bet, challenge_start):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO slot_challenge_logs (game_identifier, game_name, required_multi, prize, start_time, end_time, posted_by, posted_by_username, winner_uid, winner_username, winner_multiplier, status) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
-                (game_identifier, game_name, required_multi, prize, start_time, end_time, posted_by, posted_by_username, winner_uid, winner_username, winner_multiplier, status)
+                """
+                INSERT INTO slot_challenge_logs (
+                    challenge_id, game, winner_uid, winner_username, multiplier, bet, payout, required_multiplier, prize, min_bet, challenge_start
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                """,
+                (challenge_id, game, winner_uid, winner_username, multiplier, bet, payout, required_multiplier, prize, min_bet, challenge_start)
             )
             conn.commit()
     except Exception as e:
@@ -266,5 +270,37 @@ def update_challenge_message_id(challenge_id, message_id):
             conn.commit()
     except Exception as e:
         logger.error(f"Error updating challenge message_id: {e}")
+    finally:
+        release_db_connection(conn)
+
+def get_all_completed_slot_challenges():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT challenge_id, game, winner_uid, winner_username, multiplier, bet, payout, required_multiplier, prize, min_bet, challenge_start
+                FROM slot_challenge_logs
+                ORDER BY challenge_start DESC;
+            """)
+            rows = cur.fetchall()
+            return [
+                {
+                    "challenge_id": row[0],
+                    "game": row[1],
+                    "winner_uid": row[2],
+                    "winner_username": row[3],
+                    "multiplier": row[4],
+                    "bet": row[5],
+                    "payout": row[6],
+                    "required_multiplier": row[7],
+                    "prize": row[8],
+                    "min_bet": row[9],
+                    "challenge_start": row[10],
+                }
+                for row in rows
+            ]
+    except Exception as e:
+        logger.error(f"Error fetching completed slot challenges: {e}")
+        return []
     finally:
         release_db_connection(conn)

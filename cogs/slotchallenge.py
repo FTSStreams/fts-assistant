@@ -24,6 +24,7 @@ class SlotChallenge(commands.Cog):
         self.ensure_challenge_embed.start()
         self.payout_queue = asyncio.Queue()
         self.process_payout_queue_task = asyncio.create_task(self.process_payout_queue())
+        self.update_multi_challenge_history.start()
 
     async def process_payout_queue(self):
         while True:
@@ -42,8 +43,8 @@ class SlotChallenge(commands.Cog):
                 )
                 if second:
                     embed.description += f"\n\n**2nd Place:** {second['username']}\nMultiplier: x{second['multiplier']:.2f}"
-                embed.add_field(name="Bet Size", value=f"${winner.get('bet', '?')}", inline=True)
-                embed.add_field(name="Payout", value=f"${winner.get('payout', '?')}", inline=True)
+                embed.add_field(name="Bet Size", value=f"${winner.get('bet', 0):.2f}", inline=True)
+                embed.add_field(name="Payout", value=f"${winner.get('payout', 0):.2f}", inline=True)
                 embed.add_field(name="Required Multiplier", value=f"x{challenge['required_multi']}", inline=True)
                 embed.add_field(name="Prize", value=f"${challenge['prize']}", inline=True)
                 embed.add_field(name="Game", value=challenge['game_name'], inline=True)
@@ -60,10 +61,17 @@ class SlotChallenge(commands.Cog):
                     await logs_channel.send(embed=embed)
                 logger.info(f"Calling log_slot_challenge for COMPLETED: id={challenge['challenge_id']} game={challenge['game_name']} winner={winner['username']}")
                 log_slot_challenge(
-                    challenge["game_identifier"], challenge["game_name"], challenge["required_multi"], challenge["prize"],
-                    challenge["start_time"], datetime.now(dt.UTC).replace(microsecond=0).isoformat(),
-                    challenge["posted_by"], challenge["posted_by_username"],
-                    winner["uid"], winner["username"], winner["multiplier"], "completed"
+                    challenge["challenge_id"],
+                    challenge["game_name"],
+                    winner["uid"],
+                    winner["username"],
+                    winner["multiplier"],
+                    winner.get("bet", 0),
+                    winner.get("payout", 0),
+                    challenge["required_multi"],
+                    challenge["prize"],
+                    challenge.get("min_bet", 0),
+                    challenge["start_time"]
                 )
             else:
                 if logs_channel:
@@ -367,6 +375,44 @@ class SlotChallenge(commands.Cog):
                 desc += f"#{i} {r['username']} — `x{r['multiplier']}` | Bet: `${r['bet']}` | Payout: `${r['payout']}`\n"
             await asyncio.sleep(30)  # Add 30 second delay between each API call
         await interaction.followup.send(desc or "No challenge results found.", ephemeral=True)
+
+    @tasks.loop(minutes=5)
+    async def update_multi_challenge_history(self):
+        await self.bot.wait_until_ready()
+        channel = self.bot.get_channel(1387301442598998016)
+        if not channel:
+            logger.warning("Multi-challenge history channel not found.")
+            return
+        from db import get_all_completed_slot_challenges
+        challenges = get_all_completed_slot_challenges()
+        if not challenges:
+            return
+        # Sort by challenge_start descending (already sorted in query)
+        desc = ""
+        for c in challenges:
+            desc += (
+                f"🏆 **{c['game']}**\n"
+                f"Winner: {c['winner_username']}\n"
+                f"Multiplier: x{c['multiplier']:.2f}\n"
+                f"Bet: ${c['bet']:.2f} | Payout: ${c['payout']:.2f}\n"
+                f"Required: x{c['required_multiplier']} | Prize: ${c['prize']}\n"
+                f"Min Bet: ${c['min_bet']}\n"
+                f"Start: {c['challenge_start'].strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n"
+            )
+        # Find or create the embed message
+        history_message = None
+        async for msg in channel.history(limit=10):
+            if msg.author == self.bot.user and msg.embeds and msg.embeds[0].title == "Slot Challenge History":
+                history_message = msg
+                break
+        embed = discord.Embed(title="Slot Challenge History", description=desc[:4096], color=discord.Color.gold())
+        if history_message:
+            await history_message.edit(embed=embed)
+        else:
+            await channel.send(embed=embed)
+
+    def cog_unload(self):
+        self.update_multi_challenge_history.cancel()
 
 async def setup(bot):
     await bot.add_cog(SlotChallenge(bot))
