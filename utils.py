@@ -114,3 +114,31 @@ def get_current_month_range():
     else:
         end = start.replace(month=now.month + 1) - dt.timedelta(seconds=1)
     return start.isoformat(), end.isoformat()
+
+def fetch_user_game_stats(user_id, game_identifier, start_date, end_date=None):
+    """
+    Fetch aggregate stats for a single user/game in a time window.
+    Returns a dict with wagered, weightedWagered, etc.
+    """
+    headers = {"Authorization": f"Bearer {ROOBET_API_TOKEN}"}
+    params = {
+        "userId": user_id,
+        "startDate": start_date,
+    }
+    if end_date:
+        params["endDate"] = end_date
+    if game_identifier:
+        params["gameIdentifiers"] = game_identifier
+    try:
+        response = requests.get(AFFILIATE_API_URL, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        # API returns a list of one entry per user
+        if isinstance(data, dict):
+            data = data.get("data", [])
+        if not isinstance(data, list) or not data:
+            return None
+        return data[0]  # Only one user/game per call
+    except Exception as e:
+        logger.error(f"User/game stats API error: {e}")
+        return None
