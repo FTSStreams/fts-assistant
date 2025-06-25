@@ -395,13 +395,14 @@ class SlotChallenge(commands.Cog):
         desc = ""
         for c in challenges:
             ts_str = c['challenge_start'].strftime('%Y-%m-%d %H:%M:%S UTC')
-            # Use game_identifier for hyperlink if available
+            # Use game_identifier for hyperlink if available, escape underscores in game name
             if c.get('game_identifier'):
+                safe_game_name = c['game'].replace('_', '\_')
                 game_url = f"https://roobet.com/casino/game/{c['game_identifier']}"
-                game_display = f"[{c['game']}]({game_url})"
+                game_display = f"[{safe_game_name}]({game_url})"
             else:
-                game_display = c['game']
-            # Censor username like in leaderboard
+                game_display = c['game'].replace('_', '\_')
+            # Censor username like in leaderboard (replace last 3 chars with ***)
             username = c['winner_username']
             if len(username) > 3:
                 username = username[:-3] + '***'
