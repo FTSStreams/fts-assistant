@@ -274,7 +274,7 @@ class SlotChallenge(commands.Cog):
 
     @tasks.loop(minutes=14)
     async def ensure_challenge_embed(self):
-        await asyncio.sleep(240)  # 4 minute offset
+        await asyncio.sleep(600)  # 10 minute offset
         await self.update_challenges_embed()
 
     @ensure_challenge_embed.before_loop
