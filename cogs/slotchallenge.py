@@ -390,14 +390,13 @@ class SlotChallenge(commands.Cog):
         # Sort by challenge_start descending (already sorted in query)
         desc = ""
         for c in challenges:
+            game_emoji = c.get('emoji', '')
             desc += (
-                f"🏆 **{c['game']}**\n"
-                f"Winner: {c['winner_username']}\n"
-                f"Multiplier: x{c['multiplier']:.2f}\n"
-                f"Bet: ${c['bet']:.2f} | Payout: ${c['payout']:.2f}\n"
-                f"Required: x{c['required_multiplier']} | Prize: ${c['prize']}\n"
-                f"Min Bet: ${c['min_bet']}\n"
-                f"Start: {c['challenge_start'].strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"{game_emoji} {c['game']} | :moneybag: ${c['prize']:.2f} | :crown: {c['winner_username']}\n"
+                f":heavy_multiplication_x: Multi/Required: x{c['multiplier']:.2f}/{c['required_multiplier']} | :dollar: ${c['payout']:.2f} (Base: ${c['bet']:.2f})\n"
+                f":date: {c['challenge_start'].strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             )
         # Find or create the embed message
         history_message = None
