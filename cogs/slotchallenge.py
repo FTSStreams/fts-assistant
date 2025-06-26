@@ -409,9 +409,9 @@ class SlotChallenge(commands.Cog):
                 game_display = c['game'].replace('_', '\\_')
             username = c['winner_username'].strip()
             if len(username) > 3:
-                username = username[:-3] + "`***`"
+                username = f'`{username[:-3]}***`'
             else:
-                username = "`***`"
+                username = '`***`'
             desc += (
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f":trophy: {game_display} | :moneybag: ${c['prize']:.2f} | :crown: {username}\n"
