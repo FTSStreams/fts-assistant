@@ -436,6 +436,15 @@ class SlotChallenge(commands.Cog):
         else:
             await channel.send(embed=embed)
 
+    @app_commands.command(name="manualrefreshhistory", description="Manually refresh the Slot Challenge History embed (admin only, temporary)")
+    async def manualrefreshhistory(self, interaction: discord.Interaction):
+        if interaction.user.id != BOT_OWNER_ID:
+            await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+            return
+        await interaction.response.defer(thinking=True)
+        await self.update_multi_challenge_history()
+        await interaction.followup.send("Slot Challenge History has been manually refreshed.", ephemeral=True)
+
     def cog_unload(self):
         self.update_multi_challenge_history.cancel()
 
