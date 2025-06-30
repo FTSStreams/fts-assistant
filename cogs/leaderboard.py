@@ -7,6 +7,9 @@ import logging
 from datetime import datetime
 import datetime as dt
 import asyncio
+import json
+import base64
+import requests
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -104,6 +107,29 @@ class Leaderboard(commands.Cog):
             ),
             color=discord.Color.gold()
         )
+        
+        # Save leaderboard data to latestLBResults.json
+        leaderboard_results = []
+        for i in range(10):
+            if i < len(weighted_wager_data):
+                entry = weighted_wager_data[i]
+                uid = entry.get("uid")
+                username = entry.get("username", "Unknown")
+                total_wagered = total_wager_dict.get(uid, 0) if uid in total_wager_dict else 0
+                weighted_wagered = entry.get("weightedWagered", 0) if isinstance(entry.get("weightedWagered"), (int, float)) else 0
+                leaderboard_results.append({
+                    "rank": i + 1,
+                    "uid": uid,
+                    "username": username,
+                    "wagered": total_wagered,
+                    "weightedWagered": weighted_wagered
+                })
+        
+        # Write JSON file locally and upload to GitHub
+        with open("latestLBResults.json", "w") as f:
+            json.dump(leaderboard_results, f, indent=2)
+        upload_leaderboard_to_github("latestLBResults.json")
+        
         message_id = get_leaderboard_message_id(key="leaderboard_message_id")
         logger.info(f"[Leaderboard] Retrieved leaderboard message ID: {message_id}")
         if message_id:
@@ -181,6 +207,50 @@ class Leaderboard(commands.Cog):
     @auto_post_monthly_goal.before_loop
     async def before_leaderboard_loop(self):
         await self.bot.wait_until_ready()
+
+def upload_leaderboard_to_github(json_path="latestLBResults.json"):
+    """
+    Uploads or updates the leaderboard JSON file to the GitHub repo using the GitHub API.
+    """
+    GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+    REPO_OWNER = "FTSStreams"
+    REPO_NAME = "fts-assistant"
+    BRANCH = "main"
+    FILE_PATH = "latestLBResults.json"
+    API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
+    
+    headers = {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    try:
+        # Read the file and encode as base64
+        with open(json_path, "rb") as f:
+            content = base64.b64encode(f.read()).decode()
+        
+        # Get the current file SHA if it exists
+        resp = requests.get(API_URL, headers=headers)
+        if resp.status_code == 200:
+            sha = resp.json()["sha"]
+        else:
+            sha = None
+        
+        data = {
+            "message": "Update leaderboard results",
+            "content": content,
+            "branch": BRANCH
+        }
+        if sha:
+            data["sha"] = sha
+        
+        put_resp = requests.put(API_URL, headers=headers, json=data)
+        if put_resp.status_code in (200, 201):
+            logger.info("Leaderboard uploaded to GitHub successfully.")
+        else:
+            logger.error(f"Failed to upload leaderboard: {put_resp.status_code} {put_resp.text}")
+    except Exception as e:
+        logger.error(f"Error uploading leaderboard to GitHub: {e}")
 
 async def setup(bot):
     await bot.add_cog(Leaderboard(bot))
