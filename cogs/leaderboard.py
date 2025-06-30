@@ -31,9 +31,9 @@ class Leaderboard(commands.Cog):
         """Get the DataManager cog"""
         return self.bot.get_cog('DataManager')
 
-    @tasks.loop(minutes=14)
+    @tasks.loop(minutes=10)
     async def update_roobet_leaderboard(self):
-        await asyncio.sleep(360)  # 6 minute offset
+        await asyncio.sleep(120)  # 2 minute offset (DataManager runs at 0:00, we run at 0:02)
         channel = self.bot.get_channel(LEADERBOARD_CHANNEL_ID)
         if not channel:
             logger.error("Leaderboard channel not found.")
@@ -137,9 +137,9 @@ class Leaderboard(commands.Cog):
             except discord.errors.Forbidden:
                 logger.error("Bot lacks permission to send messages in leaderboard channel.")
 
-    @tasks.loop(minutes=14)
+    @tasks.loop(minutes=10)
     async def auto_post_monthly_goal(self):
-        await asyncio.sleep(720)  # 12 minute offset
+        await asyncio.sleep(120)  # 2 minute offset (DataManager runs at 0:00, we run at 0:02)
         channel = self.bot.get_channel(MONTHLY_GOAL_CHANNEL_ID)
         if not channel:
             logger.error("Monthly goal channel not found.")

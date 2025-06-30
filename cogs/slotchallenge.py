@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from utils import fetch_weighted_wager, send_tip, get_current_month_range, fetch_user_game_stats
+from utils import send_tip, get_current_month_range, fetch_user_game_stats
 from db import (
     get_all_active_slot_challenges, add_active_slot_challenge, remove_active_slot_challenge, update_challenge_message_id, log_slot_challenge
 )
@@ -10,9 +10,6 @@ import logging
 from datetime import datetime
 import datetime as dt
 import asyncio
-import json
-import base64
-import requests
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -28,102 +25,10 @@ class SlotChallenge(commands.Cog):
         self.payout_queue = asyncio.Queue()
         self.process_payout_queue_task = asyncio.create_task(self.process_payout_queue())
         self.update_multi_challenge_history.start()
-        # Start the JSON export task
-        self.export_active_challenges.start()
-
-    def upload_active_challenges_to_github(self, challenges_data):
-        """Upload active slot challenges JSON to GitHub."""
-        GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-        REPO_OWNER = "FTSStreams"
-        REPO_NAME = "wagerData"  # Public repo for JSON files
-        BRANCH = "main"
-        FILE_PATH = "ActiveSlotChallenges.json"
-        API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
-        
-        headers = {
-            "Authorization": f"Bearer {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github.v3+json"
-        }
-        
-        try:
-            # Convert to JSON and encode as base64
-            json_content = json.dumps(challenges_data, indent=2)
-            content = base64.b64encode(json_content.encode()).decode()
-            
-            # Get the current file SHA if it exists
-            resp = requests.get(API_URL, headers=headers)
-            if resp.status_code == 200:
-                sha = resp.json()["sha"]
-            else:
-                sha = None
-            
-            data = {
-                "message": "Update active slot challenges",
-                "content": content,
-                "branch": BRANCH
-            }
-            if sha:
-                data["sha"] = sha
-            
-            put_resp = requests.put(API_URL, headers=headers, json=data)
-            if put_resp.status_code in (200, 201):
-                logger.info("Active challenges uploaded to GitHub successfully.")
-            else:
-                logger.error(f"Failed to upload active challenges: {put_resp.status_code} {put_resp.text}")
-        except Exception as e:
-            logger.error(f"Error uploading active challenges to GitHub: {e}")
-
-    @tasks.loop(minutes=5)
-    async def export_active_challenges(self):
-        """Export active slot challenges to JSON every 5 minutes."""
-        try:
-            active_challenges = get_all_active_slot_challenges()
-            
-            # Prepare JSON data
-            challenges_json = {
-                "data_type": "active_slot_challenges",
-                "last_updated": datetime.now(dt.UTC).isoformat(),
-                "last_updated_timestamp": int(datetime.now(dt.UTC).timestamp()),
-                "total_challenges": len(active_challenges),
-                "challenges": []
-            }
-            
-            # Add challenge data
-            for challenge in active_challenges:
-                challenge_data = {
-                    "challenge_id": challenge["challenge_id"],
-                    "game_identifier": challenge["game_identifier"],
-                    "game_name": challenge["game_name"],
-                    "required_multiplier": challenge["required_multi"],  # Fixed: was using "prize"
-                    "prize": challenge["prize"],
-                    "start_time": challenge["start_time"].isoformat() if isinstance(challenge["start_time"], datetime) else challenge["start_time"],
-                    "posted_by": challenge["posted_by"],
-                    "posted_by_username": challenge["posted_by_username"],
-                    "emoji": challenge.get("emoji"),
-                    "min_bet": challenge.get("min_bet")
-                }
-                
-                # Add start timestamp if we can parse the time
-                try:
-                    if isinstance(challenge["start_time"], str):
-                        start_dt = datetime.fromisoformat(challenge["start_time"].replace('Z', '+00:00'))
-                        challenge_data["start_timestamp"] = int(start_dt.timestamp())
-                    elif isinstance(challenge["start_time"], datetime):
-                        challenge_data["start_timestamp"] = int(challenge["start_time"].timestamp())
-                except Exception as e:
-                    logger.warning(f"Could not parse start_time for challenge {challenge['challenge_id']}: {e}")
-                
-                challenges_json["challenges"].append(challenge_data)
-            
-            # Upload to GitHub
-            self.upload_active_challenges_to_github(challenges_json)
-            
-        except Exception as e:
-            logger.error(f"Error exporting active challenges: {e}")
-
-    @export_active_challenges.before_loop
-    async def before_export_active_challenges_loop(self):
-        await self.bot.wait_until_ready()
+    
+    def get_data_manager(self):
+        """Helper to get DataManager cog"""
+        return self.bot.get_cog('DataManager')
 
     async def process_payout_queue(self):
         while True:
@@ -297,31 +202,68 @@ class SlotChallenge(commands.Cog):
             embed.set_footer(text=f"Challenge start time (UTC): {challenge['start_time']}")
             await logs_channel.send(embed=embed)
 
-    @tasks.loop(minutes=14)
+    @tasks.loop(minutes=10)  # Now synchronized with DataManager schedule
     async def check_challenge(self):
-        await asyncio.sleep(120)  # 2 minute offset
+        await asyncio.sleep(240)  # 4 minute offset (DataManager runs at 0:00, we run at 0:04)
+        
+        # Get data from DataManager instead of making API calls
+        data_manager = self.get_data_manager()
+        if not data_manager:
+            logger.warning("[SlotChallenge] DataManager not available for challenge checking")
+            return
+            
+        cached_data = data_manager.get_cached_data()
+        if not cached_data:
+            logger.warning("[SlotChallenge] No cached data available for challenge checking")
+            return
+            
+        weighted_wager_data = cached_data.get('weighted_wager', [])
+        
         active = get_all_active_slot_challenges()
         if not active:
             return
+            
         completed_ids = set()
+        logger.info(f"[SlotChallenge] Checking {len(active)} active challenges using cached data with {len(weighted_wager_data)} entries")
+        
         for challenge in active:
             winners = []
-            # Use the same per-game API call as /challenge_results
-            from utils import fetch_weighted_wager
-            import json
-            try:
-                data = await asyncio.to_thread(fetch_weighted_wager, challenge['start_time'], None, challenge['game_identifier'])
-                logger.info(f"[PAYOUT-API] fetch_weighted_wager(start_date={challenge['start_time']}, game_identifier={challenge['game_identifier']}) | Entries: {len(data)} | Data: {json.dumps(data, indent=2)[:1000]}")
-            except Exception as e:
-                logger.error(f"[PAYOUT-ERROR] Error fetching data for challenge {challenge['game_name']}: {e}")
-                continue
-            for entry in data:
+            challenge_start_time = challenge['start_time']
+            
+            # Parse challenge start time to datetime for comparison
+            if isinstance(challenge_start_time, str):
+                try:
+                    challenge_start_dt = datetime.fromisoformat(challenge_start_time.replace('Z', '+00:00'))
+                except:
+                    logger.error(f"[SlotChallenge] Could not parse start time for challenge {challenge['challenge_id']}")
+                    continue
+            else:
+                challenge_start_dt = challenge_start_time
+                
+            # Filter cached data for this specific game and time period
+            game_entries = []
+            for entry in weighted_wager_data:
                 hm = entry.get("highestMultiplier")
                 if not (entry.get("uid") and entry.get("username") and hm):
                     continue
+                    
+                # Check if this entry is for the challenge game
+                if hm.get("gameIdentifier") != challenge['game_identifier']:
+                    continue
+                    
+                # For now, we'll include all entries since DataManager fetches current month
+                # In a more sophisticated setup, we could filter by timestamp if available
+                game_entries.append(entry)
+            
+            logger.info(f"[SlotChallenge] Challenge {challenge['game_name']} ({challenge['game_identifier']}): Found {len(game_entries)} relevant entries")
+            
+            # Check for winners in the filtered data
+            for entry in game_entries:
+                hm = entry.get("highestMultiplier")
                 wagered = hm.get('wagered', 0)
                 multiplier = hm.get('multiplier', 0)
                 min_bet = challenge.get('min_bet')
+                
                 if (
                     multiplier >= challenge['required_multi']
                     and (min_bet is None or wagered >= min_bet)
@@ -333,6 +275,7 @@ class SlotChallenge(commands.Cog):
                         "bet": wagered,
                         "payout": hm.get('payout', 0)
                     })
+                    
             if winners:
                 winners_sorted = sorted(winners, key=lambda x: x["multiplier"], reverse=True)
                 winner = winners_sorted[0]
@@ -340,6 +283,9 @@ class SlotChallenge(commands.Cog):
                 logs_channel = self.bot.get_channel(LOGS_CHANNEL_ID)
                 self.payout_queue.put_nowait((challenge, winner, second, logs_channel))
                 completed_ids.add(challenge["challenge_id"])
+                logger.info(f"[SlotChallenge] Challenge {challenge['game_name']} completed by {winner['username']} with {winner['multiplier']}x")
+                
+        # Remove completed challenges
         for cid in completed_ids:
             remove_active_slot_challenge(cid)
         if completed_ids:

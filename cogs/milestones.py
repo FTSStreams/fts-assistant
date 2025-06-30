@@ -76,9 +76,9 @@ class Milestones(commands.Cog):
             await asyncio.sleep(30)
             self.tip_queue.task_done()
 
-    @tasks.loop(minutes=14)
+    @tasks.loop(minutes=10)
     async def check_wager_milestones(self):
-        await asyncio.sleep(840)  # 14 minute offset
+        await asyncio.sleep(120)  # 2 minute offset (DataManager runs at 0:00, we run at 0:02)
         
         now = datetime.now(dt.UTC)
         month = now.month
