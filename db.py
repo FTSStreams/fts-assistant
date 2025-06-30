@@ -238,9 +238,10 @@ def add_active_slot_challenge(game_identifier, game_name, required_multi, prize,
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
+            # Remove message_id from INSERT since that column doesn't exist in the table anymore
             cur.execute(
-                "INSERT INTO active_slot_challenge (game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username, message_id, emoji, min_bet) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING challenge_id;",
-                (game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username, message_id, emoji, min_bet)
+                "INSERT INTO active_slot_challenge (game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username, emoji, min_bet) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING challenge_id;",
+                (game_identifier, game_name, required_multi, prize, start_time, posted_by, posted_by_username, emoji, min_bet)
             )
             challenge_id = cur.fetchone()[0]
             conn.commit()
@@ -263,15 +264,10 @@ def remove_active_slot_challenge(challenge_id):
         release_db_connection(conn)
 
 def update_challenge_message_id(challenge_id, message_id):
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("UPDATE active_slot_challenge SET message_id = %s WHERE challenge_id = %s;", (message_id, challenge_id))
-            conn.commit()
-    except Exception as e:
-        logger.error(f"Error updating challenge message_id: {e}")
-    finally:
-        release_db_connection(conn)
+    # This function is deprecated - message IDs are now tracked in settings table
+    # Use save_leaderboard_message_id() with appropriate key instead
+    logger.warning("update_challenge_message_id() is deprecated - message IDs now tracked in settings table")
+    pass
 
 def get_all_completed_slot_challenges():
     conn = get_db_connection()

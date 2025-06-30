@@ -3,11 +3,12 @@ from discord import app_commands
 from discord.ext import commands, tasks
 from utils import send_tip, get_current_month_range, fetch_user_game_stats
 from db import (
-    get_all_active_slot_challenges, add_active_slot_challenge, remove_active_slot_challenge, update_challenge_message_id, log_slot_challenge
+    get_all_active_slot_challenges, add_active_slot_challenge, remove_active_slot_challenge, log_slot_challenge,
+    get_leaderboard_message_id, save_leaderboard_message_id, save_tip_log
 )
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import datetime as dt
 import asyncio
 
@@ -65,7 +66,6 @@ class SlotChallenge(commands.Cog):
                     await logs_channel.send(embed=embed)
                 logger.info(f"Calling log_slot_challenge for COMPLETED: id={challenge['challenge_id']} game={challenge['game_name']} winner={winner['username']}")
                 # Use the actual completion time for logging
-                from datetime import datetime, timezone
                 completion_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
                 log_slot_challenge(
                     challenge["challenge_id"],
@@ -80,6 +80,16 @@ class SlotChallenge(commands.Cog):
                     challenge["prize"],
                     challenge.get("min_bet", 0),
                     completion_time
+                )
+                
+                # Also log to manualtips for tipstats inclusion
+                save_tip_log(
+                    winner["uid"],
+                    winner["username"], 
+                    challenge["prize"],
+                    "slot_challenge",
+                    month=datetime.now(timezone.utc).month,
+                    year=datetime.now(timezone.utc).year
                 )
             else:
                 if logs_channel:
@@ -144,27 +154,32 @@ class SlotChallenge(commands.Cog):
             description=desc,
             color=discord.Color.gold()
         )
-        # Find the existing embed message (if any)
-        message_id = None
-        for challenge in active:
-            if challenge['message_id']:
-                message_id = challenge['message_id']
-                break
+        
+        # Use consistent message ID tracking like leaderboards
+        message_id = get_leaderboard_message_id(key="active_challenges_message_id")
         if message_id:
             try:
                 msg = await channel.fetch_message(message_id)
                 await msg.edit(embed=embed)
+                logger.info("[SlotChallenge] Active challenges message updated.")
             except discord.errors.NotFound:
-                # Message was deleted, send a new one and update all active challenges with new message id
-                msg = await channel.send(embed=embed)
-                for challenge in active:
-                    update_challenge_message_id(challenge['challenge_id'], msg.id)
+                logger.warning(f"Active challenges message ID {message_id} not found, sending new message.")
+                try:
+                    msg = await channel.send(embed=embed)
+                    save_leaderboard_message_id(msg.id, key="active_challenges_message_id")
+                    logger.info("[SlotChallenge] New active challenges message sent.")
+                except discord.errors.Forbidden:
+                    logger.error("Bot lacks permission to send messages in challenge channel.")
             except discord.errors.Forbidden:
-                logger.error("Bot lacks permission to edit or send messages in challenge channel.")
+                logger.error("Bot lacks permission to edit messages in challenge channel.")
         else:
-            msg = await channel.send(embed=embed)
-            for challenge in active:
-                update_challenge_message_id(challenge['challenge_id'], msg.id)
+            logger.info("[SlotChallenge] No active challenges message ID found, sending new message.")
+            try:
+                msg = await channel.send(embed=embed)
+                save_leaderboard_message_id(msg.id, key="active_challenges_message_id")
+                logger.info("[SlotChallenge] New active challenges message sent.")
+            except discord.errors.Forbidden:
+                logger.error("Bot lacks permission to send messages in challenge channel.")
 
     @app_commands.command(name="cancelchallenge", description="Cancel a specific slot challenge by its ID.")
     @app_commands.describe(challenge_id="The ID of the challenge to cancel.")
@@ -504,20 +519,33 @@ class SlotChallenge(commands.Cog):
                 f":date: {ts_str}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             )
-        history_message = None
-        async for msg in channel.history(limit=10):
-            if msg.author == self.bot.user and msg.embeds and msg.embeds[0].title == "Slot Challenge History":
-                history_message = msg
-                break
         embed = discord.Embed(title="Slot Challenge History", description=desc[:4096], color=discord.Color.gold())
-        if history_message:
+        
+        # Use consistent message ID tracking like leaderboards
+        message_id = get_leaderboard_message_id(key="challenge_history_message_id")
+        if message_id:
             try:
+                history_message = await channel.fetch_message(message_id)
                 await history_message.edit(embed=embed)
-            except discord.NotFound:
-                logger.warning("Multi-challenge history embed message was deleted. Reposting.")
-                await channel.send(embed=embed)
+                logger.info("[SlotChallenge] Challenge history message updated.")
+            except discord.errors.NotFound:
+                logger.warning(f"Challenge history message ID {message_id} not found, sending new message.")
+                try:
+                    history_message = await channel.send(embed=embed)
+                    save_leaderboard_message_id(history_message.id, key="challenge_history_message_id")
+                    logger.info("[SlotChallenge] New challenge history message sent.")
+                except discord.errors.Forbidden:
+                    logger.error("Bot lacks permission to send messages in challenge history channel.")
+            except discord.errors.Forbidden:
+                logger.error("Bot lacks permission to edit messages in challenge history channel.")
         else:
-            await channel.send(embed=embed)
+            logger.info("[SlotChallenge] No challenge history message ID found, sending new message.")
+            try:
+                history_message = await channel.send(embed=embed)
+                save_leaderboard_message_id(history_message.id, key="challenge_history_message_id")
+                logger.info("[SlotChallenge] New challenge history message sent.")
+            except discord.errors.Forbidden:
+                logger.error("Bot lacks permission to send messages in challenge history channel.")
 
     @app_commands.command(name="manualrefreshhistory", description="Manually refresh the Slot Challenge History embed (admin only, temporary)")
     async def manualrefreshhistory(self, interaction: discord.Interaction):
