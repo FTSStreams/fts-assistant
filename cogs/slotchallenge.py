@@ -204,6 +204,7 @@ class SlotChallenge(commands.Cog):
 
     @tasks.loop(minutes=10)  # Now synchronized with DataManager schedule
     async def check_challenge(self):
+        logger.info("[SlotChallenge] Starting challenge check cycle, waiting 4 minutes...")
         await asyncio.sleep(240)  # 4 minute offset (DataManager runs at 0:00, we run at 0:04)
         
         # Get data from DataManager instead of making API calls

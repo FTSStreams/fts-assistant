@@ -81,6 +81,7 @@ class Milestones(commands.Cog):
 
     @tasks.loop(minutes=10)
     async def check_wager_milestones(self):
+        logger.info("[Milestones] Starting milestone check cycle, waiting 2 minutes...")
         await asyncio.sleep(120)  # 2 minute offset (DataManager runs at 0:00, we run at 0:02)
         
         now = datetime.now(dt.UTC)

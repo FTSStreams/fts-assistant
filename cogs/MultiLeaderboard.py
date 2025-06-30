@@ -26,6 +26,7 @@ class MultiLeaderboard(commands.Cog):
 
     @tasks.loop(minutes=10)
     async def update_multi_leaderboard(self):
+        logger.info("[MultiLeaderboard] Starting multiplier leaderboard update cycle, waiting 2 minutes...")
         await asyncio.sleep(120)  # 2 minute offset (DataManager runs at 0:00, we run at 0:02)
         channel = self.bot.get_channel(MULTI_LEADERBOARD_CHANNEL_ID)
         if not channel:

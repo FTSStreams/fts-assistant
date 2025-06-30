@@ -26,6 +26,7 @@ class Leaderboard(commands.Cog):
         self.year_month = year_month
         self.auto_post_monthly_goal.start()
         self.update_roobet_leaderboard.start()
+        logger.info("[Leaderboard] Initialized - leaderboard tasks started")
 
     def get_data_manager(self):
         """Get the DataManager cog"""
@@ -33,6 +34,7 @@ class Leaderboard(commands.Cog):
 
     @tasks.loop(minutes=10)
     async def update_roobet_leaderboard(self):
+        logger.info("[Leaderboard] Starting leaderboard update cycle, waiting 2 minutes...")
         await asyncio.sleep(120)  # 2 minute offset (DataManager runs at 0:00, we run at 0:02)
         channel = self.bot.get_channel(LEADERBOARD_CHANNEL_ID)
         if not channel:
@@ -139,6 +141,7 @@ class Leaderboard(commands.Cog):
 
     @tasks.loop(minutes=10)
     async def auto_post_monthly_goal(self):
+        logger.info("[Leaderboard] Starting monthly goal check cycle, waiting 2 minutes...")
         await asyncio.sleep(120)  # 2 minute offset (DataManager runs at 0:00, we run at 0:02)
         channel = self.bot.get_channel(MONTHLY_GOAL_CHANNEL_ID)
         if not channel:

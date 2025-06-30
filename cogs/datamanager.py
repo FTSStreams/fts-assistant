@@ -23,6 +23,7 @@ class DataManager(commands.Cog):
         
         # Start the main data fetching task
         self.fetch_and_upload_all_data.start()
+        logger.info("[DataManager] Initialized - main data fetching task started")
     
     def get_cached_data(self, data_type=None):
         """Get cached data for other cogs to use"""
@@ -77,20 +78,29 @@ class DataManager(commands.Cog):
             # Generate and upload all JSON files
             await self.generate_and_upload_json_files()
             
+            logger.info("[DataManager] Data fetch and upload cycle completed successfully")
+            
         except Exception as e:
             logger.error(f"[DataManager] Error in fetch_and_upload_all_data: {e}")
+            import traceback
+            logger.error(f"[DataManager] Traceback: {traceback.format_exc()}")
     
     async def generate_and_upload_json_files(self):
         """Generate all JSON files and upload them to GitHub"""
         try:
+            logger.info("[DataManager] Generating JSON files...")
+            
             # Generate main leaderboard JSON
             main_leaderboard_json = self.generate_main_leaderboard_json()
+            logger.info("[DataManager] Main leaderboard JSON generated")
             
             # Generate multiplier leaderboard JSON
             multi_leaderboard_json = self.generate_multiplier_leaderboard_json()
+            logger.info("[DataManager] Multiplier leaderboard JSON generated")
             
             # Generate slot challenges JSON
             challenges_json = self.generate_challenges_json()
+            logger.info("[DataManager] Slot challenges JSON generated")
             
             # Upload all files to GitHub
             files_to_upload = [
@@ -98,6 +108,8 @@ class DataManager(commands.Cog):
                 ("LatestMultiLBResults.json", multi_leaderboard_json),
                 ("ActiveSlotChallenges.json", challenges_json)
             ]
+            
+            logger.info(f"[DataManager] Uploading {len(files_to_upload)} files to GitHub...")
             
             for filename, data in files_to_upload:
                 self.upload_to_github(filename, data)
@@ -285,8 +297,9 @@ class DataManager(commands.Cog):
     @fetch_and_upload_all_data.before_loop
     async def before_fetch_loop(self):
         await self.bot.wait_until_ready()
-        # Wait 2 minutes after bot start before first fetch
-        await asyncio.sleep(120)
+        logger.info("[DataManager] Bot ready, waiting 30 seconds before first data fetch...")
+        # Wait 30 seconds after bot start before first fetch (reduced from 2 minutes)
+        await asyncio.sleep(30)
 
 async def setup(bot):
     await bot.add_cog(DataManager(bot))
