@@ -328,8 +328,6 @@ class User(commands.Cog):
             if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
         )
         
-        from datetime import datetime
-        import datetime as dt
         now = datetime.now(dt.UTC)
         
         embed = discord.Embed(

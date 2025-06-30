@@ -279,6 +279,9 @@ class DataManager(commands.Cog):
         except Exception as e:
             logger.error(f"[DataManager] Error uploading {filename} to GitHub: {e}")
     
+    def cog_unload(self):
+        self.fetch_and_upload_all_data.cancel()
+
     @fetch_and_upload_all_data.before_loop
     async def before_fetch_loop(self):
         await self.bot.wait_until_ready()

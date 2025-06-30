@@ -37,6 +37,9 @@ class Milestones(commands.Cog):
     async def cog_load(self):
         self.process_tip_queue_task = asyncio.create_task(self.process_tip_queue())
 
+    def cog_unload(self):
+        self.check_wager_milestones.cancel()
+
     async def process_tip_queue(self):
         while True:
             # Always get or fetch the channel each time

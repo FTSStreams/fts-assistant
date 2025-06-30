@@ -305,7 +305,7 @@ class SlotChallenge(commands.Cog):
             hm = entry.get("highestMultiplier")
             if (
                 entry.get("uid") and entry.get("username") and hm and
-                hm.get("gameId") == game_identifier and hm.get("wagered", 0) > 0
+                hm.get("gameIdentifier") == game_identifier and hm.get("wagered", 0) > 0
             ):
                 key = (entry["uid"], entry["username"])
                 if key not in seen:
@@ -489,7 +489,11 @@ class SlotChallenge(commands.Cog):
         await interaction.followup.send("Slot Challenge History has been manually refreshed.", ephemeral=True)
 
     def cog_unload(self):
+        self.check_challenge.cancel()
+        self.ensure_challenge_embed.cancel()
         self.update_multi_challenge_history.cancel()
+        if hasattr(self, 'process_payout_queue_task'):
+            self.process_payout_queue_task.cancel()
 
 async def setup(bot):
     await bot.add_cog(SlotChallenge(bot))
