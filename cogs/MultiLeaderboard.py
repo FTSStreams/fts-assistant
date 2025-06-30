@@ -23,58 +23,47 @@ class MultiLeaderboard(commands.Cog):
         self.bot = bot
         self.update_multi_leaderboard.start()
 
-    async def upload_multi_leaderboard_to_github(self, leaderboard_data):
+    def upload_multi_leaderboard_to_github(self, leaderboard_data):
         """Upload multiplier leaderboard JSON to GitHub."""
-        github_token = os.getenv("GITHUB_TOKEN")
-        github_repo = os.getenv("GITHUB_REPO")  # e.g., "username/repo"
+        GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+        REPO_OWNER = "FTSStreams"
+        REPO_NAME = "fts-assistant"
+        BRANCH = "main"
+        FILE_PATH = "LatestMultiLBResults.json"
+        API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
         
-        if not github_token or not github_repo:
-            logger.warning("GitHub token or repo not configured, skipping multiplier leaderboard upload")
-            return False
+        headers = {
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json"
+        }
         
         try:
-            # Convert to JSON
+            # Convert to JSON and encode as base64
             json_content = json.dumps(leaderboard_data, indent=2)
+            content = base64.b64encode(json_content.encode()).decode()
             
-            # Base64 encode the content
-            encoded_content = base64.b64encode(json_content.encode()).decode()
+            # Get the current file SHA if it exists
+            resp = requests.get(API_URL, headers=headers)
+            if resp.status_code == 200:
+                sha = resp.json()["sha"]
+            else:
+                sha = None
             
-            # GitHub API URL
-            api_url = f"https://api.github.com/repos/{github_repo}/contents/LatestMultiLBResults.json"
-            
-            headers = {
-                "Authorization": f"token {github_token}",
-                "Accept": "application/vnd.github.v3+json"
-            }
-            
-            # Get current file SHA if it exists
-            response = requests.get(api_url, headers=headers)
-            sha = None
-            if response.status_code == 200:
-                sha = response.json()["sha"]
-            
-            # Prepare the data
             data = {
-                "message": f"Update multiplier leaderboard - {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC",
-                "content": encoded_content
+                "message": "Update multiplier leaderboard results",
+                "content": content,
+                "branch": BRANCH
             }
-            
             if sha:
                 data["sha"] = sha
             
-            # Upload to GitHub
-            response = requests.put(api_url, headers=headers, json=data)
-            
-            if response.status_code in [200, 201]:
-                logger.info("Successfully uploaded multiplier leaderboard to GitHub")
-                return True
+            put_resp = requests.put(API_URL, headers=headers, json=data)
+            if put_resp.status_code in (200, 201):
+                logger.info("Multiplier leaderboard uploaded to GitHub successfully.")
             else:
-                logger.error(f"Failed to upload multiplier leaderboard to GitHub: {response.status_code} - {response.text}")
-                return False
-                
+                logger.error(f"Failed to upload multiplier leaderboard: {put_resp.status_code} {put_resp.text}")
         except Exception as e:
             logger.error(f"Error uploading multiplier leaderboard to GitHub: {e}")
-            return False
 
     @tasks.loop(minutes=14)
     async def update_multi_leaderboard(self):
@@ -194,7 +183,7 @@ class MultiLeaderboard(commands.Cog):
                 })
         
         # Upload JSON to GitHub
-        await self.upload_multi_leaderboard_to_github(leaderboard_json)
+        self.upload_multi_leaderboard_to_github(leaderboard_json)
         
         # Post or update the leaderboard message
         # Use a unique key for the multi leaderboard message
@@ -222,9 +211,6 @@ class MultiLeaderboard(commands.Cog):
                 logger.info("[MultiLeaderboard] New leaderboard message sent.")
             except discord.errors.Forbidden:
                 logger.error("Bot lacks permission to send messages in MultiLeaderboard channel.")
-
-        # Upload to GitHub
-        await self.upload_multi_leaderboard_to_github(multi_data)
 
     @update_multi_leaderboard.before_loop
     async def before_multi_leaderboard_loop(self):
