@@ -207,25 +207,12 @@ class SlotChallenge(commands.Cog):
         logger.info("[SlotChallenge] Starting challenge check cycle, waiting 4 minutes...")
         await asyncio.sleep(240)  # 4 minute offset (DataManager runs at 0:00, we run at 0:04)
         
-        # Get data from DataManager instead of making API calls
-        data_manager = self.get_data_manager()
-        if not data_manager:
-            logger.warning("[SlotChallenge] DataManager not available for challenge checking")
-            return
-            
-        cached_data = data_manager.get_cached_data()
-        if not cached_data:
-            logger.warning("[SlotChallenge] No cached data available for challenge checking")
-            return
-            
-        weighted_wager_data = cached_data.get('weighted_wager', [])
-        
         active = get_all_active_slot_challenges()
         if not active:
             return
             
         completed_ids = set()
-        logger.info(f"[SlotChallenge] Checking {len(active)} active challenges using cached data with {len(weighted_wager_data)} entries")
+        logger.info(f"[SlotChallenge] Checking {len(active)} active challenges using individual API calls")
         
         for challenge in active:
             winners = []
@@ -241,42 +228,43 @@ class SlotChallenge(commands.Cog):
             else:
                 challenge_start_dt = challenge_start_time
                 
-            # Filter cached data for this specific game and time period
-            game_entries = []
-            for entry in weighted_wager_data:
-                hm = entry.get("highestMultiplier")
-                if not (entry.get("uid") and entry.get("username") and hm):
-                    continue
-                    
-                # Check if this entry is for the challenge game
-                if hm.get("gameIdentifier") != challenge['game_identifier']:
-                    continue
-                    
-                # For now, we'll include all entries since DataManager fetches current month
-                # In a more sophisticated setup, we could filter by timestamp if available
-                game_entries.append(entry)
-            
-            logger.info(f"[SlotChallenge] Challenge {challenge['game_name']} ({challenge['game_identifier']}): Found {len(game_entries)} relevant entries")
-            
-            # Check for winners in the filtered data
-            for entry in game_entries:
-                hm = entry.get("highestMultiplier")
-                wagered = hm.get('wagered', 0)
-                multiplier = hm.get('multiplier', 0)
-                min_bet = challenge.get('min_bet')
+            # Make single API call to get ALL users and multipliers for this specific game
+            start_date_str = challenge_start_dt.isoformat()
+            try:
+                from utils import fetch_weighted_wager
+                game_data = await asyncio.to_thread(fetch_weighted_wager, start_date_str, None, challenge['game_identifier'])
+                logger.info(f"[SlotChallenge] Challenge {challenge['game_name']} ({challenge['game_identifier']}): Found {len(game_data)} users with multipliers")
                 
-                if (
-                    multiplier >= challenge['required_multi']
-                    and (min_bet is None or wagered >= min_bet)
-                ):
-                    winners.append({
-                        "uid": entry['uid'],
-                        "username": entry['username'],
-                        "multiplier": multiplier,
-                        "bet": wagered,
-                        "payout": hm.get('payout', 0)
-                    })
+                # Check each user's highest multiplier for this specific game
+                for entry in game_data:
+                    hm = entry.get("highestMultiplier")
+                    if not (entry.get("uid") and entry.get("username") and hm):
+                        continue
+                        
+                    # Verify this is for the correct game (should be, due to API filter)
+                    if hm.get("gameId") != challenge['game_identifier']:
+                        continue
+                        
+                    wagered = hm.get('wagered', 0)
+                    multiplier = hm.get('multiplier', 0)
+                    min_bet = challenge.get('min_bet')
                     
+                    # Check if this multiplier meets the challenge requirements
+                    if (
+                        multiplier >= challenge['required_multi']
+                        and (min_bet is None or wagered >= min_bet)
+                    ):
+                        winners.append({
+                            "uid": entry['uid'],
+                            "username": entry['username'],
+                            "multiplier": multiplier,
+                            "bet": wagered,
+                            "payout": hm.get('payout', 0)
+                        })
+                        
+            except Exception as e:
+                logger.error(f"[SlotChallenge] Error fetching game data for challenge {challenge['challenge_id']}: {e}")
+                continue
             if winners:
                 winners_sorted = sorted(winners, key=lambda x: x["multiplier"], reverse=True)
                 winner = winners_sorted[0]
@@ -297,16 +285,25 @@ class SlotChallenge(commands.Cog):
         Retrieve all users who wagered on a specific game since the challenge start date.
         Returns a list of dicts: [{"uid": ..., "username": ...}, ...]
         """
-        from utils import fetch_weighted_wager
-        data = fetch_weighted_wager(start_date, None)
+        # Get cached data from DataManager
+        data_manager = self.get_data_manager()
+        if not data_manager:
+            return []
+            
+        cached_data = data_manager.get_cached_data()
+        if not cached_data:
+            return []
+            
+        weighted_wager_data = cached_data.get('weighted_wager', [])
         users = []
         seen = set()
-        for entry in data:
+        
+        for entry in weighted_wager_data:
             # Check if user has highestMultiplier for this game
             hm = entry.get("highestMultiplier")
             if (
                 entry.get("uid") and entry.get("username") and hm and
-                hm.get("gameIdentifier") == game_identifier and hm.get("wagered", 0) > 0
+                hm.get("gameId") == game_identifier and hm.get("wagered", 0) > 0
             ):
                 key = (entry["uid"], entry["username"])
                 if key not in seen:
