@@ -204,8 +204,8 @@ class SlotChallenge(commands.Cog):
 
     @tasks.loop(minutes=10)  # Now synchronized with DataManager schedule
     async def check_challenge(self):
-        logger.info("[SlotChallenge] Starting challenge check cycle, waiting 4 minutes...")
-        await asyncio.sleep(240)  # 4 minute offset (DataManager runs at 0:00, we run at 0:04)
+        logger.info("[SlotChallenge] Starting challenge check cycle, waiting 2 minutes...")
+        await asyncio.sleep(120)  # 2 minute offset (DataManager runs at 0:00, we run at 0:02)
         
         active = get_all_active_slot_challenges()
         if not active:
@@ -279,6 +279,10 @@ class SlotChallenge(commands.Cog):
             remove_active_slot_challenge(cid)
         if completed_ids:
             await self.update_challenges_embed()
+        
+        # Always update challenge embed after checking (ensures fresh data)
+        logger.info("[SlotChallenge] Updating challenge embed after check cycle")
+        await self.update_challenges_embed()
 
     def get_all_known_users(self, game_identifier, start_date):
         """
@@ -315,9 +319,9 @@ class SlotChallenge(commands.Cog):
     async def before_challenge_loop(self):
         await self.bot.wait_until_ready()
 
-    @tasks.loop(minutes=14)
+    @tasks.loop(hours=1)  # Run every hour as backup only
     async def ensure_challenge_embed(self):
-        await asyncio.sleep(600)  # 10 minute offset
+        logger.info("[SlotChallenge] Running hourly backup embed check...")
         await self.update_challenges_embed()
 
     @ensure_challenge_embed.before_loop
