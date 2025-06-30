@@ -94,7 +94,7 @@ class SlotChallenge(commands.Cog):
                     "challenge_id": challenge["challenge_id"],
                     "game_identifier": challenge["game_identifier"],
                     "game_name": challenge["game_name"],
-                    "required_multiplier": challenge["prize"],
+                    "required_multiplier": challenge["required_multi"],  # Fixed: was using "prize"
                     "prize": challenge["prize"],
                     "start_time": challenge["start_time"].isoformat() if isinstance(challenge["start_time"], datetime) else challenge["start_time"],
                     "posted_by": challenge["posted_by"],
