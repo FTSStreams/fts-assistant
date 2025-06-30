@@ -31,58 +31,47 @@ class SlotChallenge(commands.Cog):
         # Start the JSON export task
         self.export_active_challenges.start()
 
-    async def upload_active_challenges_to_github(self, challenges_data):
+    def upload_active_challenges_to_github(self, challenges_data):
         """Upload active slot challenges JSON to GitHub."""
-        github_token = os.getenv("GITHUB_TOKEN")
-        github_repo = os.getenv("GITHUB_REPO")  # e.g., "username/repo"
+        GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+        REPO_OWNER = "FTSStreams"
+        REPO_NAME = "wagerData"  # Public repo for JSON files
+        BRANCH = "main"
+        FILE_PATH = "ActiveSlotChallenges.json"
+        API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
         
-        if not github_token or not github_repo:
-            logger.warning("GitHub token or repo not configured, skipping active challenges upload")
-            return False
+        headers = {
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json"
+        }
         
         try:
-            # Convert to JSON
+            # Convert to JSON and encode as base64
             json_content = json.dumps(challenges_data, indent=2)
+            content = base64.b64encode(json_content.encode()).decode()
             
-            # Base64 encode the content
-            encoded_content = base64.b64encode(json_content.encode()).decode()
+            # Get the current file SHA if it exists
+            resp = requests.get(API_URL, headers=headers)
+            if resp.status_code == 200:
+                sha = resp.json()["sha"]
+            else:
+                sha = None
             
-            # GitHub API URL
-            api_url = f"https://api.github.com/repos/{github_repo}/contents/ActiveSlotChallenges.json"
-            
-            headers = {
-                "Authorization": f"token {github_token}",
-                "Accept": "application/vnd.github.v3+json"
-            }
-            
-            # Get current file SHA if it exists
-            response = requests.get(api_url, headers=headers)
-            sha = None
-            if response.status_code == 200:
-                sha = response.json()["sha"]
-            
-            # Prepare the data
             data = {
-                "message": f"Update active slot challenges - {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC",
-                "content": encoded_content
+                "message": "Update active slot challenges",
+                "content": content,
+                "branch": BRANCH
             }
-            
             if sha:
                 data["sha"] = sha
             
-            # Upload to GitHub
-            response = requests.put(api_url, headers=headers, json=data)
-            
-            if response.status_code in [200, 201]:
-                logger.info("Successfully uploaded active challenges to GitHub")
-                return True
+            put_resp = requests.put(API_URL, headers=headers, json=data)
+            if put_resp.status_code in (200, 201):
+                logger.info("Active challenges uploaded to GitHub successfully.")
             else:
-                logger.error(f"Failed to upload active challenges to GitHub: {response.status_code} - {response.text}")
-                return False
-                
+                logger.error(f"Failed to upload active challenges: {put_resp.status_code} {put_resp.text}")
         except Exception as e:
             logger.error(f"Error uploading active challenges to GitHub: {e}")
-            return False
 
     @tasks.loop(minutes=5)
     async def export_active_challenges(self):
@@ -127,7 +116,7 @@ class SlotChallenge(commands.Cog):
                 challenges_json["challenges"].append(challenge_data)
             
             # Upload to GitHub
-            await self.upload_active_challenges_to_github(challenges_json)
+            self.upload_active_challenges_to_github(challenges_json)
             
         except Exception as e:
             logger.error(f"Error exporting active challenges: {e}")
