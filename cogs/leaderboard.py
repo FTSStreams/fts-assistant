@@ -1,15 +1,12 @@
 import discord
 from discord.ext import commands, tasks
-from utils import fetch_total_wager, fetch_weighted_wager, get_current_month_range
+from utils import get_current_month_range
 from db import get_leaderboard_message_id, save_leaderboard_message_id, save_announced_goals, load_announced_goals
 import os
 import logging
 from datetime import datetime
 import datetime as dt
 import asyncio
-import json
-import base64
-import requests
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -30,6 +27,10 @@ class Leaderboard(commands.Cog):
         self.auto_post_monthly_goal.start()
         self.update_roobet_leaderboard.start()
 
+    def get_data_manager(self):
+        """Get the DataManager cog"""
+        return self.bot.get_cog('DataManager')
+
     @tasks.loop(minutes=14)
     async def update_roobet_leaderboard(self):
         await asyncio.sleep(360)  # 6 minute offset
@@ -37,23 +38,24 @@ class Leaderboard(commands.Cog):
         if not channel:
             logger.error("Leaderboard channel not found.")
             return
-        start_date, end_date = get_current_month_range()
-        start_unix = int(datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S%z").timestamp())
-        end_unix = int(datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S%z").timestamp())
-        try:
-            total_wager_data = fetch_total_wager(start_date, end_date)
-            logger.info(f"[Leaderboard] Total Wager API Response for leaderboard: {len(total_wager_data)} entries (Period: {start_date} to {end_date})")
-        except Exception as e:
-            logger.error(f"Failed to fetch total wager data: {e}")
-            total_wager_data = []
-        try:
-            weighted_wager_data = fetch_weighted_wager(start_date, end_date)
-            logger.info(f"[Leaderboard] Weighted Wager API Response for leaderboard: {len(weighted_wager_data)} entries (Period: {start_date} to {end_date})")
-        except Exception as e:
-            logger.error(f"Failed to fetch weighted wager data: {e}")
-            weighted_wager_data = []
+        
+        # Get data from centralized data manager
+        data_manager = self.get_data_manager()
+        if not data_manager or not data_manager.is_data_fresh():
+            logger.warning("DataManager not available or data not fresh, skipping leaderboard update")
+            return
+        
+        cached_data = data_manager.get_cached_data()
+        total_wager_data = cached_data.get('total_wager', [])
+        weighted_wager_data = cached_data.get('weighted_wager', [])
+        period = cached_data.get('period', {})
+        start_date = period.get('start_date')
+        end_date = period.get('end_date')
+        start_unix = period.get('start_timestamp')
+        end_unix = period.get('end_timestamp')
+        
         if not weighted_wager_data:
-            logger.error("No weighted wager data received from API.")
+            logger.error("No weighted wager data available from DataManager.")
             try:
                 await channel.send("No leaderboard data available at the moment.")
                 logger.info("Sent no-data message to leaderboard channel.")
@@ -108,28 +110,7 @@ class Leaderboard(commands.Cog):
             color=discord.Color.gold()
         )
         
-        # Save leaderboard data to latestLBResults.json
-        leaderboard_results = []
-        for i in range(10):
-            if i < len(weighted_wager_data):
-                entry = weighted_wager_data[i]
-                uid = entry.get("uid")
-                username = entry.get("username", "Unknown")
-                total_wagered = total_wager_dict.get(uid, 0) if uid in total_wager_dict else 0
-                weighted_wagered = entry.get("weightedWagered", 0) if isinstance(entry.get("weightedWagered"), (int, float)) else 0
-                leaderboard_results.append({
-                    "rank": i + 1,
-                    "uid": uid,
-                    "username": username,
-                    "wagered": total_wagered,
-                    "weightedWagered": weighted_wagered
-                })
-        
-        # Write JSON file locally and upload to GitHub
-        with open("latestLBResults.json", "w") as f:
-            json.dump(leaderboard_results, f, indent=2)
-        upload_leaderboard_to_github("latestLBResults.json")
-        
+        # Update Discord message
         message_id = get_leaderboard_message_id(key="leaderboard_message_id")
         logger.info(f"[Leaderboard] Retrieved leaderboard message ID: {message_id}")
         if message_id:
@@ -163,17 +144,24 @@ class Leaderboard(commands.Cog):
         if not channel:
             logger.error("Monthly goal channel not found.")
             return
-        start_date, end_date = get_current_month_range()
+        
         now = datetime.now(dt.UTC)
         year_month = f"{now.year}_{now.month:02d}"
         if year_month != self.year_month:
             self.announced_goals = set()
             self.year_month = year_month
+        
+        # Get data from centralized data manager
+        data_manager = self.get_data_manager()
+        if not data_manager or not data_manager.is_data_fresh():
+            logger.warning("DataManager not available or data not fresh, skipping monthly goal update")
+            return
+        
         try:
-            total_wager_data = fetch_total_wager(start_date, end_date)
-            logger.info(f"[MonthlyGoal] Total Wager API Response for monthly goal: {len(total_wager_data)} entries (Period: {start_date} to {end_date})")
-            weighted_wager_data = fetch_weighted_wager(start_date, end_date)
-            logger.info(f"[MonthlyGoal] Weighted Wager API Response for monthly goal: {len(weighted_wager_data)} entries (Period: {start_date} to {end_date})")
+            cached_data = data_manager.get_cached_data()
+            total_wager_data = cached_data.get('total_wager', [])
+            weighted_wager_data = cached_data.get('weighted_wager', [])
+            
             total_wager = sum(
                 entry.get("wagered", 0)
                 for entry in total_wager_data
@@ -207,50 +195,6 @@ class Leaderboard(commands.Cog):
     @auto_post_monthly_goal.before_loop
     async def before_leaderboard_loop(self):
         await self.bot.wait_until_ready()
-
-def upload_leaderboard_to_github(json_path="latestLBResults.json"):
-    """
-    Uploads or updates the leaderboard JSON file to the GitHub repo using the GitHub API.
-    """
-    GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-    REPO_OWNER = "FTSStreams"
-    REPO_NAME = "wagerData"  # Public repo for JSON files
-    BRANCH = "main"
-    FILE_PATH = "latestLBResults.json"
-    API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
-    
-    headers = {
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-    
-    try:
-        # Read the file and encode as base64
-        with open(json_path, "rb") as f:
-            content = base64.b64encode(f.read()).decode()
-        
-        # Get the current file SHA if it exists
-        resp = requests.get(API_URL, headers=headers)
-        if resp.status_code == 200:
-            sha = resp.json()["sha"]
-        else:
-            sha = None
-        
-        data = {
-            "message": "Update leaderboard results",
-            "content": content,
-            "branch": BRANCH
-        }
-        if sha:
-            data["sha"] = sha
-        
-        put_resp = requests.put(API_URL, headers=headers, json=data)
-        if put_resp.status_code in (200, 201):
-            logger.info("Leaderboard uploaded to GitHub successfully.")
-        else:
-            logger.error(f"Failed to upload leaderboard: {put_resp.status_code} {put_resp.text}")
-    except Exception as e:
-        logger.error(f"Error uploading leaderboard to GitHub: {e}")
 
 async def setup(bot):
     await bot.add_cog(Leaderboard(bot))

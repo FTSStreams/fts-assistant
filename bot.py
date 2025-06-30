@@ -22,6 +22,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # List of cogs to load...
 COGS = [
+    "cogs.datamanager",  # Load DataManager first so other cogs can access it
     "cogs.admin",
     "cogs.leaderboard",
     "cogs.milestones",

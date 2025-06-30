@@ -1,15 +1,12 @@
 import discord
 from discord.ext import commands, tasks
-from utils import fetch_total_wager, fetch_weighted_wager, get_current_month_range
+from utils import get_current_month_range
 from db import get_leaderboard_message_id, save_leaderboard_message_id
 import os
 import logging
 from datetime import datetime
 import datetime as dt
 import asyncio
-import json
-import base64
-import requests
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -23,47 +20,9 @@ class MultiLeaderboard(commands.Cog):
         self.bot = bot
         self.update_multi_leaderboard.start()
 
-    def upload_multi_leaderboard_to_github(self, leaderboard_data):
-        """Upload multiplier leaderboard JSON to GitHub."""
-        GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-        REPO_OWNER = "FTSStreams"
-        REPO_NAME = "wagerData"  # Public repo for JSON files
-        BRANCH = "main"
-        FILE_PATH = "LatestMultiLBResults.json"
-        API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
-        
-        headers = {
-            "Authorization": f"Bearer {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github.v3+json"
-        }
-        
-        try:
-            # Convert to JSON and encode as base64
-            json_content = json.dumps(leaderboard_data, indent=2)
-            content = base64.b64encode(json_content.encode()).decode()
-            
-            # Get the current file SHA if it exists
-            resp = requests.get(API_URL, headers=headers)
-            if resp.status_code == 200:
-                sha = resp.json()["sha"]
-            else:
-                sha = None
-            
-            data = {
-                "message": "Update multiplier leaderboard results",
-                "content": content,
-                "branch": BRANCH
-            }
-            if sha:
-                data["sha"] = sha
-            
-            put_resp = requests.put(API_URL, headers=headers, json=data)
-            if put_resp.status_code in (200, 201):
-                logger.info("Multiplier leaderboard uploaded to GitHub successfully.")
-            else:
-                logger.error(f"Failed to upload multiplier leaderboard: {put_resp.status_code} {put_resp.text}")
-        except Exception as e:
-            logger.error(f"Error uploading multiplier leaderboard to GitHub: {e}")
+    def get_data_manager(self):
+        """Get the DataManager cog"""
+        return self.bot.get_cog('DataManager')
 
     @tasks.loop(minutes=14)
     async def update_multi_leaderboard(self):
@@ -72,13 +31,19 @@ class MultiLeaderboard(commands.Cog):
         if not channel:
             logger.error("MultiLeaderboard channel not found.")
             return
-        start_date, end_date = get_current_month_range()
-        try:
-            weighted_wager_data = fetch_weighted_wager(start_date, end_date)
-            logger.info(f"[MultiLeaderboard] Weighted Wager API Response: {len(weighted_wager_data)} entries (Period: {start_date} to {end_date})")
-        except Exception as e:
-            logger.error(f"Failed to fetch weighted wager data: {e}")
-            weighted_wager_data = []
+        
+        # Get data from centralized data manager
+        data_manager = self.get_data_manager()
+        if not data_manager or not data_manager.is_data_fresh():
+            logger.warning("DataManager not available or data not fresh, skipping multiplier leaderboard update")
+            return
+        
+        cached_data = data_manager.get_cached_data()
+        weighted_wager_data = cached_data.get('weighted_wager', [])
+        period = cached_data.get('period', {})
+        start_date = period.get('start_date')
+        end_date = period.get('end_date')
+        
         # Filter and sort by highestMultiplier
         multi_data = [entry for entry in weighted_wager_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
         multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
@@ -182,8 +147,8 @@ class MultiLeaderboard(commands.Cog):
                     "prize": PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
                 })
         
-        # Upload JSON to GitHub
-        self.upload_multi_leaderboard_to_github(leaderboard_json)
+        # All JSON uploads are now handled by DataManager
+        # The DataManager will generate and upload multiplier leaderboard data automatically
         
         # Post or update the leaderboard message
         # Use a unique key for the multi leaderboard message

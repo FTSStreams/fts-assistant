@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands, tasks
-from utils import fetch_weighted_wager, send_tip, get_current_month_range
+from utils import send_tip, get_current_month_range
 from db import get_db_connection, release_db_connection, save_tip_log, load_sent_tips, save_tip
 import os
 import logging
@@ -29,6 +29,10 @@ class Milestones(commands.Cog):
         self.tip_queue = asyncio.Queue()
         self.check_wager_milestones.start()
         # process_tip_queue_task will be started in cog_load
+    
+    def get_data_manager(self):
+        """Helper to get DataManager cog"""
+        return self.bot.get_cog('DataManager')
 
     async def cog_load(self):
         self.process_tip_queue_task = asyncio.create_task(self.process_tip_queue())
@@ -75,12 +79,26 @@ class Milestones(commands.Cog):
     @tasks.loop(minutes=14)
     async def check_wager_milestones(self):
         await asyncio.sleep(840)  # 14 minute offset
+        
         now = datetime.now(dt.UTC)
         month = now.month
         year = now.year
         sent_tips = load_sent_tips(month, year)
-        start_date, end_date = get_current_month_range()
-        weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+        
+        # Get data from DataManager
+        data_manager = self.get_data_manager()
+        if not data_manager:
+            logger.error("[Milestones] DataManager not available")
+            return
+            
+        cached_data = data_manager.get_cached_data()
+        if not cached_data:
+            logger.error("[Milestones] No cached data available")
+            return
+            
+        weighted_wager_data = cached_data.get('weighted_wager', [])
+        logger.info(f"[Milestones] Checking {len(weighted_wager_data)} users for milestones")
+        
         for entry in weighted_wager_data:
             user_id = entry.get("uid")
             username = entry.get("username", "Unknown")
@@ -91,6 +109,7 @@ class Milestones(commands.Cog):
                 tier = milestone["tier"]
                 threshold = milestone["threshold"]
                 if weighted_wagered >= threshold and (user_id, tier) not in sent_tips:
+                    logger.info(f"[Milestones] Queuing milestone {tier} for {username} (${weighted_wagered:,.2f})")
                     await self.tip_queue.put((user_id, username, milestone, month, year))
 
     @check_wager_milestones.before_loop

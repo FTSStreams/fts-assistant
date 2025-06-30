@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils import fetch_total_wager, fetch_weighted_wager, send_tip, get_current_month_range
+from utils import send_tip, get_current_month_range
 from db import get_db_connection, release_db_connection, save_tip_log
 import os
 from datetime import datetime
@@ -14,35 +14,59 @@ GUILD_ID = int(os.getenv("GUILD_ID"))
 class User(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+    
+    def get_data_manager(self):
+        """Helper to get DataManager cog"""
+        return self.bot.get_cog('DataManager')
 
     @app_commands.command(name="mywager", description="Check your personal wager stats for the current month using your Roobet username")
     @app_commands.describe(username="Your Roobet username")
     async def mywager(self, interaction: discord.Interaction, username: str):
         await interaction.response.defer()
-        start_date, end_date = get_current_month_range()
-        weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+        
+        # Get data from DataManager
+        data_manager = self.get_data_manager()
+        if not data_manager:
+            await interaction.followup.send("❌ Data service unavailable. Please try again later.", ephemeral=True)
+            return
+            
+        cached_data = data_manager.get_cached_data()
+        if not cached_data:
+            await interaction.followup.send("❌ No data available. Please try again later.", ephemeral=True)
+            return
+            
+        weighted_wager_data = cached_data.get('weighted_wager', [])
+        total_wager_data = cached_data.get('total_wager', [])
+        
         username_lower = username.lower()
         roobet_uid = None
+        
+        # Find user in weighted wager data
         for entry in weighted_wager_data:
             entry_username = entry.get("username", "").lower()
             if username_lower == entry_username:
                 roobet_uid = entry.get("uid")
                 username = entry.get("username")
                 break
+                
         if not roobet_uid:
-            await interaction.followup.send(f"❌ No user found with username '{username}' who wagered in June 2025.", ephemeral=True)
+            await interaction.followup.send(f"❌ No user found with username '{username}' who wagered this month.", ephemeral=True)
             return
-        total_wager_data = fetch_total_wager(start_date, end_date)
+            
+        # Find user's total wager
         total_wager = 0
-        weighted_wager = 0
         for entry in total_wager_data:
             if entry.get("uid") == roobet_uid:
                 total_wager = entry.get("wagered", 0) if isinstance(entry.get("wagered"), (int, float)) else 0
                 break
+                
+        # Find user's weighted wager
+        weighted_wager = 0
         for entry in weighted_wager_data:
             if entry.get("uid") == roobet_uid:
                 weighted_wager = entry.get("weightedWagered", 0) if isinstance(entry.get("weightedWagered"), (int, float)) else 0
                 break
+                
         embed = discord.Embed(
             title=f"🎰 Your Wager Stats, {username}! 🎰",
             description=(
@@ -59,10 +83,22 @@ class User(commands.Cog):
     @app_commands.command(name="monthlygoal", description="Display total wager and weighted wager for the current month")
     async def monthlygoal(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        start_date, end_date = get_current_month_range()
+        
+        # Get data from DataManager
+        data_manager = self.get_data_manager()
+        if not data_manager:
+            await interaction.followup.send("❌ Data service unavailable. Please try again later.", ephemeral=True)
+            return
+            
+        cached_data = data_manager.get_cached_data()
+        if not cached_data:
+            await interaction.followup.send("❌ No data available. Please try again later.", ephemeral=True)
+            return
+            
         try:
-            total_wager_data = fetch_total_wager(start_date, end_date)
-            weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+            total_wager_data = cached_data.get('total_wager', [])
+            weighted_wager_data = cached_data.get('weighted_wager', [])
+            
             total_wager = sum(
                 entry.get("wagered", 0)
                 for entry in total_wager_data
@@ -143,20 +179,32 @@ class User(commands.Cog):
             logger.error(f"Invalid tip amount: {amount} by {interaction.user}")
             return
         await interaction.response.defer()
-        # Search for UID in wager data (current year)
-        start_date = "2025-01-01T00:00:00"
-        end_date = "2025-12-31T23:59:59"
-        weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+        
+        # Get data from DataManager to search for user
+        data_manager = self.get_data_manager()
+        if not data_manager:
+            await interaction.followup.send("❌ Data service unavailable. Please try again later.", ephemeral=True)
+            return
+            
+        cached_data = data_manager.get_cached_data()
+        if not cached_data:
+            await interaction.followup.send("❌ No data available. Please try again later.", ephemeral=True)
+            return
+            
+        # Search for UID in current weighted wager data
+        weighted_wager_data = cached_data.get('weighted_wager', [])
         username_lower = username.lower()
         roobet_uid = None
+        
         for entry in weighted_wager_data:
             entry_username = entry.get("username", "").lower()
             if username_lower == entry_username:
                 roobet_uid = entry.get("uid")
                 username = entry.get("username")
                 break
+                
         if not roobet_uid:
-            await interaction.followup.send(f"❌ No user found with username '{username}' who wagered in 2025.", ephemeral=True)
+            await interaction.followup.send(f"❌ No user found with username '{username}' who wagered this month.", ephemeral=True)
             logger.error(f"No UID found for username {username} in /tipuser by {interaction.user}")
             return
         logger.info(f"Attempting to send manual tip of ${amount} to {username} (UID: {roobet_uid})")
@@ -206,20 +254,28 @@ class User(commands.Cog):
         total_wagers = [
             200000.00, 400000.00, 350000.00, 150000.00, 180000.00
         ]
-        # Fetch current month WEIGHTED and TOTAL wager dynamically
-        start_date, end_date = get_current_month_range()
-        weighted_wager_data = fetch_weighted_wager(start_date, end_date)
-        total_wager_data = fetch_total_wager(start_date, end_date)
-        total_weighted_wager = sum(
-            entry.get("weightedWagered", 0)
-            for entry in weighted_wager_data
-            if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
-        )
-        total_wager = sum(
-            entry.get("wagered", 0)
-            for entry in total_wager_data
-            if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
-        )
+        # Fetch current month WEIGHTED and TOTAL wager dynamically from DataManager
+        data_manager = self.get_data_manager()
+        if data_manager and data_manager.get_cached_data():
+            cached_data = data_manager.get_cached_data()
+            weighted_wager_data = cached_data.get('weighted_wager', [])
+            total_wager_data = cached_data.get('total_wager', [])
+            
+            total_weighted_wager = sum(
+                entry.get("weightedWagered", 0)
+                for entry in weighted_wager_data
+                if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
+            )
+            total_wager = sum(
+                entry.get("wagered", 0)
+                for entry in total_wager_data
+                if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
+            )
+        else:
+            # Fallback values if data not available
+            total_weighted_wager = 0
+            total_wager = 0
+            
         weighted_wagers.append(total_weighted_wager)
         total_wagers.append(total_wager)
 
@@ -243,16 +299,24 @@ class User(commands.Cog):
         embed.set_image(url="attachment://monthtomonth.png")
         await interaction.followup.send(embed=embed, file=file)
 
-    @app_commands.command(name="lifetimestats", description="Show total wager and weighted wager since Jan 1st, 2025")
+    @app_commands.command(name="lifetimestats", description="Show total wager and weighted wager for the current month")
     async def lifetimestats(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        from datetime import datetime
-        import datetime as dt
-        start_date = "2025-01-01T00:00:00"
-        now = datetime.now(dt.UTC)
-        end_date = now.strftime("%Y-%m-%dT%H:%M:%S")
-        total_wager_data = fetch_total_wager(start_date, end_date)
-        weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+        
+        # Get data from DataManager (current month data)
+        data_manager = self.get_data_manager()
+        if not data_manager:
+            await interaction.followup.send("❌ Data service unavailable. Please try again later.", ephemeral=True)
+            return
+            
+        cached_data = data_manager.get_cached_data()
+        if not cached_data:
+            await interaction.followup.send("❌ No data available. Please try again later.", ephemeral=True)
+            return
+        
+        total_wager_data = cached_data.get('total_wager', [])
+        weighted_wager_data = cached_data.get('weighted_wager', [])
+        
         total_wager = sum(
             entry.get("wagered", 0)
             for entry in total_wager_data
@@ -263,11 +327,16 @@ class User(commands.Cog):
             for entry in weighted_wager_data
             if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
         )
+        
+        from datetime import datetime
+        import datetime as dt
+        now = datetime.now(dt.UTC)
+        
         embed = discord.Embed(
-            title="🏆 Lifetime Wager Stats",
+            title="🏆 Current Month Wager Stats",
             description=(
-                f"**TOTAL WAGER (Since Jan 1st, 2025):** ${total_wager:,.2f} USD\n"
-                f"**TOTAL WEIGHTED WAGER (Since Jan 1st, 2025):** ${total_weighted_wager:,.2f} USD"
+                f"**TOTAL WAGER (This Month):** ${total_wager:,.2f} USD\n"
+                f"**TOTAL WEIGHTED WAGER (This Month):** ${total_weighted_wager:,.2f} USD"
             ),
             color=discord.Color.purple()
         )
