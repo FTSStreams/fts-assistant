@@ -415,7 +415,39 @@ class SlotChallenge(commands.Cog):
             for i, r in enumerate(results[:5], 1):
                 desc += f"#{i} {r['username']} — `x{r['multiplier']}` | Bet: `${r['bet']}` | Payout: `${r['payout']}`\n"
             await asyncio.sleep(10)  # Add 10 second delay between each API call
-        await interaction.followup.send(desc or "No challenge results found.", ephemeral=True)
+        
+        # Handle Discord's 2000 character limit
+        if not desc:
+            await interaction.followup.send("No challenge results found.", ephemeral=True)
+        elif len(desc) <= 2000:
+            await interaction.followup.send(desc, ephemeral=True)
+        else:
+            # Split the message into chunks
+            chunks = []
+            current_chunk = ""
+            lines = desc.split('\n')
+            
+            for line in lines:
+                if len(current_chunk + line + '\n') > 2000:
+                    if current_chunk:
+                        chunks.append(current_chunk.strip())
+                        current_chunk = line + '\n'
+                    else:
+                        # Single line too long, truncate it
+                        chunks.append(line[:1900] + "... (truncated)")
+                        current_chunk = ""
+                else:
+                    current_chunk += line + '\n'
+            
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+            
+            # Send the first chunk
+            await interaction.followup.send(chunks[0], ephemeral=True)
+            
+            # Send remaining chunks
+            for chunk in chunks[1:]:
+                await interaction.followup.send(chunk, ephemeral=True)
 
     @tasks.loop(minutes=5)
     async def update_multi_challenge_history(self):
