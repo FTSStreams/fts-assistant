@@ -10,6 +10,9 @@ import logging
 from datetime import datetime
 import datetime as dt
 import asyncio
+import json
+import base64
+import requests
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -25,6 +28,113 @@ class SlotChallenge(commands.Cog):
         self.payout_queue = asyncio.Queue()
         self.process_payout_queue_task = asyncio.create_task(self.process_payout_queue())
         self.update_multi_challenge_history.start()
+        # Start the JSON export task
+        self.export_active_challenges.start()
+
+    async def upload_active_challenges_to_github(self, challenges_data):
+        """Upload active slot challenges JSON to GitHub."""
+        github_token = os.getenv("GITHUB_TOKEN")
+        github_repo = os.getenv("GITHUB_REPO")  # e.g., "username/repo"
+        
+        if not github_token or not github_repo:
+            logger.warning("GitHub token or repo not configured, skipping active challenges upload")
+            return False
+        
+        try:
+            # Convert to JSON
+            json_content = json.dumps(challenges_data, indent=2)
+            
+            # Base64 encode the content
+            encoded_content = base64.b64encode(json_content.encode()).decode()
+            
+            # GitHub API URL
+            api_url = f"https://api.github.com/repos/{github_repo}/contents/ActiveSlotChallenges.json"
+            
+            headers = {
+                "Authorization": f"token {github_token}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+            
+            # Get current file SHA if it exists
+            response = requests.get(api_url, headers=headers)
+            sha = None
+            if response.status_code == 200:
+                sha = response.json()["sha"]
+            
+            # Prepare the data
+            data = {
+                "message": f"Update active slot challenges - {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC",
+                "content": encoded_content
+            }
+            
+            if sha:
+                data["sha"] = sha
+            
+            # Upload to GitHub
+            response = requests.put(api_url, headers=headers, json=data)
+            
+            if response.status_code in [200, 201]:
+                logger.info("Successfully uploaded active challenges to GitHub")
+                return True
+            else:
+                logger.error(f"Failed to upload active challenges to GitHub: {response.status_code} - {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error uploading active challenges to GitHub: {e}")
+            return False
+
+    @tasks.loop(minutes=5)
+    async def export_active_challenges(self):
+        """Export active slot challenges to JSON every 5 minutes."""
+        try:
+            active_challenges = get_all_active_slot_challenges()
+            
+            # Prepare JSON data
+            challenges_json = {
+                "data_type": "active_slot_challenges",
+                "last_updated": datetime.now(dt.UTC).isoformat(),
+                "last_updated_timestamp": int(datetime.now(dt.UTC).timestamp()),
+                "total_challenges": len(active_challenges),
+                "challenges": []
+            }
+            
+            # Add challenge data
+            for challenge in active_challenges:
+                challenge_data = {
+                    "challenge_id": challenge["challenge_id"],
+                    "game_identifier": challenge["game_identifier"],
+                    "game_name": challenge["game_name"],
+                    "required_multiplier": challenge["prize"],
+                    "prize": challenge["prize"],
+                    "start_time": challenge["start_time"].isoformat() if isinstance(challenge["start_time"], datetime) else challenge["start_time"],
+                    "posted_by": challenge["posted_by"],
+                    "posted_by_username": challenge["posted_by_username"],
+                    "emoji": challenge.get("emoji"),
+                    "min_bet": challenge.get("min_bet")
+                }
+                
+                # Add start timestamp if we can parse the time
+                try:
+                    if isinstance(challenge["start_time"], str):
+                        start_dt = datetime.fromisoformat(challenge["start_time"].replace('Z', '+00:00'))
+                        challenge_data["start_timestamp"] = int(start_dt.timestamp())
+                    elif isinstance(challenge["start_time"], datetime):
+                        challenge_data["start_timestamp"] = int(challenge["start_time"].timestamp())
+                except Exception as e:
+                    logger.warning(f"Could not parse start_time for challenge {challenge['challenge_id']}: {e}")
+                
+                challenges_json["challenges"].append(challenge_data)
+            
+            # Upload to GitHub
+            await self.upload_active_challenges_to_github(challenges_json)
+            
+        except Exception as e:
+            logger.error(f"Error exporting active challenges: {e}")
+
+    @export_active_challenges.before_loop
+    async def before_export_active_challenges_loop(self):
+        await self.bot.wait_until_ready()
 
     async def process_payout_queue(self):
         while True:

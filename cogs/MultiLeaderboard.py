@@ -7,6 +7,9 @@ import logging
 from datetime import datetime
 import datetime as dt
 import asyncio
+import json
+import base64
+import requests
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -19,6 +22,59 @@ class MultiLeaderboard(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.update_multi_leaderboard.start()
+
+    async def upload_multi_leaderboard_to_github(self, leaderboard_data):
+        """Upload multiplier leaderboard JSON to GitHub."""
+        github_token = os.getenv("GITHUB_TOKEN")
+        github_repo = os.getenv("GITHUB_REPO")  # e.g., "username/repo"
+        
+        if not github_token or not github_repo:
+            logger.warning("GitHub token or repo not configured, skipping multiplier leaderboard upload")
+            return False
+        
+        try:
+            # Convert to JSON
+            json_content = json.dumps(leaderboard_data, indent=2)
+            
+            # Base64 encode the content
+            encoded_content = base64.b64encode(json_content.encode()).decode()
+            
+            # GitHub API URL
+            api_url = f"https://api.github.com/repos/{github_repo}/contents/LatestMultiLBResults.json"
+            
+            headers = {
+                "Authorization": f"token {github_token}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+            
+            # Get current file SHA if it exists
+            response = requests.get(api_url, headers=headers)
+            sha = None
+            if response.status_code == 200:
+                sha = response.json()["sha"]
+            
+            # Prepare the data
+            data = {
+                "message": f"Update multiplier leaderboard - {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC",
+                "content": encoded_content
+            }
+            
+            if sha:
+                data["sha"] = sha
+            
+            # Upload to GitHub
+            response = requests.put(api_url, headers=headers, json=data)
+            
+            if response.status_code in [200, 201]:
+                logger.info("Successfully uploaded multiplier leaderboard to GitHub")
+                return True
+            else:
+                logger.error(f"Failed to upload multiplier leaderboard to GitHub: {response.status_code} - {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error uploading multiplier leaderboard to GitHub: {e}")
+            return False
 
     @tasks.loop(minutes=14)
     async def update_multi_leaderboard(self):
@@ -88,6 +144,58 @@ class MultiLeaderboard(commands.Cog):
                 inline=False
             )
         embed.set_footer(text="All payouts will be made within 24 hours of leaderboard ending.")
+        
+        # Prepare JSON data for export
+        leaderboard_json = {
+            "leaderboard_type": "multiplier",
+            "period": {
+                "start": start_date,
+                "end": end_date,
+                "start_timestamp": int(datetime.strptime(start_date, '%Y-%m-%dT%H:%M:%S%z').timestamp()),
+                "end_timestamp": int(datetime.strptime(end_date, '%Y-%m-%dT%H:%M:%S%z').timestamp())
+            },
+            "last_updated": datetime.now(dt.UTC).isoformat(),
+            "last_updated_timestamp": int(datetime.now(dt.UTC).timestamp()),
+            "entries": []
+        }
+        
+        # Add top 5 entries to JSON
+        for i in range(5):
+            if i < len(multi_data):
+                entry = multi_data[i]
+                username = entry.get("username", "Unknown")
+                # Apply username masking for JSON export too
+                if len(username) > 3:
+                    masked_username = username[:-3] + "***"
+                else:
+                    masked_username = "***"
+                
+                leaderboard_json["entries"].append({
+                    "rank": i + 1,
+                    "username": masked_username,
+                    "multiplier": entry["highestMultiplier"].get("multiplier", 0),
+                    "game": entry["highestMultiplier"].get("gameTitle", "Unknown"),
+                    "game_identifier": entry["highestMultiplier"].get("gameIdentifier", None),
+                    "wagered": entry["highestMultiplier"].get("wagered", 0),
+                    "payout": entry["highestMultiplier"].get("payout", 0),
+                    "prize": PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
+                })
+            else:
+                # Add empty slot for consistent structure
+                leaderboard_json["entries"].append({
+                    "rank": i + 1,
+                    "username": "N/A",
+                    "multiplier": 0,
+                    "game": "Unknown",
+                    "game_identifier": None,
+                    "wagered": 0,
+                    "payout": 0,
+                    "prize": PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
+                })
+        
+        # Upload JSON to GitHub
+        await self.upload_multi_leaderboard_to_github(leaderboard_json)
+        
         # Post or update the leaderboard message
         # Use a unique key for the multi leaderboard message
         message_id = get_leaderboard_message_id(key="multi_leaderboard_message_id")
@@ -114,6 +222,9 @@ class MultiLeaderboard(commands.Cog):
                 logger.info("[MultiLeaderboard] New leaderboard message sent.")
             except discord.errors.Forbidden:
                 logger.error("Bot lacks permission to send messages in MultiLeaderboard channel.")
+
+        # Upload to GitHub
+        await self.upload_multi_leaderboard_to_github(multi_data)
 
     @update_multi_leaderboard.before_loop
     async def before_multi_leaderboard_loop(self):
