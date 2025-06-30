@@ -27,7 +27,7 @@ class MultiLeaderboard(commands.Cog):
         """Upload multiplier leaderboard JSON to GitHub."""
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
         REPO_OWNER = "FTSStreams"
-        REPO_NAME = "fts-assistant"
+        REPO_NAME = "wagerData"  # Public repo for JSON files
         BRANCH = "main"
         FILE_PATH = "LatestMultiLBResults.json"
         API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"

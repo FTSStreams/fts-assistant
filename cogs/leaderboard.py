@@ -214,7 +214,7 @@ def upload_leaderboard_to_github(json_path="latestLBResults.json"):
     """
     GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
     REPO_OWNER = "FTSStreams"
-    REPO_NAME = "fts-assistant"
+    REPO_NAME = "wagerData"  # Public repo for JSON files
     BRANCH = "main"
     FILE_PATH = "latestLBResults.json"
     API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
