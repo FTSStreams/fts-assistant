@@ -222,9 +222,8 @@ def get_all_active_slot_challenges():
                     "start_time": row[5],
                     "posted_by": row[6],
                     "posted_by_username": row[7],
-                    "message_id": row[8],
-                    "emoji": row[9] if len(row) > 9 else None,
-                    "min_bet": row[10] if len(row) > 10 else None
+                    "emoji": row[8] if len(row) > 8 else None,
+                    "min_bet": row[9] if len(row) > 9 else None
                 }
                 for row in rows
             ]
