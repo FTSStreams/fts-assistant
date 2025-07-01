@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 from utils import send_tip, get_current_month_range
-from db import get_db_connection, release_db_connection, save_tip_log, load_sent_tips, save_tip
+from db import get_db_connection, release_db_connection, save_tip_log, load_sent_tips, save_tip, get_leaderboard_message_id, save_leaderboard_message_id
 import os
 import logging
 from datetime import datetime
@@ -16,9 +16,10 @@ try:
     GUILD_ID = int(os.getenv("GUILD_ID", "0"))
     MILESTONE_CHANNEL_ID = int(os.getenv("MILESTONE_CHANNEL_ID", "0"))
     TIP_CONFIRMATION_CHANNEL_ID = int(os.getenv("TIP_CONFIRMATION_CHANNEL_ID", "0"))
+    MILESTONE_RANKS_ID = int(os.getenv("MILESTONE_RANKS_ID", "0"))
     
-    if not all([GUILD_ID, MILESTONE_CHANNEL_ID, TIP_CONFIRMATION_CHANNEL_ID]):
-        raise ValueError("Missing required environment variables: GUILD_ID, MILESTONE_CHANNEL_ID, TIP_CONFIRMATION_CHANNEL_ID")
+    if not all([GUILD_ID, MILESTONE_CHANNEL_ID, TIP_CONFIRMATION_CHANNEL_ID, MILESTONE_RANKS_ID]):
+        raise ValueError("Missing required environment variables: GUILD_ID, MILESTONE_CHANNEL_ID, TIP_CONFIRMATION_CHANNEL_ID, MILESTONE_RANKS_ID")
 except (ValueError, TypeError) as e:
     logger.critical(f"Environment variable error in milestones.py: {e}")
     raise SystemExit("Bot cannot start due to missing or invalid environment variables")
@@ -166,30 +167,38 @@ class Milestones(commands.Cog):
                     logger.info(f"[Milestones] Queuing milestone {tier} for {username} (${weighted_wagered:,.2f})")
                     await self.tip_queue.put((user_id, username, milestone, month, year))
                     queued_this_cycle.add(milestone_key)
+        
+        # Update ranks embed after checking milestones
+        await self.update_ranks_embed()
 
-    @check_wager_milestones.before_loop
-    async def before_milestone_loop(self):
-        await self.bot.wait_until_ready()
-
-    @app_commands.command(name="ranks", description="Display the top 10 players and their current milestone ranks")
-    async def ranks_command(self, interaction: discord.Interaction):
-        """Display top 10 players with their current ranks based on weighted wager"""
-        await interaction.response.defer()
+    async def update_ranks_embed(self):
+        """Update the auto-posting ranks embed in the milestone ranks channel"""
+        channel = self.bot.get_channel(MILESTONE_RANKS_ID)
+        if not channel:
+            try:
+                channel = await self.bot.fetch_channel(MILESTONE_RANKS_ID)
+            except Exception as e:
+                logger.error(f"Failed to fetch milestone ranks channel: {e}")
+                return
+        
+        if not channel:
+            logger.error(f"Milestone ranks channel with ID {MILESTONE_RANKS_ID} not found.")
+            return
         
         # Get data from DataManager
         data_manager = self.get_data_manager()
         if not data_manager:
-            await interaction.followup.send("❌ Data not available. Please try again later.", ephemeral=True)
+            logger.error("[Milestones] DataManager not available for ranks embed")
             return
             
         cached_data = data_manager.get_cached_data()
         if not cached_data:
-            await interaction.followup.send("❌ No data available. Please try again later.", ephemeral=True)
+            logger.error("[Milestones] No cached data available for ranks embed")
             return
             
         weighted_wager_data = cached_data.get('weighted_wager', [])
         if not weighted_wager_data:
-            await interaction.followup.send("❌ No wager data available.", ephemeral=True)
+            logger.warning("[Milestones] No wager data available for ranks embed")
             return
         
         # Sort players by weighted wager (descending) and take top 10
@@ -200,41 +209,82 @@ class Milestones(commands.Cog):
         )[:10]
         
         # Build the embed description
-        desc = "🏆 **Top 10 Players by Milestone Rank** 🏆\n\n"
+        now_ts = int(datetime.now(dt.UTC).timestamp())
+        desc = f"⏰ **Last Updated:** <t:{now_ts}:R>\n\n"
+        desc += "🏆 **Top 10 Players by Milestone Rank** 🏆\n\n"
         
         for i, player in enumerate(sorted_players, 1):
             username = player.get("username", "Unknown")
             weighted_wagered = player.get("weightedWagered", 0)
             
-            # Find the player's current rank
+            # Find the player's current rank and its index
             current_rank = None
-            for milestone in reversed(MILESTONES):  # Check from highest to lowest
+            current_rank_index = -1
+            for j, milestone in enumerate(reversed(MILESTONES)):  # Check from highest to lowest
                 if weighted_wagered >= milestone["threshold"]:
                     current_rank = milestone
+                    current_rank_index = len(MILESTONES) - 1 - j  # Convert back to normal index
                     break
             
             if current_rank:
                 rank_emoji = current_rank["emoji"]
                 rank_name = current_rank["tier"]
+                total_tips = self.calculate_total_tips_for_rank(current_rank_index)
                 desc += f"**{i}.** {rank_emoji} **{username}** - {rank_name}\n"
-                desc += f"    💰 **${weighted_wagered:,.2f}** wagered\n\n"
+                desc += f"    💰 **${weighted_wagered:,.2f}** wagered\n"
+                desc += f"    💸 **${total_tips:.2f}** total tips earned\n\n"
             else:
                 # Player hasn't reached any milestone yet
                 desc += f"**{i}.** 🎰 **{username}** - No Rank Yet\n"
-                desc += f"    💰 **${weighted_wagered:,.2f}** wagered\n\n"
+                desc += f"    💰 **${weighted_wagered:,.2f}** wagered\n"
+                desc += f"    💸 **$0.00** total tips earned\n\n"
         
         embed = discord.Embed(
             title="🎖️ __Milestone Rankings Leaderboard__ 🎖️",
             description=desc,
             color=discord.Color.gold()
         )
-        
-        # Add footer with update info
-        now = datetime.now(dt.UTC)
-        embed.set_footer(text=f"Updated: {now.strftime('%Y-%m-%d %H:%M:%S')} GMT")
         embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
         
-        await interaction.followup.send(embed=embed)
+        # Use consistent message ID tracking like other embeds
+        message_id = get_leaderboard_message_id(key="milestone_ranks_message_id")
+        if message_id:
+            try:
+                msg = await channel.fetch_message(message_id)
+                await msg.edit(embed=embed)
+                logger.info("[Milestones] Milestone ranks message updated.")
+            except discord.errors.NotFound:
+                logger.warning(f"Milestone ranks message ID {message_id} not found, sending new message.")
+                try:
+                    msg = await channel.send(embed=embed)
+                    save_leaderboard_message_id(msg.id, key="milestone_ranks_message_id")
+                    logger.info("[Milestones] New milestone ranks message sent.")
+                except discord.errors.Forbidden:
+                    logger.error("Bot lacks permission to send messages in milestone ranks channel.")
+            except discord.errors.Forbidden:
+                logger.error("Bot lacks permission to edit messages in milestone ranks channel.")
+        else:
+            logger.info("[Milestones] No milestone ranks message ID found, sending new message.")
+            try:
+                msg = await channel.send(embed=embed)
+                save_leaderboard_message_id(msg.id, key="milestone_ranks_message_id")
+                logger.info("[Milestones] New milestone ranks message sent.")
+            except discord.errors.Forbidden:
+                logger.error("Bot lacks permission to send messages in milestone ranks channel.")
+
+    @check_wager_milestones.before_loop
+    async def before_milestone_loop(self):
+        await self.bot.wait_until_ready()
+
+    def calculate_total_tips_for_rank(self, current_rank_index):
+        """Calculate the total cumulative tips earned up to a specific rank"""
+        if current_rank_index == -1:
+            return 0.0
+        
+        total = 0.0
+        for i in range(current_rank_index + 1):  # Include the current rank
+            total += MILESTONES[i]["tip"]
+        return total
 
 async def setup(bot):
     await bot.add_cog(Milestones(bot))
