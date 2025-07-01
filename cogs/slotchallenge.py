@@ -103,6 +103,18 @@ class SlotChallenge(commands.Cog):
         if interaction.user.id != BOT_OWNER_ID:
             await interaction.response.send_message("You do not have permission to set a challenge.", ephemeral=True)
             return
+        
+        # Input validation
+        if required_multi <= 0:
+            await interaction.response.send_message("❌ Required multiplier must be greater than 0.", ephemeral=True)
+            return
+        if prize <= 0:
+            await interaction.response.send_message("❌ Prize amount must be greater than 0.", ephemeral=True)
+            return
+        if min_bet is not None and min_bet <= 0:
+            await interaction.response.send_message("❌ Minimum bet must be greater than 0.", ephemeral=True)
+            return
+            
         active = get_all_active_slot_challenges()
         if len(active) >= 10:
             await interaction.response.send_message("There are already 10 active slot challenges. Please cancel one before adding another.", ephemeral=True)

@@ -7,6 +7,7 @@ import os
 from datetime import datetime
 import datetime as dt
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -23,6 +24,15 @@ class User(commands.Cog):
     @app_commands.describe(username="Your Roobet username")
     async def mywager(self, interaction: discord.Interaction, username: str):
         await interaction.response.defer()
+        
+        # Input validation - only allow alphanumeric characters and underscores
+        if not re.match(r'^[a-zA-Z0-9_]+$', username):
+            await interaction.followup.send("❌ Username can only contain letters, numbers, and underscores.", ephemeral=True)
+            return
+        
+        if len(username) > 50:  # Reasonable length limit
+            await interaction.followup.send("❌ Username is too long (max 50 characters).", ephemeral=True)
+            return
         
         # Get data from DataManager
         data_manager = self.get_data_manager()

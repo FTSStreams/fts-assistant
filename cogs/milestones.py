@@ -9,18 +9,49 @@ import datetime as dt
 import asyncio
 
 logger = logging.getLogger(__name__)
-GUILD_ID = int(os.getenv("GUILD_ID"))
-MILESTONE_CHANNEL_ID = int(os.getenv("MILESTONE_CHANNEL_ID"))
-TIP_CONFIRMATION_CHANNEL_ID = int(os.getenv("TIP_CONFIRMATION_CHANNEL_ID"))
+
+# Environment variable validation with proper error handling
+try:
+    GUILD_ID = int(os.getenv("GUILD_ID", "0"))
+    MILESTONE_CHANNEL_ID = int(os.getenv("MILESTONE_CHANNEL_ID", "0"))
+    TIP_CONFIRMATION_CHANNEL_ID = int(os.getenv("TIP_CONFIRMATION_CHANNEL_ID", "0"))
+    
+    if not all([GUILD_ID, MILESTONE_CHANNEL_ID, TIP_CONFIRMATION_CHANNEL_ID]):
+        raise ValueError("Missing required environment variables: GUILD_ID, MILESTONE_CHANNEL_ID, TIP_CONFIRMATION_CHANNEL_ID")
+except (ValueError, TypeError) as e:
+    logger.critical(f"Environment variable error in milestones.py: {e}")
+    raise SystemExit("Bot cannot start due to missing or invalid environment variables")
 MILESTONES = [
-    {"tier": "Bronze", "threshold": 500, "tip": 2.85, "color": discord.Color.orange(), "emoji": "🥉"},
-    {"tier": "Silver", "threshold": 1000, "tip": 2.85, "color": discord.Color.light_grey(), "emoji": "🥈"},
-    {"tier": "Gold", "threshold": 2500, "tip": 8.55, "color": discord.Color.gold(), "emoji": "🥇"},
-    {"tier": "Platinum", "threshold": 5000, "tip": 14.25, "color": discord.Color.teal(), "emoji": "💎"},
-    {"tier": "Diamond", "threshold": 10000, "tip": 28.50, "color": discord.Color.blue(), "emoji": "💠"},
-    {"tier": "Master", "threshold": 25000, "tip": 85.50, "color": discord.Color.purple(), "emoji": "👑"},
-    {"tier": "Grand Master", "threshold": 50000, "tip": 142.50, "color": discord.Color.red(), "emoji": "🌟"},
-    {"tier": "Legend", "threshold": 100000, "tip": 285.00, "color": discord.Color.green(), "emoji": "🏆"}
+    {"tier": "Rank 1", "threshold": 50, "tip": 1.00, "color": discord.Color.from_rgb(255, 215, 0), "emoji": "<:rank1:1389367229417656543>"},
+    {"tier": "Rank 2", "threshold": 100, "tip": 1.00, "color": discord.Color.from_rgb(255, 215, 0), "emoji": "<:rank2:1389367231191715970>"},
+    {"tier": "Rank 3", "threshold": 150, "tip": 1.00, "color": discord.Color.from_rgb(255, 215, 0), "emoji": "<:rank3:1389367233507229776>"},
+    {"tier": "Rank 4", "threshold": 250, "tip": 1.00, "color": discord.Color.from_rgb(255, 215, 0), "emoji": "<:rank4:1389367235390472304>"},
+    {"tier": "Rank 5", "threshold": 400, "tip": 1.00, "color": discord.Color.from_rgb(255, 215, 0), "emoji": "<:rank5:1389367237407670394>"},
+    {"tier": "Rank 6", "threshold": 600, "tip": 2.00, "color": discord.Color.from_rgb(192, 192, 192), "emoji": "<:rank6:1389367239161155624>"},
+    {"tier": "Rank 7", "threshold": 800, "tip": 2.00, "color": discord.Color.from_rgb(192, 192, 192), "emoji": "<:rank7:1389367446196060210>"},
+    {"tier": "Rank 8", "threshold": 1000, "tip": 2.00, "color": discord.Color.from_rgb(192, 192, 192), "emoji": "<:rank8:1389367448133697647>"},
+    {"tier": "Rank 9", "threshold": 1500, "tip": 3.00, "color": discord.Color.from_rgb(205, 127, 50), "emoji": "<:rank9:1389367449974997062>"},
+    {"tier": "Rank 10", "threshold": 2000, "tip": 3.00, "color": discord.Color.from_rgb(205, 127, 50), "emoji": "<:rank10:1389367451770294386>"},
+    {"tier": "Rank 11", "threshold": 2500, "tip": 3.00, "color": discord.Color.from_rgb(205, 127, 50), "emoji": "<:rank11:1389367453766909992>"},
+    {"tier": "Rank 12", "threshold": 3000, "tip": 3.00, "color": discord.Color.from_rgb(205, 127, 50), "emoji": "<:rank12:1389367455788564613>"},
+    {"tier": "Rank 13", "threshold": 5000, "tip": 11.00, "color": discord.Color.from_rgb(0, 255, 127), "emoji": "<:rank13:1389367624273498202>"},
+    {"tier": "Rank 14", "threshold": 7500, "tip": 14.00, "color": discord.Color.from_rgb(0, 255, 127), "emoji": "<:rank14:1389367626102210721>"},
+    {"tier": "Rank 15", "threshold": 10000, "tip": 14.00, "color": discord.Color.from_rgb(0, 255, 127), "emoji": "<:rank15:1389367628149166151>"},
+    {"tier": "Rank 16", "threshold": 15000, "tip": 27.00, "color": discord.Color.from_rgb(0, 191, 255), "emoji": "<:rank16:1389367630078545930>"},
+    {"tier": "Rank 17", "threshold": 20000, "tip": 27.00, "color": discord.Color.from_rgb(0, 191, 255), "emoji": "<:rank17:1389367632309784606>"},
+    {"tier": "Rank 18", "threshold": 25000, "tip": 27.00, "color": discord.Color.from_rgb(0, 191, 255), "emoji": "<:rank18:1389367634189095023>"},
+    {"tier": "Rank 19", "threshold": 35000, "tip": 54.00, "color": discord.Color.from_rgb(138, 43, 226), "emoji": "<:rank19:1389367787972985026>"},
+    {"tier": "Rank 20", "threshold": 50000, "tip": 81.00, "color": discord.Color.from_rgb(138, 43, 226), "emoji": "<:rank20:1389367789894238340>"},
+    {"tier": "Rank 21", "threshold": 75000, "tip": 135.00, "color": discord.Color.from_rgb(255, 20, 147), "emoji": "<:rank21:1389367791852716073>"},
+    {"tier": "Rank 22", "threshold": 100000, "tip": 149.00, "color": discord.Color.from_rgb(255, 20, 147), "emoji": "<:rank22:1389367794444931193>"},
+    {"tier": "Rank 23", "threshold": 150000, "tip": 270.00, "color": discord.Color.from_rgb(255, 69, 0), "emoji": "<:rank23:1389367796646940772>"},
+    {"tier": "Rank 24", "threshold": 200000, "tip": 270.00, "color": discord.Color.from_rgb(255, 69, 0), "emoji": "<:rank24:1389367804523708576>"},
+    {"tier": "Rank 25", "threshold": 250000, "tip": 270.00, "color": discord.Color.from_rgb(255, 69, 0), "emoji": "<:rank25:1389367974036504688>"},
+    {"tier": "Rank 26", "threshold": 350000, "tip": 540.00, "color": discord.Color.from_rgb(220, 20, 60), "emoji": "<:rank26:1389367976104558692>"},
+    {"tier": "Rank 27", "threshold": 500000, "tip": 810.00, "color": discord.Color.from_rgb(220, 20, 60), "emoji": "<:rank27:1389367978419683442>"},
+    {"tier": "Rank 28", "threshold": 650000, "tip": 810.00, "color": discord.Color.from_rgb(220, 20, 60), "emoji": "<:rank28:1389367980793659432>"},
+    {"tier": "Rank 29", "threshold": 800000, "tip": 810.00, "color": discord.Color.from_rgb(220, 20, 60), "emoji": "<:rank29:1389367970026754170>"},
+    {"tier": "Rank 30", "threshold": 1000000, "tip": 1080.00, "color": discord.Color.from_rgb(255, 215, 0), "emoji": "<:rank30:1389367972090351626>"}
 ]
 
 class Milestones(commands.Cog):
@@ -39,6 +70,8 @@ class Milestones(commands.Cog):
 
     def cog_unload(self):
         self.check_wager_milestones.cancel()
+        if hasattr(self, 'process_tip_queue_task'):
+            self.process_tip_queue_task.cancel()
 
     async def process_tip_queue(self):
         while True:
@@ -52,32 +85,39 @@ class Milestones(commands.Cog):
                     channel = None
             if channel is None:
                 logger.error(f"Milestone channel with ID {MILESTONE_CHANNEL_ID} not found. Cannot send milestone embed.")
-                self.tip_queue.task_done()
+                # ❌ BUG FIX: Don't call task_done() here - we haven't called get() yet
                 await asyncio.sleep(5)
                 continue
-            user_id, username, milestone, month, year = await self.tip_queue.get()
-            bot_user_id = os.getenv("ROOBET_USER_ID")
-            tip_response = await send_tip(bot_user_id, username, user_id, milestone["tip"])
-            if tip_response.get("success"):
-                save_tip(user_id, milestone["tier"], month, year)
-                save_tip_log(user_id, username, milestone["tip"], "milestone", month, year)
-                embed = discord.Embed(
-                    title=f"{milestone['emoji']} {milestone['tier']} Wager Milestone Achieved! {milestone['emoji']}",
-                    description=(
-                        f"🎉 **{username}** has conquered the **{milestone['tier']} Milestone**!\n"
-                        f"✨ **Weighted Wagered**: ${milestone['threshold']:,.2f}\n"
-                        f"💸 **Tip Received**: **${milestone['tip']:.2f} USD**\n"
-                        f"Keep rocking the slots! 🚀"
-                    ),
-                    color=milestone["color"]
-                )
-                embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
-                embed.set_footer(text=f"Tipped on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
-                await channel.send(embed=embed)
-            else:
-                logger.error(f"Failed to send milestone tip to {username}: {tip_response.get('message')}")
-            await asyncio.sleep(30)
-            self.tip_queue.task_done()
+            
+            try:
+                user_id, username, milestone, month, year = await self.tip_queue.get()
+                bot_user_id = os.getenv("ROOBET_USER_ID")
+                tip_response = await send_tip(bot_user_id, username, user_id, milestone["tip"])
+                if tip_response.get("success"):
+                    save_tip(user_id, milestone["tier"], month, year)
+                    save_tip_log(user_id, username, milestone["tip"], "milestone", month, year)
+                    embed = discord.Embed(
+                        title=f"{milestone['emoji']} {milestone['tier']} Wager Milestone Achieved! {milestone['emoji']}",
+                        description=(
+                            f"🎉 **{username}** has conquered the **{milestone['tier']} Milestone**!\n"
+                            f"✨ **Weighted Wagered**: ${milestone['threshold']:,.2f}\n"
+                            f"💸 **Tip Received**: **${milestone['tip']:.2f} USD**\n"
+                            f"Keep rocking the slots! 🚀"
+                        ),
+                        color=milestone["color"]
+                    )
+                    embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
+                    embed.set_footer(text=f"Tipped on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
+                    await channel.send(embed=embed)
+                else:
+                    logger.error(f"Failed to send milestone tip to {username}: {tip_response.get('message')}")
+                    
+                await asyncio.sleep(30)
+            except Exception as e:
+                logger.error(f"Error processing tip queue item: {e}")
+            finally:
+                # Always call task_done() after get(), even if there was an error
+                self.tip_queue.task_done()
 
     @tasks.loop(minutes=10)
     async def check_wager_milestones(self):
@@ -103,6 +143,9 @@ class Milestones(commands.Cog):
         weighted_wager_data = cached_data.get('weighted_wager', [])
         logger.info(f"[Milestones] Checking {len(weighted_wager_data)} users for milestones")
         
+        # Track what we're queuing in this cycle to prevent duplicates
+        queued_this_cycle = set()
+        
         for entry in weighted_wager_data:
             user_id = entry.get("uid")
             username = entry.get("username", "Unknown")
@@ -112,9 +155,16 @@ class Milestones(commands.Cog):
             for milestone in MILESTONES:
                 tier = milestone["tier"]
                 threshold = milestone["threshold"]
-                if weighted_wagered >= threshold and (user_id, tier) not in sent_tips:
+                milestone_key = (user_id, tier)
+                
+                # Check both database and this cycle's queue to prevent duplicates
+                if (weighted_wagered >= threshold and 
+                    milestone_key not in sent_tips and 
+                    milestone_key not in queued_this_cycle):
+                    
                     logger.info(f"[Milestones] Queuing milestone {tier} for {username} (${weighted_wagered:,.2f})")
                     await self.tip_queue.put((user_id, username, milestone, month, year))
+                    queued_this_cycle.add(milestone_key)
 
     @check_wager_milestones.before_loop
     async def before_milestone_loop(self):
