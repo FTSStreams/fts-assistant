@@ -211,10 +211,12 @@ class SlotChallenge(commands.Cog):
             challenge["game_identifier"],
             challenge["posted_by"],
             challenge["posted_by_username"],
-            None, None, None, None, None, challenge["start_time"]
+            None, None, None, None, None, challenge.get("min_bet"), challenge["start_time"]
         )
         remove_active_slot_challenge(challenge_id)
         await self.update_challenges_embed()
+        # Instantly update history embed when challenge is cancelled
+        await self.refresh_multi_challenge_history_embed()
         await interaction.response.send_message(f"Slot challenge ID {challenge_id} cancelled.", ephemeral=True)
         # Log to logs channel
         logs_channel = self.bot.get_channel(LOGS_CHANNEL_ID)
@@ -312,6 +314,8 @@ class SlotChallenge(commands.Cog):
             remove_active_slot_challenge(cid)
         if completed_ids:
             await self.update_challenges_embed()
+            # Instantly update history embed when challenges are completed
+            await self.refresh_multi_challenge_history_embed()
         
         # Always update challenge embed after checking (ensures fresh data)
         logger.info("[SlotChallenge] Updating challenge embed after check cycle")
