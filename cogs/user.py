@@ -7,6 +7,7 @@ import os
 from datetime import datetime
 import datetime as dt
 import logging
+import asyncio
 import re
 
 logger = logging.getLogger(__name__)
@@ -196,25 +197,66 @@ class User(commands.Cog):
             await interaction.followup.send("❌ Data service unavailable. Please try again later.", ephemeral=True)
             return
             
-        cached_data = data_manager.get_cached_data()
-        if not cached_data:
-            await interaction.followup.send("❌ No data available. Please try again later.", ephemeral=True)
-            return
-            
-        # Search for UID in current weighted wager data
-        weighted_wager_data = cached_data.get('weighted_wager', [])
-        username_lower = username.lower()
-        roobet_uid = None
+        # Search for user in YEARLY data (since Jan 1st) instead of just current month
+        from utils import fetch_weighted_wager
+        from datetime import datetime
+        import datetime as dt
         
-        for entry in weighted_wager_data:
-            entry_username = entry.get("username", "").lower()
-            if username_lower == entry_username:
-                roobet_uid = entry.get("uid")
-                username = entry.get("username")
-                break
+        try:
+            # Get yearly data from Jan 1st to now
+            current_year = datetime.now(dt.UTC).year
+            start_date = f"{current_year}-01-01T00:00:00Z"
+            end_date = datetime.now(dt.UTC).isoformat()
+            
+            logger.info(f"[TipUser] Searching for {username} in yearly data from {start_date} to {end_date}")
+            yearly_wager_data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date)
+            
+            username_lower = username.lower()
+            roobet_uid = None
+            
+            # Search in yearly data first
+            for entry in yearly_wager_data:
+                entry_username = entry.get("username", "").lower()
+                if username_lower == entry_username:
+                    roobet_uid = entry.get("uid")
+                    username = entry.get("username")
+                    logger.info(f"[TipUser] Found {username} (UID: {roobet_uid}) in yearly data")
+                    break
+                    
+            # If not found in yearly data, try current month as fallback
+            if not roobet_uid:
+                cached_data = data_manager.get_cached_data()
+                if cached_data:
+                    weighted_wager_data = cached_data.get('weighted_wager', [])
+                    for entry in weighted_wager_data:
+                        entry_username = entry.get("username", "").lower()
+                        if username_lower == entry_username:
+                            roobet_uid = entry.get("uid")
+                            username = entry.get("username")
+                            logger.info(f"[TipUser] Found {username} (UID: {roobet_uid}) in current month data")
+                            break
+                            
+        except Exception as e:
+            logger.error(f"Error fetching yearly data for tipuser: {e}")
+            # Fallback to current month data only
+            cached_data = data_manager.get_cached_data()
+            if not cached_data:
+                await interaction.followup.send("❌ No data available. Please try again later.", ephemeral=True)
+                return
+                
+            weighted_wager_data = cached_data.get('weighted_wager', [])
+            username_lower = username.lower()
+            roobet_uid = None
+            
+            for entry in weighted_wager_data:
+                entry_username = entry.get("username", "").lower()
+                if username_lower == entry_username:
+                    roobet_uid = entry.get("uid")
+                    username = entry.get("username")
+                    break
                 
         if not roobet_uid:
-            await interaction.followup.send(f"❌ No user found with username '{username}' who wagered this month.", ephemeral=True)
+            await interaction.followup.send(f"❌ No user found with username '{username}' in {datetime.now(dt.UTC).year} wager data.", ephemeral=True)
             logger.error(f"No UID found for username {username} in /tipuser by {interaction.user}")
             return
         logger.info(f"Attempting to send manual tip of ${amount} to {username} (UID: {roobet_uid})")
