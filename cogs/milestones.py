@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands, tasks
+from discord import app_commands
 from utils import send_tip, get_current_month_range
 from db import get_db_connection, release_db_connection, save_tip_log, load_sent_tips, save_tip
 import os
@@ -169,6 +170,71 @@ class Milestones(commands.Cog):
     @check_wager_milestones.before_loop
     async def before_milestone_loop(self):
         await self.bot.wait_until_ready()
+
+    @app_commands.command(name="ranks", description="Display the top 10 players and their current milestone ranks")
+    async def ranks_command(self, interaction: discord.Interaction):
+        """Display top 10 players with their current ranks based on weighted wager"""
+        await interaction.response.defer()
+        
+        # Get data from DataManager
+        data_manager = self.get_data_manager()
+        if not data_manager:
+            await interaction.followup.send("❌ Data not available. Please try again later.", ephemeral=True)
+            return
+            
+        cached_data = data_manager.get_cached_data()
+        if not cached_data:
+            await interaction.followup.send("❌ No data available. Please try again later.", ephemeral=True)
+            return
+            
+        weighted_wager_data = cached_data.get('weighted_wager', [])
+        if not weighted_wager_data:
+            await interaction.followup.send("❌ No wager data available.", ephemeral=True)
+            return
+        
+        # Sort players by weighted wager (descending) and take top 10
+        sorted_players = sorted(
+            weighted_wager_data, 
+            key=lambda x: x.get("weightedWagered", 0), 
+            reverse=True
+        )[:10]
+        
+        # Build the embed description
+        desc = "🏆 **Top 10 Players by Milestone Rank** 🏆\n\n"
+        
+        for i, player in enumerate(sorted_players, 1):
+            username = player.get("username", "Unknown")
+            weighted_wagered = player.get("weightedWagered", 0)
+            
+            # Find the player's current rank
+            current_rank = None
+            for milestone in reversed(MILESTONES):  # Check from highest to lowest
+                if weighted_wagered >= milestone["threshold"]:
+                    current_rank = milestone
+                    break
+            
+            if current_rank:
+                rank_emoji = current_rank["emoji"]
+                rank_name = current_rank["tier"]
+                desc += f"**{i}.** {rank_emoji} **{username}** - {rank_name}\n"
+                desc += f"    💰 **${weighted_wagered:,.2f}** wagered\n\n"
+            else:
+                # Player hasn't reached any milestone yet
+                desc += f"**{i}.** 🎰 **{username}** - No Rank Yet\n"
+                desc += f"    💰 **${weighted_wagered:,.2f}** wagered\n\n"
+        
+        embed = discord.Embed(
+            title="🎖️ __Milestone Rankings Leaderboard__ 🎖️",
+            description=desc,
+            color=discord.Color.gold()
+        )
+        
+        # Add footer with update info
+        now = datetime.now(dt.UTC)
+        embed.set_footer(text=f"Updated: {now.strftime('%Y-%m-%d %H:%M:%S')} GMT")
+        embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
+        
+        await interaction.followup.send(embed=embed)
 
 async def setup(bot):
     await bot.add_cog(Milestones(bot))
