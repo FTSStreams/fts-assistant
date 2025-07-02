@@ -98,10 +98,17 @@ class Milestones(commands.Cog):
                 if tip_response.get("success"):
                     save_tip(user_id, milestone["tier"], month, year)
                     save_tip_log(user_id, username, milestone["tip"], "milestone", month, year)
+                    # Censor username for public display
+                    display_username = username
+                    if len(username) > 3:
+                        display_username = username[:-3] + "***"
+                    else:
+                        display_username = "***"
+                    
                     embed = discord.Embed(
                         title=f"{milestone['emoji']} {milestone['tier']} Wager Milestone Achieved! {milestone['emoji']}",
                         description=(
-                            f"🎉 **{username}** has conquered the **{milestone['tier']} Milestone**!\n"
+                            f"🎉 **{display_username}** has conquered the **{milestone['tier']} Milestone**!\n"
                             f"✨ **Weighted Wagered**: ${milestone['threshold']:,.2f}\n"
                             f"💸 **Tip Received**: **${milestone['tip']:.2f} USD**\n"
                             f"Keep rocking the slots! 🚀"
@@ -217,6 +224,13 @@ class Milestones(commands.Cog):
             username = player.get("username", "Unknown")
             weighted_wagered = player.get("weightedWagered", 0)
             
+            # Censor username for public display
+            display_username = username
+            if len(username) > 3:
+                display_username = username[:-3] + "***"
+            else:
+                display_username = "***"
+            
             # Find the player's current rank and its index
             current_rank = None
             current_rank_index = -1
@@ -230,12 +244,12 @@ class Milestones(commands.Cog):
                 rank_emoji = current_rank["emoji"]
                 rank_name = current_rank["tier"]
                 total_tips = self.calculate_total_tips_for_rank(current_rank_index)
-                desc += f"**{i}.** {rank_emoji} **{username}** - {rank_name}\n"
+                desc += f"**{i}.** {rank_emoji} **{display_username}** - {rank_name}\n"
                 desc += f"    💰 **${weighted_wagered:,.2f}** wagered\n"
                 desc += f"    💸 **${total_tips:.2f}** total tips earned\n\n"
             else:
                 # Player hasn't reached any milestone yet
-                desc += f"**{i}.** 🎰 **{username}** - No Rank Yet\n"
+                desc += f"**{i}.** 🎰 **{display_username}** - No Rank Yet\n"
                 desc += f"    💰 **${weighted_wagered:,.2f}** wagered\n"
                 desc += f"    💸 **$0.00** total tips earned\n\n"
         

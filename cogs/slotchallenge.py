@@ -41,13 +41,25 @@ class SlotChallenge(commands.Cog):
                 amount=challenge["prize"]
             )
             if tip_response.get("success"):
+                # Censor usernames for public display
+                winner_display_name = winner['username']
+                if len(winner_display_name) > 3:
+                    winner_display_name = winner_display_name[:-3] + "***"
+                else:
+                    winner_display_name = "***"
+                
                 embed = discord.Embed(
                     title="🏆 Slot Challenge Results! 🏆",
-                    description=f"**1st Place:** {winner['username']}\nMultiplier: x{winner['multiplier']:.2f}",
+                    description=f"**1st Place:** {winner_display_name}\nMultiplier: x{winner['multiplier']:.2f}",
                     color=discord.Color.green()
                 )
                 if second:
-                    embed.description += f"\n\n**2nd Place:** {second['username']}\nMultiplier: x{second['multiplier']:.2f}"
+                    second_display_name = second['username']
+                    if len(second_display_name) > 3:
+                        second_display_name = second_display_name[:-3] + "***"
+                    else:
+                        second_display_name = "***"
+                    embed.description += f"\n\n**2nd Place:** {second_display_name}\nMultiplier: x{second['multiplier']:.2f}"
                 embed.add_field(name="Bet Size", value=f"${winner.get('bet', 0):.2f}", inline=True)
                 embed.add_field(name="Payout", value=f"${winner.get('payout', 0):.2f}", inline=True)
                 embed.add_field(name="Required Multiplier", value=f"x{challenge['required_multi']}", inline=True)
@@ -525,9 +537,9 @@ class SlotChallenge(commands.Cog):
                 game_display = c['game'].replace('_', '\\_')
             username = c['winner_username'].strip()
             if len(username) > 3:
-                username = f'`{username[:-3]}***`'
+                username = f'{username[:-3]}***'
             else:
-                username = '`***`'
+                username = '***'
             desc += (
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f":trophy: {game_display} | :moneybag: ${c['prize']:.2f} | :crown: {username}\n"
