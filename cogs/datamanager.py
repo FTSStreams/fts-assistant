@@ -466,147 +466,192 @@ class DataManager(commands.Cog):
         return history_json
     
     def generate_all_wager_data_json(self):
-        """Generate all wager data JSON since January 1, 2025"""
+        """Generate comprehensive wager data JSON with both lifetime (since Jan 1, 2025) and current month data"""
         try:
-            # Set the start date to January 1, 2025
-            start_date = "2025-01-01T00:00:00+00:00"
-            end_date = datetime.now(dt.UTC).isoformat()
+            # Get current month range (already available from cached data)
+            current_month_start, current_month_end = get_current_month_range()
             
-            logger.info(f"[DataManager] Fetching all wager data from {start_date} to {end_date}")
+            # Set lifetime start date to January 1, 2025
+            lifetime_start_date = "2025-01-01T00:00:00+00:00"
+            lifetime_end_date = datetime.now(dt.UTC).isoformat()
             
-            # Fetch both total and weighted wager data since Jan 1, 2025
-            # Using synchronous calls within async context (similar to other methods)
-            total_wager_data = fetch_total_wager(start_date, end_date)
-            weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+            logger.info(f"[DataManager] Fetching lifetime wager data from {lifetime_start_date} to {lifetime_end_date}")
+            logger.info(f"[DataManager] Fetching current month wager data from {current_month_start} to {current_month_end}")
             
-            # Build the JSON response
+            # Fetch lifetime data (since Jan 1, 2025)
+            lifetime_total_wager = fetch_total_wager(lifetime_start_date, lifetime_end_date)
+            lifetime_weighted_wager = fetch_weighted_wager(lifetime_start_date, lifetime_end_date)
+            
+            # Fetch current month data
+            month_total_wager = fetch_total_wager(current_month_start, current_month_end)
+            month_weighted_wager = fetch_weighted_wager(current_month_start, current_month_end)
+            
+            # Build the comprehensive JSON response
             wager_json = {
-                "data_type": "all_wager_data",
+                "data_type": "comprehensive_wager_data",
                 "last_updated": datetime.now(dt.UTC).isoformat(),
                 "last_updated_timestamp": int(datetime.now(dt.UTC).timestamp()),
-                "period": {
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "description": "All wager data since January 1, 2025"
+                "periods": {
+                    "lifetime": {
+                        "start_date": lifetime_start_date,
+                        "end_date": lifetime_end_date,
+                        "description": "All wager data since January 1, 2025"
+                    },
+                    "current_month": {
+                        "start_date": current_month_start,
+                        "end_date": current_month_end,
+                        "description": f"Current month wager data"
+                    }
                 },
                 "summary": {
-                    "total_users": 0,
-                    "total_wagered": 0,
-                    "total_weighted_wagered": 0,
-                    "highest_wagerer": None,
-                    "highest_weighted_wagerer": None
+                    "lifetime": {
+                        "total_users": len(lifetime_total_wager),
+                        "total_wagered": 0,
+                        "total_weighted_wagered": 0,
+                        "highest_wagerer": None,
+                        "highest_weighted_wagerer": None
+                    },
+                    "current_month": {
+                        "total_users": len(month_total_wager),
+                        "total_wagered": 0,
+                        "total_weighted_wagered": 0,
+                        "highest_wagerer": None,
+                        "highest_weighted_wagerer": None
+                    }
                 },
-                "total_wager_data": [],
-                "weighted_wager_data": []
+                "data": {
+                    "lifetime": {
+                        "total_wager_data": [],
+                        "weighted_wager_data": []
+                    },
+                    "current_month": {
+                        "total_wager_data": [],
+                        "weighted_wager_data": []
+                    }
+                }
             }
             
-            # Process total wager data
-            total_wagered = 0
-            highest_wagerer = None
-            highest_wager_amount = 0
-            
-            for entry in total_wager_data:
-                wagered = entry.get("wagered", 0)
-                username = entry.get("username", "Unknown")
+            # Helper function to process wager data with censoring
+            def process_total_wager_data(data, period_key):
+                total_wagered = 0
+                highest_wagerer = None
+                highest_amount = 0
+                processed_data = []
                 
-                # Apply username censoring for public repo
-                censored_username = username
-                if len(username) > 3:
-                    censored_username = username[:-3] + "***"
-                else:
-                    censored_username = "***"
-                
-                # Track highest wagerer
-                if wagered > highest_wager_amount:
-                    highest_wager_amount = wagered
-                    highest_wagerer = {
+                for entry in data:
+                    wagered = entry.get("wagered", 0)
+                    username = entry.get("username", "Unknown")
+                    
+                    # Apply username censoring for public repo
+                    censored_username = username
+                    if len(username) > 3:
+                        censored_username = username[:-3] + "***"
+                    else:
+                        censored_username = "***"
+                    
+                    # Track highest wagerer
+                    if wagered > highest_amount:
+                        highest_amount = wagered
+                        highest_wagerer = {
+                            "username": censored_username,
+                            "amount": wagered
+                        }
+                    
+                    total_wagered += wagered
+                    
+                    processed_data.append({
                         "username": censored_username,
-                        "amount": wagered
-                    }
+                        "user_id": entry.get("uid"),
+                        "wagered": wagered,
+                        "sessions": entry.get("sessions", 0),
+                        "payout": entry.get("payout", 0),
+                        "net": entry.get("net", 0)
+                    })
                 
-                total_wagered += wagered
+                # Sort by wagered amount (descending)
+                processed_data.sort(key=lambda x: x.get("wagered", 0), reverse=True)
                 
-                wager_json["total_wager_data"].append({
-                    "username": censored_username,
-                    "user_id": entry.get("uid"),
-                    "wagered": wagered,
-                    "sessions": entry.get("sessions", 0),
-                    "payout": entry.get("payout", 0),
-                    "net": entry.get("net", 0)
-                })
+                # Update summary
+                wager_json["summary"][period_key]["total_wagered"] = total_wagered
+                wager_json["summary"][period_key]["highest_wagerer"] = highest_wagerer
+                
+                return processed_data
             
-            # Process weighted wager data
-            total_weighted_wagered = 0
-            highest_weighted_wagerer = None
-            highest_weighted_amount = 0
-            
-            for entry in weighted_wager_data:
-                weighted_wagered = entry.get("weightedWagered", 0)
-                username = entry.get("username", "Unknown")
+            def process_weighted_wager_data(data, period_key):
+                total_weighted_wagered = 0
+                highest_weighted_wagerer = None
+                highest_amount = 0
+                processed_data = []
                 
-                # Apply username censoring for public repo
-                censored_username = username
-                if len(username) > 3:
-                    censored_username = username[:-3] + "***"
-                else:
-                    censored_username = "***"
-                
-                # Track highest weighted wagerer
-                if weighted_wagered > highest_weighted_amount:
-                    highest_weighted_amount = weighted_wagered
-                    highest_weighted_wagerer = {
+                for entry in data:
+                    weighted_wagered = entry.get("weightedWagered", 0)
+                    username = entry.get("username", "Unknown")
+                    
+                    # Apply username censoring for public repo
+                    censored_username = username
+                    if len(username) > 3:
+                        censored_username = username[:-3] + "***"
+                    else:
+                        censored_username = "***"
+                    
+                    # Track highest weighted wagerer
+                    if weighted_wagered > highest_amount:
+                        highest_amount = weighted_wagered
+                        highest_weighted_wagerer = {
+                            "username": censored_username,
+                            "amount": weighted_wagered
+                        }
+                    
+                    total_weighted_wagered += weighted_wagered
+                    
+                    # Get highest multiplier data if available
+                    highest_multi_data = entry.get("highestMultiplier", {})
+                    
+                    processed_data.append({
                         "username": censored_username,
-                        "amount": weighted_wagered
-                    }
+                        "user_id": entry.get("uid"),
+                        "weighted_wagered": weighted_wagered,
+                        "sessions": entry.get("sessions", 0),
+                        "highest_multiplier": {
+                            "multiplier": highest_multi_data.get("multiplier", 0),
+                            "game": highest_multi_data.get("gameTitle", "Unknown"),
+                            "game_identifier": highest_multi_data.get("gameIdentifier"),
+                            "wagered": highest_multi_data.get("wagered", 0),
+                            "payout": highest_multi_data.get("payout", 0)
+                        }
+                    })
                 
-                total_weighted_wagered += weighted_wagered
+                # Sort by weighted wagered amount (descending)
+                processed_data.sort(key=lambda x: x.get("weighted_wagered", 0), reverse=True)
                 
-                # Get highest multiplier data if available
-                highest_multi_data = entry.get("highestMultiplier", {})
+                # Update summary
+                wager_json["summary"][period_key]["total_weighted_wagered"] = total_weighted_wagered
+                wager_json["summary"][period_key]["highest_weighted_wagerer"] = highest_weighted_wagerer
                 
-                wager_json["weighted_wager_data"].append({
-                    "username": censored_username,
-                    "user_id": entry.get("uid"),
-                    "weighted_wagered": weighted_wagered,
-                    "sessions": entry.get("sessions", 0),
-                    "highest_multiplier": {
-                        "multiplier": highest_multi_data.get("multiplier", 0),
-                        "game": highest_multi_data.get("gameTitle", "Unknown"),
-                        "game_identifier": highest_multi_data.get("gameIdentifier"),
-                        "wagered": highest_multi_data.get("wagered", 0),
-                        "payout": highest_multi_data.get("payout", 0)
-                    }
-                })
+                return processed_data
             
-            # Sort data by wagered amounts (descending)
-            wager_json["total_wager_data"].sort(
-                key=lambda x: x.get("wagered", 0), 
-                reverse=True
-            )
-            wager_json["weighted_wager_data"].sort(
-                key=lambda x: x.get("weighted_wagered", 0), 
-                reverse=True
-            )
+            # Process lifetime data
+            wager_json["data"]["lifetime"]["total_wager_data"] = process_total_wager_data(lifetime_total_wager, "lifetime")
+            wager_json["data"]["lifetime"]["weighted_wager_data"] = process_weighted_wager_data(lifetime_weighted_wager, "lifetime")
             
-            # Update summary statistics
-            wager_json["summary"]["total_users"] = len(total_wager_data)
-            wager_json["summary"]["total_wagered"] = total_wagered
-            wager_json["summary"]["total_weighted_wagered"] = total_weighted_wagered
-            wager_json["summary"]["highest_wagerer"] = highest_wagerer
-            wager_json["summary"]["highest_weighted_wagerer"] = highest_weighted_wagerer
+            # Process current month data
+            wager_json["data"]["current_month"]["total_wager_data"] = process_total_wager_data(month_total_wager, "current_month")
+            wager_json["data"]["current_month"]["weighted_wager_data"] = process_weighted_wager_data(month_weighted_wager, "current_month")
             
-            logger.info(f"[DataManager] All wager data generated - Total users: {len(total_wager_data)}, Total wagered: ${total_wagered:,.2f}, Total weighted: ${total_weighted_wagered:,.2f}")
+            logger.info(f"[DataManager] Comprehensive wager data generated - Lifetime users: {len(lifetime_total_wager)}, Month users: {len(month_total_wager)}")
+            logger.info(f"[DataManager] Lifetime totals - Wagered: ${wager_json['summary']['lifetime']['total_wagered']:,.2f}, Weighted: ${wager_json['summary']['lifetime']['total_weighted_wagered']:,.2f}")
+            logger.info(f"[DataManager] Month totals - Wagered: ${wager_json['summary']['current_month']['total_wagered']:,.2f}, Weighted: ${wager_json['summary']['current_month']['total_weighted_wagered']:,.2f}")
             
             return wager_json
             
         except Exception as e:
-            logger.error(f"Error generating all wager data JSON: {e}")
+            logger.error(f"Error generating comprehensive wager data JSON: {e}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             return {
-                "error": "Failed to generate all wager data",
+                "error": "Failed to generate comprehensive wager data",
                 "message": str(e),
-                "data_type": "all_wager_data",
+                "data_type": "comprehensive_wager_data",
                 "last_updated": datetime.now(dt.UTC).isoformat()
             }
     
