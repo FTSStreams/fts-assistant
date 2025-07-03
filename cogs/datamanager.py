@@ -110,13 +110,18 @@ class DataManager(commands.Cog):
             challenge_history_json = self.generate_challenge_history_json()
             logger.info("[DataManager] Challenge history JSON generated")
             
+            # Generate all wager data JSON (since Jan 1, 2025)
+            all_wager_data_json = self.generate_all_wager_data_json()
+            logger.info("[DataManager] All wager data JSON generated")
+            
             # Upload all files to GitHub
             files_to_upload = [
                 ("latestLBResults.json", main_leaderboard_json),
                 ("LatestMultiLBResults.json", multi_leaderboard_json),
                 ("ActiveSlotChallenges.json", challenges_json),
                 ("allTimeTips.json", all_time_tips_json),
-                ("challengeHistory.json", challenge_history_json)
+                ("challengeHistory.json", challenge_history_json),
+                ("allWagerData.json", all_wager_data_json)
             ]
             
             logger.info(f"[DataManager] Uploading {len(files_to_upload)} files to GitHub...")
@@ -459,6 +464,151 @@ class DataManager(commands.Cog):
         )
         
         return history_json
+    
+    def generate_all_wager_data_json(self):
+        """Generate all wager data JSON since January 1, 2025"""
+        try:
+            # Set the start date to January 1, 2025
+            start_date = "2025-01-01T00:00:00+00:00"
+            end_date = datetime.now(dt.UTC).isoformat()
+            
+            logger.info(f"[DataManager] Fetching all wager data from {start_date} to {end_date}")
+            
+            # Fetch both total and weighted wager data since Jan 1, 2025
+            # Using synchronous calls within async context (similar to other methods)
+            total_wager_data = fetch_total_wager(start_date, end_date)
+            weighted_wager_data = fetch_weighted_wager(start_date, end_date)
+            
+            # Build the JSON response
+            wager_json = {
+                "data_type": "all_wager_data",
+                "last_updated": datetime.now(dt.UTC).isoformat(),
+                "last_updated_timestamp": int(datetime.now(dt.UTC).timestamp()),
+                "period": {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "description": "All wager data since January 1, 2025"
+                },
+                "summary": {
+                    "total_users": 0,
+                    "total_wagered": 0,
+                    "total_weighted_wagered": 0,
+                    "highest_wagerer": None,
+                    "highest_weighted_wagerer": None
+                },
+                "total_wager_data": [],
+                "weighted_wager_data": []
+            }
+            
+            # Process total wager data
+            total_wagered = 0
+            highest_wagerer = None
+            highest_wager_amount = 0
+            
+            for entry in total_wager_data:
+                wagered = entry.get("wagered", 0)
+                username = entry.get("username", "Unknown")
+                
+                # Apply username censoring for public repo
+                censored_username = username
+                if len(username) > 3:
+                    censored_username = username[:-3] + "***"
+                else:
+                    censored_username = "***"
+                
+                # Track highest wagerer
+                if wagered > highest_wager_amount:
+                    highest_wager_amount = wagered
+                    highest_wagerer = {
+                        "username": censored_username,
+                        "amount": wagered
+                    }
+                
+                total_wagered += wagered
+                
+                wager_json["total_wager_data"].append({
+                    "username": censored_username,
+                    "user_id": entry.get("uid"),
+                    "wagered": wagered,
+                    "sessions": entry.get("sessions", 0),
+                    "payout": entry.get("payout", 0),
+                    "net": entry.get("net", 0)
+                })
+            
+            # Process weighted wager data
+            total_weighted_wagered = 0
+            highest_weighted_wagerer = None
+            highest_weighted_amount = 0
+            
+            for entry in weighted_wager_data:
+                weighted_wagered = entry.get("weightedWagered", 0)
+                username = entry.get("username", "Unknown")
+                
+                # Apply username censoring for public repo
+                censored_username = username
+                if len(username) > 3:
+                    censored_username = username[:-3] + "***"
+                else:
+                    censored_username = "***"
+                
+                # Track highest weighted wagerer
+                if weighted_wagered > highest_weighted_amount:
+                    highest_weighted_amount = weighted_wagered
+                    highest_weighted_wagerer = {
+                        "username": censored_username,
+                        "amount": weighted_wagered
+                    }
+                
+                total_weighted_wagered += weighted_wagered
+                
+                # Get highest multiplier data if available
+                highest_multi_data = entry.get("highestMultiplier", {})
+                
+                wager_json["weighted_wager_data"].append({
+                    "username": censored_username,
+                    "user_id": entry.get("uid"),
+                    "weighted_wagered": weighted_wagered,
+                    "sessions": entry.get("sessions", 0),
+                    "highest_multiplier": {
+                        "multiplier": highest_multi_data.get("multiplier", 0),
+                        "game": highest_multi_data.get("gameTitle", "Unknown"),
+                        "game_identifier": highest_multi_data.get("gameIdentifier"),
+                        "wagered": highest_multi_data.get("wagered", 0),
+                        "payout": highest_multi_data.get("payout", 0)
+                    }
+                })
+            
+            # Sort data by wagered amounts (descending)
+            wager_json["total_wager_data"].sort(
+                key=lambda x: x.get("wagered", 0), 
+                reverse=True
+            )
+            wager_json["weighted_wager_data"].sort(
+                key=lambda x: x.get("weighted_wagered", 0), 
+                reverse=True
+            )
+            
+            # Update summary statistics
+            wager_json["summary"]["total_users"] = len(total_wager_data)
+            wager_json["summary"]["total_wagered"] = total_wagered
+            wager_json["summary"]["total_weighted_wagered"] = total_weighted_wagered
+            wager_json["summary"]["highest_wagerer"] = highest_wagerer
+            wager_json["summary"]["highest_weighted_wagerer"] = highest_weighted_wagerer
+            
+            logger.info(f"[DataManager] All wager data generated - Total users: {len(total_wager_data)}, Total wagered: ${total_wagered:,.2f}, Total weighted: ${total_weighted_wagered:,.2f}")
+            
+            return wager_json
+            
+        except Exception as e:
+            logger.error(f"Error generating all wager data JSON: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return {
+                "error": "Failed to generate all wager data",
+                "message": str(e),
+                "data_type": "all_wager_data",
+                "last_updated": datetime.now(dt.UTC).isoformat()
+            }
     
     def upload_to_github(self, filename, data):
         """Upload a single file to GitHub"""
