@@ -339,36 +339,22 @@ class DataManager(commands.Cog):
             tips_json["summary"]["total_tips_sent"] += tip_count
             tips_json["summary"]["total_amount_sent"] += float(total_amount)
         
-        # Process top recipients (with username censoring for public repo)
+        # Process top recipients (with UNCENSORED usernames for JSON data)
         for user_id, username, total_received, total_tips in top_recipients:
-            # Apply username censoring like other public embeds
-            censored_username = username
-            if len(username) > 3:
-                censored_username = username[:-3] + "***"
-            else:
-                censored_username = "***"
-                
             tips_json["top_recipients"].append({
                 "user_id": user_id,
-                "username": censored_username,
+                "username": username,  # UNCENSORED for JSON data
                 "total_received": float(total_received),
                 "total_tips": total_tips
             })
         
-        # Process detailed data by user and tip type (also censored)
+        # Process detailed data by user and tip type (also UNCENSORED)
         user_tips = {}
         for user_id, username, tip_type, total_amount, tip_count, first_tip, latest_tip in tip_data:
-            # Apply username censoring
-            censored_username = username
-            if len(username) > 3:
-                censored_username = username[:-3] + "***"
-            else:
-                censored_username = "***"
-                
             if user_id not in user_tips:
                 user_tips[user_id] = {
                     "user_id": user_id,
-                    "username": censored_username,
+                    "username": username,  # UNCENSORED for JSON data
                     "tips_by_type": {},
                     "total_received": 0
                 }
@@ -531,7 +517,7 @@ class DataManager(commands.Cog):
                 }
             }
             
-            # Helper function to process wager data with censoring
+            # Helper function to process wager data with UNCENSORED usernames for JSON files
             def process_total_wager_data(data, period_key):
                 total_wagered = 0
                 highest_wagerer = None
@@ -542,25 +528,18 @@ class DataManager(commands.Cog):
                     wagered = entry.get("wagered", 0)
                     username = entry.get("username", "Unknown")
                     
-                    # Apply username censoring for public repo
-                    censored_username = username
-                    if len(username) > 3:
-                        censored_username = username[:-3] + "***"
-                    else:
-                        censored_username = "***"
-                    
-                    # Track highest wagerer
+                    # Track highest wagerer (using real username for JSON data)
                     if wagered > highest_amount:
                         highest_amount = wagered
                         highest_wagerer = {
-                            "username": censored_username,
+                            "username": username,
                             "amount": wagered
                         }
                     
                     total_wagered += wagered
                     
                     processed_data.append({
-                        "username": censored_username,
+                        "username": username,  # UNCENSORED for JSON data
                         "user_id": entry.get("uid"),
                         "wagered": wagered,
                         "sessions": entry.get("sessions", 0),
@@ -587,18 +566,11 @@ class DataManager(commands.Cog):
                     weighted_wagered = entry.get("weightedWagered", 0)
                     username = entry.get("username", "Unknown")
                     
-                    # Apply username censoring for public repo
-                    censored_username = username
-                    if len(username) > 3:
-                        censored_username = username[:-3] + "***"
-                    else:
-                        censored_username = "***"
-                    
-                    # Track highest weighted wagerer
+                    # Track highest weighted wagerer (using real username for JSON data)
                     if weighted_wagered > highest_amount:
                         highest_amount = weighted_wagered
                         highest_weighted_wagerer = {
-                            "username": censored_username,
+                            "username": username,
                             "amount": weighted_wagered
                         }
                     
@@ -608,7 +580,7 @@ class DataManager(commands.Cog):
                     highest_multi_data = entry.get("highestMultiplier", {})
                     
                     processed_data.append({
-                        "username": censored_username,
+                        "username": username,  # UNCENSORED for JSON data
                         "user_id": entry.get("uid"),
                         "weighted_wagered": weighted_wagered,
                         "sessions": entry.get("sessions", 0),
