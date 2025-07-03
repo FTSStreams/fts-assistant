@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 from utils import fetch_total_wager, fetch_weighted_wager, get_current_month_range, fetch_user_game_stats
-from db import get_all_active_slot_challenges
+from db import get_all_active_slot_challenges, get_db_connection, release_db_connection
 import os
 import logging
 from datetime import datetime
@@ -102,11 +102,16 @@ class DataManager(commands.Cog):
             challenges_json = self.generate_challenges_json()
             logger.info("[DataManager] Slot challenges JSON generated")
             
+            # Generate all-time tips JSON
+            all_time_tips_json = self.generate_all_time_tips_json()
+            logger.info("[DataManager] All-time tips JSON generated")
+            
             # Upload all files to GitHub
             files_to_upload = [
                 ("latestLBResults.json", main_leaderboard_json),
                 ("LatestMultiLBResults.json", multi_leaderboard_json),
-                ("ActiveSlotChallenges.json", challenges_json)
+                ("ActiveSlotChallenges.json", challenges_json),
+                ("allTimeTips.json", all_time_tips_json)
             ]
             
             logger.info(f"[DataManager] Uploading {len(files_to_upload)} files to GitHub...")
@@ -248,6 +253,132 @@ class DataManager(commands.Cog):
             challenges_json["challenges"].append(challenge_data)
         
         return challenges_json
+    
+    def generate_all_time_tips_json(self):
+        """Generate all-time tips JSON aggregating manual, milestone, and slot challenge tips"""
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                # Get aggregated tip data by user and tip type
+                cur.execute("""
+                    SELECT 
+                        user_id,
+                        username,
+                        tip_type,
+                        SUM(amount) as total_amount,
+                        COUNT(*) as tip_count,
+                        MIN(tipped_at) as first_tip,
+                        MAX(tipped_at) as latest_tip
+                    FROM manualtips 
+                    GROUP BY user_id, username, tip_type
+                    ORDER BY SUM(amount) DESC;
+                """)
+                tip_data = cur.fetchall()
+                
+                # Get overall totals by tip type
+                cur.execute("""
+                    SELECT 
+                        tip_type,
+                        SUM(amount) as total_amount,
+                        COUNT(*) as tip_count
+                    FROM manualtips
+                    GROUP BY tip_type;
+                """)
+                tip_type_totals = cur.fetchall()
+                
+                # Get top recipients overall
+                cur.execute("""
+                    SELECT 
+                        user_id,
+                        username,
+                        SUM(amount) as total_received,
+                        COUNT(*) as total_tips
+                    FROM manualtips
+                    GROUP BY user_id, username
+                    ORDER BY SUM(amount) DESC
+                    LIMIT 20;
+                """)
+                top_recipients = cur.fetchall()
+                
+        except Exception as e:
+            logger.error(f"Error querying tip data: {e}")
+            return {"error": "Failed to generate tips data"}
+        finally:
+            release_db_connection(conn)
+        
+        # Build the JSON response
+        tips_json = {
+            "data_type": "all_time_tips",
+            "last_updated": datetime.now(dt.UTC).isoformat(),
+            "last_updated_timestamp": int(datetime.now(dt.UTC).timestamp()),
+            "summary": {
+                "total_tips_sent": 0,
+                "total_amount_sent": 0,
+                "by_type": {}
+            },
+            "top_recipients": [],
+            "detailed_data": []
+        }
+        
+        # Process tip type totals
+        for tip_type, total_amount, tip_count in tip_type_totals:
+            tips_json["summary"]["by_type"][tip_type] = {
+                "total_amount": float(total_amount),
+                "tip_count": tip_count
+            }
+            tips_json["summary"]["total_tips_sent"] += tip_count
+            tips_json["summary"]["total_amount_sent"] += float(total_amount)
+        
+        # Process top recipients (with username censoring for public repo)
+        for user_id, username, total_received, total_tips in top_recipients:
+            # Apply username censoring like other public embeds
+            censored_username = username
+            if len(username) > 3:
+                censored_username = username[:-3] + "***"
+            else:
+                censored_username = "***"
+                
+            tips_json["top_recipients"].append({
+                "user_id": user_id,
+                "username": censored_username,
+                "total_received": float(total_received),
+                "total_tips": total_tips
+            })
+        
+        # Process detailed data by user and tip type (also censored)
+        user_tips = {}
+        for user_id, username, tip_type, total_amount, tip_count, first_tip, latest_tip in tip_data:
+            # Apply username censoring
+            censored_username = username
+            if len(username) > 3:
+                censored_username = username[:-3] + "***"
+            else:
+                censored_username = "***"
+                
+            if user_id not in user_tips:
+                user_tips[user_id] = {
+                    "user_id": user_id,
+                    "username": censored_username,
+                    "tips_by_type": {},
+                    "total_received": 0
+                }
+            
+            user_tips[user_id]["tips_by_type"][tip_type] = {
+                "amount": float(total_amount),
+                "count": tip_count,
+                "first_tip": first_tip.isoformat() if first_tip else None,
+                "latest_tip": latest_tip.isoformat() if latest_tip else None
+            }
+            user_tips[user_id]["total_received"] += float(total_amount)
+        
+        # Convert to list and sort by total received
+        tips_json["detailed_data"] = sorted(
+            user_tips.values(), 
+            key=lambda x: x["total_received"], 
+            reverse=True
+        )
+        
+        return tips_json
     
     def upload_to_github(self, filename, data):
         """Upload a single file to GitHub"""
