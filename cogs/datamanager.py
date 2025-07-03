@@ -192,15 +192,10 @@ class DataManager(commands.Cog):
             if i < len(multi_data):
                 entry = multi_data[i]
                 username = entry.get("username", "Unknown")
-                # Apply username masking
-                if len(username) > 3:
-                    masked_username = username[:-3] + "***"
-                else:
-                    masked_username = "***"
                 
                 leaderboard_json["entries"].append({
                     "rank": i + 1,
-                    "username": masked_username,
+                    "username": username,  # UNCENSORED for JSON data
                     "multiplier": entry["highestMultiplier"].get("multiplier", 0),
                     "game": entry["highestMultiplier"].get("gameTitle", "Unknown"),
                     "game_identifier": entry["highestMultiplier"].get("gameIdentifier", None),
@@ -285,6 +280,22 @@ class DataManager(commands.Cog):
                 """)
                 tip_data = cur.fetchall()
                 
+                # Get tip data by month for searchability
+                cur.execute("""
+                    SELECT 
+                        user_id,
+                        username,
+                        tip_type,
+                        month,
+                        year,
+                        SUM(amount) as monthly_amount,
+                        COUNT(*) as monthly_count
+                    FROM manualtips 
+                    GROUP BY user_id, username, tip_type, month, year
+                    ORDER BY year DESC, month DESC, SUM(amount) DESC;
+                """)
+                monthly_tip_data = cur.fetchall()
+                
                 # Get overall totals by tip type
                 cur.execute("""
                     SELECT 
@@ -327,7 +338,8 @@ class DataManager(commands.Cog):
                 "by_type": {}
             },
             "top_recipients": [],
-            "detailed_data": []
+            "detailed_data": [],
+            "monthly_breakdown": []  # New: searchable by month/year
         }
         
         # Process tip type totals
@@ -374,6 +386,19 @@ class DataManager(commands.Cog):
             reverse=True
         )
         
+        # Process monthly breakdown data for searchability
+        for user_id, username, tip_type, month, year, monthly_amount, monthly_count in monthly_tip_data:
+            tips_json["monthly_breakdown"].append({
+                "user_id": user_id,
+                "username": username,  # UNCENSORED for JSON data
+                "tip_type": tip_type,
+                "month": month,
+                "year": year,
+                "amount": float(monthly_amount),
+                "count": monthly_count,
+                "period_key": f"{year}-{month:02d}"  # Easy searching: "2025-07"
+            })
+        
         return tips_json
     
     def generate_challenge_history_json(self):
@@ -396,13 +421,8 @@ class DataManager(commands.Cog):
         
         # Process each completed challenge
         for challenge in completed_challenges:
-            # Apply username censoring for public repo
+            # Use real username for JSON data (no censoring)
             winner_username = challenge.get("winner_username", "Unknown")
-            censored_winner = winner_username
-            if len(winner_username) > 3:
-                censored_winner = winner_username[:-3] + "***"
-            else:
-                censored_winner = "***"
             
             # Add to total prizes paid
             history_json["total_prizes_paid"] += float(challenge.get("prize", 0))
@@ -416,7 +436,7 @@ class DataManager(commands.Cog):
                 "achieved_multiplier": float(challenge.get("multiplier", 0)),
                 "min_bet_requirement": float(challenge.get("min_bet", 0)) if challenge.get("min_bet") else None,
                 "winner": {
-                    "username": censored_winner,
+                    "username": winner_username,  # UNCENSORED for JSON data
                     "user_id": challenge.get("winner_uid"),
                     "bet_amount": float(challenge.get("bet", 0)),
                     "payout": float(challenge.get("payout", 0)),
