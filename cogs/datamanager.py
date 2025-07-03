@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 from utils import fetch_total_wager, fetch_weighted_wager, get_current_month_range, fetch_user_game_stats
-from db import get_all_active_slot_challenges, get_db_connection, release_db_connection
+from db import get_all_active_slot_challenges, get_all_completed_slot_challenges, get_db_connection, release_db_connection
 import os
 import logging
 from datetime import datetime
@@ -106,12 +106,17 @@ class DataManager(commands.Cog):
             all_time_tips_json = self.generate_all_time_tips_json()
             logger.info("[DataManager] All-time tips JSON generated")
             
+            # Generate challenge history JSON
+            challenge_history_json = self.generate_challenge_history_json()
+            logger.info("[DataManager] Challenge history JSON generated")
+            
             # Upload all files to GitHub
             files_to_upload = [
                 ("latestLBResults.json", main_leaderboard_json),
                 ("LatestMultiLBResults.json", multi_leaderboard_json),
                 ("ActiveSlotChallenges.json", challenges_json),
-                ("allTimeTips.json", all_time_tips_json)
+                ("allTimeTips.json", all_time_tips_json),
+                ("challengeHistory.json", challenge_history_json)
             ]
             
             logger.info(f"[DataManager] Uploading {len(files_to_upload)} files to GitHub...")
@@ -379,6 +384,81 @@ class DataManager(commands.Cog):
         )
         
         return tips_json
+    
+    def generate_challenge_history_json(self):
+        """Generate challenge history JSON from completed slot challenges"""
+        try:
+            completed_challenges = get_all_completed_slot_challenges()
+        except Exception as e:
+            logger.error(f"Error fetching completed challenges: {e}")
+            return {"error": "Failed to fetch challenge history"}
+        
+        # Build the JSON response
+        history_json = {
+            "data_type": "challenge_history",
+            "last_updated": datetime.now(dt.UTC).isoformat(),
+            "last_updated_timestamp": int(datetime.now(dt.UTC).timestamp()),
+            "total_completed_challenges": len(completed_challenges),
+            "total_prizes_paid": 0,
+            "challenges": []
+        }
+        
+        # Process each completed challenge
+        for challenge in completed_challenges:
+            # Apply username censoring for public repo
+            winner_username = challenge.get("winner_username", "Unknown")
+            censored_winner = winner_username
+            if len(winner_username) > 3:
+                censored_winner = winner_username[:-3] + "***"
+            else:
+                censored_winner = "***"
+            
+            # Add to total prizes paid
+            history_json["total_prizes_paid"] += float(challenge.get("prize", 0))
+            
+            # Build challenge data
+            challenge_data = {
+                "challenge_id": challenge.get("challenge_id"),
+                "game_name": challenge.get("game"),
+                "game_identifier": challenge.get("game_identifier"),
+                "required_multiplier": float(challenge.get("required_multiplier", 0)),
+                "achieved_multiplier": float(challenge.get("multiplier", 0)),
+                "min_bet_requirement": float(challenge.get("min_bet", 0)) if challenge.get("min_bet") else None,
+                "winner": {
+                    "username": censored_winner,
+                    "user_id": challenge.get("winner_uid"),
+                    "bet_amount": float(challenge.get("bet", 0)),
+                    "payout": float(challenge.get("payout", 0)),
+                    "multiplier_achieved": float(challenge.get("multiplier", 0))
+                },
+                "prize_amount": float(challenge.get("prize", 0)),
+                "challenge_start": challenge.get("challenge_start").isoformat() if challenge.get("challenge_start") else None
+            }
+            
+            # Add start timestamp if we can parse the time
+            try:
+                if challenge.get("challenge_start"):
+                    if isinstance(challenge["challenge_start"], str):
+                        start_dt = datetime.fromisoformat(challenge["challenge_start"].replace('Z', '+00:00'))
+                        challenge_data["challenge_start_timestamp"] = int(start_dt.timestamp())
+                    elif hasattr(challenge["challenge_start"], 'timestamp'):
+                        challenge_data["challenge_start_timestamp"] = int(challenge["challenge_start"].timestamp())
+            except:
+                pass
+                
+            # Create game URL if identifier exists
+            if challenge.get("game_identifier"):
+                challenge_data["game_url"] = f"https://roobet.com/casino/game/{challenge['game_identifier']}"
+            
+            history_json["challenges"].append(challenge_data)
+        
+        # Sort challenges by start time (most recent first)
+        history_json["challenges"].sort(
+            key=lambda x: x.get("challenge_start_timestamp", 0), 
+            reverse=True
+        )
+        
+        return history_json
     
     def upload_to_github(self, filename, data):
         """Upload a single file to GitHub"""
