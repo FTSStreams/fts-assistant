@@ -60,6 +60,13 @@ class Milestones(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.tip_queue = asyncio.Queue()
+        
+        # Initialize month/year state tracking
+        now = datetime.now(dt.UTC)
+        self.current_month = now.month
+        self.current_year = now.year
+        logger.info(f"[Milestones] Initialized with month/year: {self.current_year}-{self.current_month:02d}")
+        
         self.check_wager_milestones.start()
         # process_tip_queue_task will be started in cog_load
     
@@ -93,11 +100,13 @@ class Milestones(commands.Cog):
             
             try:
                 user_id, username, milestone, month, year = await self.tip_queue.get()
+                logger.info(f"[Milestones] Processing tip for {username} - {milestone['tier']} (month={month}, year={year})")
                 bot_user_id = os.getenv("ROOBET_USER_ID")
                 tip_response = await send_tip(bot_user_id, username, user_id, milestone["tip"])
                 if tip_response.get("success"):
                     save_tip(user_id, milestone["tier"], month, year)
                     save_tip_log(user_id, username, milestone["tip"], "milestone", month, year)
+                    logger.info(f"[Milestones] Successfully saved tip for {username} - {milestone['tier']} in database (month={month}, year={year})")
                     # Censor username for public display
                     display_username = username
                     if len(username) > 3:
@@ -136,7 +145,16 @@ class Milestones(commands.Cog):
         now = datetime.now(dt.UTC)
         month = now.month
         year = now.year
+        
+        # Check for month transition and update state
+        if month != self.current_month or year != self.current_year:
+            logger.info(f"[Milestones] Month transition detected: {self.current_year}-{self.current_month:02d} → {year}-{month:02d}")
+            self.current_month = month
+            self.current_year = year
+            logger.info("[Milestones] Month/year state updated for new period")
+        
         sent_tips = load_sent_tips(month, year)
+        logger.info(f"[Milestones] Loaded {len(sent_tips)} existing tips for {year}-{month:02d}")
         
         # Get data from DataManager
         data_manager = self.get_data_manager()
