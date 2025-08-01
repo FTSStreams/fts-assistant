@@ -117,6 +117,34 @@ def get_current_month_range():
         end = start.replace(month=now.month + 1) - dt.timedelta(seconds=1)
     return start.isoformat(), end.isoformat()
 
+def get_month_range(year, month):
+    """Get date range for a specific year/month"""
+    start = datetime(year, month, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+    if month == 12:
+        end = start.replace(year=year + 1, month=1) - dt.timedelta(seconds=1)
+    else:
+        end = start.replace(month=month + 1) - dt.timedelta(seconds=1)
+    return start.isoformat(), end.isoformat()
+
+def generate_backfill_months(start_year=2025, start_month=1):
+    """Generate list of (year, month) tuples from start_year/start_month to current month"""
+    now = datetime.now(dt.UTC)
+    current_year = now.year
+    current_month = now.month
+    
+    months = []
+    year = start_year
+    month = start_month
+    
+    while (year < current_year) or (year == current_year and month <= current_month):
+        months.append((year, month))
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+    
+    return months
+
 def fetch_user_game_stats(user_id, game_identifier, start_date, end_date=None):
     """
     Fetch aggregate stats for a single user/game in a time window.

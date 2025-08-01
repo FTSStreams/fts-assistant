@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands, tasks
-from utils import fetch_total_wager, fetch_weighted_wager, get_current_month_range, fetch_user_game_stats
-from db import get_all_active_slot_challenges, get_all_completed_slot_challenges, get_db_connection, release_db_connection, save_monthly_totals
+from utils import fetch_total_wager, fetch_weighted_wager, get_current_month_range, fetch_user_game_stats, get_month_range, generate_backfill_months
+from db import get_all_active_slot_challenges, get_all_completed_slot_challenges, get_db_connection, release_db_connection, save_monthly_totals, backfill_monthly_totals_for_date
 import os
 import logging
 from datetime import datetime
@@ -42,6 +42,57 @@ class DataManager(commands.Cog):
             return False
         age = datetime.now(dt.UTC) - self.last_fetch_time
         return age.total_seconds() < (max_age_minutes * 60)
+    
+    async def backfill_historical_data(self):
+        """Backfill historical monthly data when the bot starts"""
+        try:
+            logger.info("[DataManager] Starting historical data backfill...")
+            
+            # Generate list of months to backfill (from Jan 2025 to current month)
+            months_to_backfill = generate_backfill_months(2025, 1)
+            
+            backfilled_count = 0
+            for year, month in months_to_backfill:
+                try:
+                    logger.info(f"[DataManager] Attempting to backfill {year}-{month:02d}")
+                    
+                    # Get date range for this month
+                    start_date, end_date = get_month_range(year, month)
+                    
+                    # Fetch data for this month
+                    total_wager_data = await asyncio.to_thread(fetch_total_wager, start_date, end_date)
+                    weighted_wager_data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date)
+                    
+                    # Calculate totals
+                    total_wager = sum(
+                        entry.get("wagered", 0)
+                        for entry in total_wager_data
+                        if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
+                    )
+                    
+                    weighted_wager = sum(
+                        entry.get("weightedWagered", 0)
+                        for entry in weighted_wager_data
+                        if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
+                    )
+                    
+                    # Save the backfill data
+                    if backfill_monthly_totals_for_date(year, month, total_wager, weighted_wager):
+                        backfilled_count += 1
+                    
+                    # Small delay to avoid overwhelming the API
+                    await asyncio.sleep(1)
+                    
+                except Exception as e:
+                    logger.error(f"[DataManager] Error backfilling {year}-{month:02d}: {e}")
+                    continue
+            
+            logger.info(f"[DataManager] Historical data backfill completed. Backfilled {backfilled_count} months.")
+            
+        except Exception as e:
+            logger.error(f"[DataManager] Error in backfill_historical_data: {e}")
+            import traceback
+            logger.error(f"[DataManager] Traceback: {traceback.format_exc()}")
     
     @tasks.loop(minutes=10)  # Fetch all data every 10 minutes
     async def fetch_and_upload_all_data(self):
@@ -736,6 +787,13 @@ class DataManager(commands.Cog):
     
     def cog_unload(self):
         self.fetch_and_upload_all_data.cancel()
+    
+    async def cog_load(self):
+        """Called when the cog is loaded - start backfill process"""
+        # Wait for bot to be ready, then start backfill
+        await self.bot.wait_until_ready()
+        logger.info("[DataManager] Starting historical data backfill in background...")
+        asyncio.create_task(self.backfill_historical_data())
 
     @fetch_and_upload_all_data.before_loop
     async def before_fetch_loop(self):

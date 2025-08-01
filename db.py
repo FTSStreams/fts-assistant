@@ -324,11 +324,15 @@ def save_monthly_totals(year, month, total_wager, weighted_wager):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO settings (key, value) 
-                VALUES (%s, %s) 
-                ON CONFLICT (key) DO UPDATE SET value = %s;
+                INSERT INTO monthly_totals (year, month, total_wager, total_weighted_wager, created_at)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (year, month) 
+                DO UPDATE SET 
+                    total_wager = EXCLUDED.total_wager,
+                    total_weighted_wager = EXCLUDED.total_weighted_wager,
+                    created_at = EXCLUDED.created_at;
                 """,
-                (f"monthly_totals_{year}_{month:02d}", f"{total_wager},{weighted_wager}", f"{total_wager},{weighted_wager}")
+                (year, month, total_wager, weighted_wager, datetime.now(dt.UTC))
             )
             conn.commit()
             logger.info(f"Saved monthly totals for {year}-{month:02d}: Total=${total_wager:,.2f}, Weighted=${weighted_wager:,.2f}")
@@ -342,31 +346,60 @@ def get_monthly_totals():
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT key, value FROM settings WHERE key LIKE 'monthly_totals_%' ORDER BY key;")
+            cur.execute(
+                """
+                SELECT year, month, total_wager, total_weighted_wager, created_at 
+                FROM monthly_totals 
+                ORDER BY year, month;
+                """
+            )
             results = cur.fetchall()
             
             monthly_data = []
-            for key, value in results:
-                try:
-                    # Extract year and month from key like "monthly_totals_2025_07"
-                    parts = key.split('_')
-                    if len(parts) >= 4:
-                        year = int(parts[2])
-                        month = int(parts[3])
-                        total_wager, weighted_wager = map(float, value.split(','))
-                        monthly_data.append({
-                            'year': year,
-                            'month': month,
-                            'total_wager': total_wager,
-                            'weighted_wager': weighted_wager
-                        })
-                except (ValueError, IndexError) as e:
-                    logger.warning(f"Error parsing monthly total data for key {key}: {e}")
-                    continue
+            for year, month, total_wager, weighted_wager, created_at in results:
+                monthly_data.append({
+                    'year': year,
+                    'month': month,
+                    'total_wager': float(total_wager) if total_wager else 0.0,
+                    'weighted_wager': float(weighted_wager) if weighted_wager else 0.0,
+                    'created_at': created_at
+                })
             
-            return sorted(monthly_data, key=lambda x: (x['year'], x['month']))
+            return monthly_data
     except Exception as e:
         logger.error(f"Error loading monthly totals: {e}")
         return []
+    finally:
+        release_db_connection(conn)
+
+def backfill_monthly_totals_for_date(year, month, total_wager, weighted_wager):
+    """Backfill monthly totals for a specific year/month"""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # Check if data already exists
+            cur.execute(
+                "SELECT COUNT(*) FROM monthly_totals WHERE year = %s AND month = %s",
+                (year, month)
+            )
+            exists = cur.fetchone()[0] > 0
+            
+            if not exists:
+                cur.execute(
+                    """
+                    INSERT INTO monthly_totals (year, month, total_wager, total_weighted_wager, created_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (year, month, total_wager, weighted_wager, datetime.now(dt.UTC))
+                )
+                conn.commit()
+                logger.info(f"Backfilled monthly totals for {year}-{month:02d}: Total=${total_wager:,.2f}, Weighted=${weighted_wager:,.2f}")
+                return True
+            else:
+                logger.info(f"Monthly totals for {year}-{month:02d} already exist, skipping backfill")
+                return False
+    except Exception as e:
+        logger.error(f"Error backfilling monthly totals for {year}-{month:02d}: {e}")
+        return False
     finally:
         release_db_connection(conn)
