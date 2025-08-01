@@ -357,23 +357,30 @@ class User(commands.Cog):
                     
                     logger.info(f"[monthtomonth] Fallback cached data: Total=${current_total:,.2f}, Weighted=${current_weighted:,.2f}")
 
-        # Add current month to the data if not already present
+        # Add current month to the data or update if already present with fresh data
         now = datetime.now()
         current_month_key = f"{now.year}_{now.month:02d}"
         
-        # Check if current month is already in the data
-        current_month_exists = any(
-            data['year'] == now.year and data['month'] == now.month 
-            for data in monthly_data
-        )
+        # Check if current month is already in the data and update/add accordingly
+        current_month_found = False
+        for i, data in enumerate(monthly_data):
+            if data['year'] == now.year and data['month'] == now.month:
+                # Update existing current month entry with fresh data
+                monthly_data[i]['total_wager'] = current_total
+                monthly_data[i]['weighted_wager'] = current_weighted
+                current_month_found = True
+                logger.info(f"[monthtomonth] Updated current month data in list: Total=${current_total:,.2f}, Weighted=${current_weighted:,.2f}")
+                break
         
-        if not current_month_exists:
+        if not current_month_found:
+            # Add current month with fresh data
             monthly_data.append({
                 'year': now.year,
                 'month': now.month,
                 'total_wager': current_total,
                 'weighted_wager': current_weighted
             })
+            logger.info(f"[monthtomonth] Added current month data to list: Total=${current_total:,.2f}, Weighted=${current_weighted:,.2f}")
         
         # Ensure we have at least some data to display
         if not monthly_data:
