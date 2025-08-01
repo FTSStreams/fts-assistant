@@ -302,38 +302,43 @@ class User(commands.Cog):
         # Get historical monthly data from database
         monthly_data = get_monthly_totals()
         
-        # Get current month data from DataManager (fetch fresh data)
-        data_manager = self.get_data_manager()
+        # Force fresh data fetch for current month
         current_total = 0
         current_weighted = 0
         
-        if data_manager:
-            try:
-                # Force fresh data fetch for current month instead of using cached data
-                from utils import get_current_month_range, fetch_total_wager, fetch_weighted_wager
-                
-                # Get current month date range
-                start_date, end_date = get_current_month_range()
-                
-                # Fetch fresh data for current month
-                fresh_total_data = fetch_total_wager(start_date, end_date)
-                fresh_weighted_data = fetch_weighted_wager(start_date, end_date)
-                
-                # Calculate totals from fresh data
-                current_total = sum(
-                    entry.get("wagered", 0)
-                    for entry in fresh_total_data
-                    if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
-                )
-                current_weighted = sum(
-                    entry.get("weightedWagered", 0)
-                    for entry in fresh_weighted_data
-                    if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
-                )
-                
-            except Exception as e:
-                # Fallback to cached data if fresh fetch fails
-                logger.warning(f"Failed to fetch fresh data for monthtomonth command, using cached data: {e}")
+        try:
+            # Always fetch fresh data for current month - no caching
+            from utils import get_current_month_range, fetch_total_wager, fetch_weighted_wager
+            
+            logger.info("[monthtomonth] Fetching fresh current month data...")
+            
+            # Get current month date range
+            start_date, end_date = get_current_month_range()
+            
+            # Fetch fresh data for current month
+            fresh_total_data = fetch_total_wager(start_date, end_date)
+            fresh_weighted_data = fetch_weighted_wager(start_date, end_date)
+            
+            # Calculate totals from fresh data
+            current_total = sum(
+                entry.get("wagered", 0)
+                for entry in fresh_total_data
+                if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
+            )
+            current_weighted = sum(
+                entry.get("weightedWagered", 0)
+                for entry in fresh_weighted_data
+                if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
+            )
+            
+            logger.info(f"[monthtomonth] Fresh data: Total=${current_total:,.2f}, Weighted=${current_weighted:,.2f}")
+            
+        except Exception as e:
+            logger.error(f"[monthtomonth] Failed to fetch fresh data: {e}")
+            
+            # Fallback to cached data if fresh fetch fails
+            data_manager = self.get_data_manager()
+            if data_manager:
                 cached_data = data_manager.get_cached_data()
                 if cached_data:
                     weighted_wager_data = cached_data.get('weighted_wager', [])
@@ -349,6 +354,8 @@ class User(commands.Cog):
                         for entry in total_wager_data
                         if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
                     )
+                    
+                    logger.info(f"[monthtomonth] Fallback cached data: Total=${current_total:,.2f}, Weighted=${current_weighted:,.2f}")
 
         # Add current month to the data if not already present
         now = datetime.now()
