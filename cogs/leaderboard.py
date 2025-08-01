@@ -93,14 +93,14 @@ class Leaderboard(commands.Cog):
     def get_monthly_tips_earned(self, user_id, month, year):
         """Get the total tips earned by a user this month"""
         sent_tips = load_sent_tips(month, year)
-        user_tips = [tip_info for (uid, tier), tip_info in sent_tips.items() if uid == user_id]
+        # sent_tips is a set of (user_id, tier) tuples
+        user_tips = [tier for (uid, tier) in sent_tips if uid == user_id]
         
         total_tips = 0.0
-        for tip_info in user_tips:
-            milestone_tier = tip_info.get('tier', '')
+        for tier in user_tips:
             # Find the tip amount for this tier
             for milestone in MILESTONES:
-                if milestone['tier'] == milestone_tier:
+                if milestone['tier'] == tier:
                     total_tips += milestone['tip']
                     break
         
