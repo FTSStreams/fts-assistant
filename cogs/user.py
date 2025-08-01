@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from utils import send_tip, get_current_month_range
-from db import get_db_connection, release_db_connection, save_tip_log
+from db import get_db_connection, release_db_connection, save_tip_log, get_monthly_totals
 import os
 from datetime import datetime
 import datetime as dt
@@ -295,60 +295,126 @@ class User(commands.Cog):
         await interaction.response.defer()
         import matplotlib.pyplot as plt
         import io
+        from datetime import datetime
+        import calendar
 
-        # Hardcoded values for now (WEIGHTED wager)
-        months = [
-            "January", "February", "March", "April", "May", "June"
-        ]
-        weighted_wagers = [
-            121784.00, 312112.00, 283245.00, 108998.00, 151137.00
-        ]
-        total_wagers = [
-            200000.00, 400000.00, 350000.00, 150000.00, 180000.00
-        ]
-        # Fetch current month WEIGHTED and TOTAL wager dynamically from DataManager
+        # Get historical monthly data from database
+        monthly_data = get_monthly_totals()
+        
+        # Get current month data from DataManager
         data_manager = self.get_data_manager()
+        current_total = 0
+        current_weighted = 0
+        
         if data_manager and data_manager.get_cached_data():
             cached_data = data_manager.get_cached_data()
             weighted_wager_data = cached_data.get('weighted_wager', [])
             total_wager_data = cached_data.get('total_wager', [])
             
-            total_weighted_wager = sum(
+            current_weighted = sum(
                 entry.get("weightedWagered", 0)
                 for entry in weighted_wager_data
                 if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
             )
-            total_wager = sum(
+            current_total = sum(
                 entry.get("wagered", 0)
                 for entry in total_wager_data
                 if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
             )
-        else:
-            # Fallback values if data not available
-            total_weighted_wager = 0
-            total_wager = 0
-            
-        weighted_wagers.append(total_weighted_wager)
-        total_wagers.append(total_wager)
 
-        plt.figure(figsize=(10, 5))
-        plt.plot(months, weighted_wagers, marker='o', color='b', label='Weighted Wager')
-        plt.plot(months, total_wagers, marker='o', color='r', label='Total Wager')
-        plt.title('Month-to-Month Wager Totals')
-        plt.xlabel('Month')
-        plt.ylabel('Wager (USD)')
-        plt.legend()
-        plt.grid(True)
+        # Add current month to the data if not already present
+        now = datetime.now()
+        current_month_key = f"{now.year}_{now.month:02d}"
+        
+        # Check if current month is already in the data
+        current_month_exists = any(
+            data['year'] == now.year and data['month'] == now.month 
+            for data in monthly_data
+        )
+        
+        if not current_month_exists:
+            monthly_data.append({
+                'year': now.year,
+                'month': now.month,
+                'total_wager': current_total,
+                'weighted_wager': current_weighted
+            })
+        
+        # Ensure we have at least some data to display
+        if not monthly_data:
+            embed = discord.Embed(
+                title="📈 Month-to-Month Wager Totals", 
+                description="No monthly data available yet. Please try again later.",
+                color=discord.Color.orange()
+            )
+            await interaction.followup.send(embed=embed)
+            return
+        
+        # Prepare data for plotting (limit to last 12 months)
+        monthly_data = monthly_data[-12:]  # Show last 12 months max
+        
+        months = []
+        weighted_wagers = []
+        total_wagers = []
+        
+        for data in monthly_data:
+            month_name = calendar.month_name[data['month']]
+            year_suffix = f" {data['year']}" if data['year'] != now.year else ""
+            months.append(f"{month_name[:3]}{year_suffix}")
+            weighted_wagers.append(data['weighted_wager'])
+            total_wagers.append(data['total_wager'])
+
+        # Create the plot
+        plt.figure(figsize=(12, 6))
+        plt.plot(months, weighted_wagers, marker='o', color='b', label='Weighted Wager', linewidth=2, markersize=6)
+        plt.plot(months, total_wagers, marker='s', color='r', label='Total Wager', linewidth=2, markersize=6)
+        plt.title('Month-to-Month Wager Totals', fontsize=16, fontweight='bold')
+        plt.xlabel('Month', fontsize=12)
+        plt.ylabel('Wager (USD)', fontsize=12)
+        plt.legend(fontsize=11)
+        plt.grid(True, alpha=0.3)
+        plt.xticks(rotation=45)
+        
+        # Format y-axis to show values in thousands/millions
+        plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:,.0f}'))
+        
         plt.tight_layout()
 
+        # Save to buffer
         buf = io.BytesIO()
-        plt.savefig(buf, format='png')
+        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
         buf.seek(0)
         plt.close()
 
+        # Create embed with additional info
         file = discord.File(buf, filename="monthtomonth.png")
         embed = discord.Embed(title="📈 Month-to-Month Wager Totals", color=discord.Color.green())
+        
+        if monthly_data:
+            latest = monthly_data[-1]
+            embed.add_field(
+                name="Current Month", 
+                value=f"**Total:** ${latest['total_wager']:,.2f}\n**Weighted:** ${latest['weighted_wager']:,.2f}", 
+                inline=True
+            )
+            
+            if len(monthly_data) > 1:
+                previous = monthly_data[-2]
+                total_change = latest['total_wager'] - previous['total_wager']
+                weighted_change = latest['weighted_wager'] - previous['weighted_wager']
+                
+                total_emoji = "📈" if total_change >= 0 else "📉"
+                weighted_emoji = "📈" if weighted_change >= 0 else "📉"
+                
+                embed.add_field(
+                    name="Month-over-Month Change", 
+                    value=f"**Total:** {total_emoji} ${total_change:+,.2f}\n**Weighted:** {weighted_emoji} ${weighted_change:+,.2f}", 
+                    inline=True
+                )
+        
         embed.set_image(url="attachment://monthtomonth.png")
+        embed.set_footer(text=f"Showing last {len(monthly_data)} months • Data auto-updates monthly")
+        
         await interaction.followup.send(embed=embed, file=file)
 
     @app_commands.command(name="lifetimestats", description="Show total wager and weighted wager for the current month")

@@ -128,13 +128,29 @@ def save_tip(user_id, tier, month, year, tipped_at=None):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
+            # First check if this tip already exists
             cur.execute(
-                "INSERT INTO milestonetips (user_id, tier, month, year, tipped_at) VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING;",
+                "SELECT COUNT(*) FROM milestonetips WHERE user_id = %s AND tier = %s AND month = %s AND year = %s;",
+                (user_id, tier, month, year)
+            )
+            existing_count = cur.fetchone()[0]
+            
+            if existing_count > 0:
+                logger.warning(f"Tip already exists for user {user_id}, tier {tier}, month {month}, year {year}")
+                return False
+            
+            # Insert the new tip
+            cur.execute(
+                "INSERT INTO milestonetips (user_id, tier, month, year, tipped_at) VALUES (%s, %s, %s, %s, %s);",
                 (user_id, tier, month, year, tipped_at or datetime.now())
             )
             conn.commit()
+            logger.info(f"Successfully inserted tip: user_id={user_id}, tier={tier}, month={month}, year={year}")
+            return True
     except Exception as e:
         logger.error(f"Error saving tip to database: {e}")
+        logger.error(f"Failed tip details: user_id={user_id}, tier={tier}, month={month}, year={year}")
+        return False
     finally:
         release_db_connection(conn)
 
@@ -297,6 +313,60 @@ def get_all_completed_slot_challenges():
             ]
     except Exception as e:
         logger.error(f"Error fetching completed slot challenges: {e}")
+        return []
+    finally:
+        release_db_connection(conn)
+
+def save_monthly_totals(year, month, total_wager, weighted_wager):
+    """Save monthly totals for the month-to-month chart"""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO settings (key, value) 
+                VALUES (%s, %s) 
+                ON CONFLICT (key) DO UPDATE SET value = %s;
+                """,
+                (f"monthly_totals_{year}_{month:02d}", f"{total_wager},{weighted_wager}", f"{total_wager},{weighted_wager}")
+            )
+            conn.commit()
+            logger.info(f"Saved monthly totals for {year}-{month:02d}: Total=${total_wager:,.2f}, Weighted=${weighted_wager:,.2f}")
+    except Exception as e:
+        logger.error(f"Error saving monthly totals: {e}")
+    finally:
+        release_db_connection(conn)
+
+def get_monthly_totals():
+    """Get all stored monthly totals for the chart"""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT key, value FROM settings WHERE key LIKE 'monthly_totals_%' ORDER BY key;")
+            results = cur.fetchall()
+            
+            monthly_data = []
+            for key, value in results:
+                try:
+                    # Extract year and month from key like "monthly_totals_2025_07"
+                    parts = key.split('_')
+                    if len(parts) >= 4:
+                        year = int(parts[2])
+                        month = int(parts[3])
+                        total_wager, weighted_wager = map(float, value.split(','))
+                        monthly_data.append({
+                            'year': year,
+                            'month': month,
+                            'total_wager': total_wager,
+                            'weighted_wager': weighted_wager
+                        })
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"Error parsing monthly total data for key {key}: {e}")
+                    continue
+            
+            return sorted(monthly_data, key=lambda x: (x['year'], x['month']))
+    except Exception as e:
+        logger.error(f"Error loading monthly totals: {e}")
         return []
     finally:
         release_db_connection(conn)

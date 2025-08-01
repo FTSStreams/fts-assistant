@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 from utils import fetch_total_wager, fetch_weighted_wager, get_current_month_range, fetch_user_game_stats
-from db import get_all_active_slot_challenges, get_all_completed_slot_challenges, get_db_connection, release_db_connection
+from db import get_all_active_slot_challenges, get_all_completed_slot_challenges, get_db_connection, release_db_connection, save_monthly_totals
 import os
 import logging
 from datetime import datetime
@@ -21,9 +21,14 @@ class DataManager(commands.Cog):
         self.cached_data = {}
         self.last_fetch_time = None
         
+        # Track current month for monthly totals
+        now = datetime.now(dt.UTC)
+        self.current_month = now.month
+        self.current_year = now.year
+        
         # Start the main data fetching task
         self.fetch_and_upload_all_data.start()
-        logger.info("[DataManager] Initialized - main data fetching task started")
+        logger.info(f"[DataManager] Initialized - tracking month {self.current_year}-{self.current_month:02d}")
     
     def get_cached_data(self, data_type=None):
         """Get cached data for other cogs to use"""
@@ -43,6 +48,18 @@ class DataManager(commands.Cog):
         """Main task that fetches all data and uploads JSON files"""
         try:
             logger.info("[DataManager] Starting data fetch and upload cycle")
+            
+            # Check for month transition before fetching data
+            now = datetime.now(dt.UTC)
+            current_month = now.month
+            current_year = now.year
+            
+            # If month changed, save the previous month's totals
+            if (current_month != self.current_month or current_year != self.current_year) and hasattr(self, 'cached_data') and self.cached_data:
+                await self.save_previous_month_totals()
+                self.current_month = current_month
+                self.current_year = current_year
+                logger.info(f"[DataManager] Month transition - now tracking {current_year}-{current_month:02d}")
             
             # Get current month range
             start_date, end_date = get_current_month_range()
@@ -84,6 +101,34 @@ class DataManager(commands.Cog):
             logger.error(f"[DataManager] Error in fetch_and_upload_all_data: {e}")
             import traceback
             logger.error(f"[DataManager] Traceback: {traceback.format_exc()}")
+    
+    async def save_previous_month_totals(self):
+        """Save the previous month's totals when a month transition is detected"""
+        try:
+            if not self.cached_data:
+                return
+                
+            total_wager_data = self.cached_data.get('total_wager', [])
+            weighted_wager_data = self.cached_data.get('weighted_wager', [])
+            
+            total_wager = sum(
+                entry.get("wagered", 0)
+                for entry in total_wager_data
+                if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
+            )
+            
+            weighted_wager = sum(
+                entry.get("weightedWagered", 0)
+                for entry in weighted_wager_data
+                if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
+            )
+            
+            # Save the totals for the previous month
+            save_monthly_totals(self.current_year, self.current_month, total_wager, weighted_wager)
+            logger.info(f"[DataManager] Saved monthly totals for {self.current_year}-{self.current_month:02d}")
+            
+        except Exception as e:
+            logger.error(f"[DataManager] Error saving previous month totals: {e}")
     
     async def generate_and_upload_json_files(self):
         """Generate all JSON files and upload them to GitHub"""
