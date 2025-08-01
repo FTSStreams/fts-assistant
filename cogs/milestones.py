@@ -106,12 +106,12 @@ class Milestones(commands.Cog):
                     save_tip(user_id, milestone["tier"], month, year)
                     save_tip_log(user_id, username, milestone["tip"], "milestone", month, year)
                     logger.info(f"[Milestones] Successfully saved tip for {username} - {milestone['tier']} in database (month={month}, year={year})")
-                    # Censor username for public display
+                    # Censor username for public display and escape asterisks to prevent Discord markdown issues
                     display_username = username
                     if len(username) > 3:
-                        display_username = username[:-3] + "***"
+                        display_username = username[:-3] + "\\*\\*\\*"
                     else:
-                        display_username = "***"
+                        display_username = "\\*\\*\\*"
                     
                     embed = discord.Embed(
                         title=f"{milestone['emoji']} {milestone['tier']} Wager Milestone Achieved! {milestone['emoji']}",

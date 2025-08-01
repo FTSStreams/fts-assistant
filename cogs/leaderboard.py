@@ -154,10 +154,11 @@ class Leaderboard(commands.Cog):
             if i < len(weighted_wager_data):
                 entry = weighted_wager_data[i]
                 username = entry.get("username", "Unknown")
+                # Censor username and escape asterisks to prevent Discord markdown issues
                 if len(username) > 3:
-                    username = username[:-3] + "***"
+                    username = username[:-3] + "\\*\\*\\*"
                 else:
-                    username = "***"
+                    username = "\\*\\*\\*"
                 uid = entry.get("uid")
                 total_wagered = total_wager_dict.get(uid, 0) if uid in total_wager_dict else 0
                 weighted_wagered = entry.get("weightedWagered", 0) if isinstance(entry.get("weightedWagered"), (int, float)) else 0

@@ -64,10 +64,11 @@ class MultiLeaderboard(commands.Cog):
             if i < len(multi_data):
                 entry = multi_data[i]
                 username = entry.get("username", "Unknown")
+                # Censor username and escape asterisks to prevent Discord markdown issues
                 if len(username) > 3:
-                    username = username[:-3] + "***"
+                    username = username[:-3] + "\\*\\*\\*"
                 else:
-                    username = "***"
+                    username = "\\*\\*\\*"
                 multiplier = entry["highestMultiplier"].get("multiplier", 0)
                 game = entry["highestMultiplier"].get("gameTitle", "Unknown")
                 game_identifier = entry["highestMultiplier"].get("gameIdentifier", None)
@@ -119,11 +120,11 @@ class MultiLeaderboard(commands.Cog):
             if i < len(multi_data):
                 entry = multi_data[i]
                 username = entry.get("username", "Unknown")
-                # Apply username masking for JSON export too
+                # Apply username masking for JSON export too and escape asterisks
                 if len(username) > 3:
-                    masked_username = username[:-3] + "***"
+                    masked_username = username[:-3] + "\\*\\*\\*"
                 else:
-                    masked_username = "***"
+                    masked_username = "\\*\\*\\*"
                 
                 leaderboard_json["entries"].append({
                     "rank": i + 1,

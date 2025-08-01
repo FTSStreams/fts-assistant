@@ -268,7 +268,8 @@ class User(commands.Cog):
             show_in_chat=True,
             balance_type="crypto"
         )
-        masked_username = username[:-3] + "***" if len(username) > 3 else "***"
+        # Censor username and escape asterisks to prevent Discord markdown issues
+        masked_username = username[:-3] + "\\*\\*\\*" if len(username) > 3 else "\\*\\*\\*"
         if response.get("success"):
             save_tip_log(roobet_uid, username, amount, "manual", month=datetime.now(dt.UTC).month, year=datetime.now(dt.UTC).year)
             embed = discord.Embed(
