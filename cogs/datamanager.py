@@ -789,10 +789,14 @@ class DataManager(commands.Cog):
         self.fetch_and_upload_all_data.cancel()
     
     async def cog_load(self):
-        """Called when the cog is loaded - start backfill process"""
-        # Wait for bot to be ready, then start backfill
+        """Called when the cog is loaded - start backfill after bot ready"""
+        # Schedule backfill to run after bot is ready (don't await here to avoid deadlock)
+        asyncio.create_task(self._delayed_backfill())
+    
+    async def _delayed_backfill(self):
+        """Wait for bot to be ready, then start backfill"""
         await self.bot.wait_until_ready()
-        logger.info("[DataManager] Starting historical data backfill in background...")
+        logger.info("[DataManager] Bot ready, starting historical data backfill in background...")
         asyncio.create_task(self.backfill_historical_data())
 
     @fetch_and_upload_all_data.before_loop
