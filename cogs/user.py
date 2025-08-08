@@ -382,6 +382,32 @@ class User(commands.Cog):
             })
             logger.info(f"[monthtomonth] Added current month data to list: Total=${current_total:,.2f}, Weighted=${current_weighted:,.2f}")
         
+        # Calculate projections for current month
+        projected_total = None
+        projected_weighted = None
+        
+        # Check if we have current month data to project
+        if monthly_data and monthly_data[-1]['year'] == now.year and monthly_data[-1]['month'] == now.month:
+            import calendar as cal
+            
+            # Get days in current month and days elapsed
+            days_in_month = cal.monthrange(now.year, now.month)[1]
+            days_elapsed = now.day
+            
+            # Calculate daily averages and project to full month
+            if days_elapsed > 0:
+                current_total = monthly_data[-1]['total_wager']
+                current_weighted = monthly_data[-1]['weighted_wager']
+                
+                daily_avg_total = current_total / days_elapsed
+                daily_avg_weighted = current_weighted / days_elapsed
+                
+                projected_total = daily_avg_total * days_in_month
+                projected_weighted = daily_avg_weighted * days_in_month
+                
+                logger.info(f"[monthtomonth] Projection calculated: Days {days_elapsed}/{days_in_month}, "
+                          f"Projected Total=${projected_total:,.2f}, Projected Weighted=${projected_weighted:,.2f}")
+        
         # Ensure we have at least some data to display
         if not monthly_data:
             embed = discord.Embed(
@@ -398,18 +424,41 @@ class User(commands.Cog):
         months = []
         weighted_wagers = []
         total_wagers = []
+        projected_total_line = []
+        projected_weighted_line = []
         
-        for data in monthly_data:
+        for i, data in enumerate(monthly_data):
             month_name = calendar.month_name[data['month']]
             year_suffix = f" {data['year']}" if data['year'] != now.year else ""
             months.append(f"{month_name[:3]}{year_suffix}")
             weighted_wagers.append(data['weighted_wager'])
             total_wagers.append(data['total_wager'])
+            
+            # Add projection data only for current month (last entry)
+            if (i == len(monthly_data) - 1 and 
+                data['year'] == now.year and data['month'] == now.month and 
+                projected_total is not None):
+                projected_total_line.append(projected_total)
+                projected_weighted_line.append(projected_weighted)
+            else:
+                projected_total_line.append(None)
+                projected_weighted_line.append(None)
 
         # Create the plot
         plt.figure(figsize=(12, 6))
         plt.plot(months, weighted_wagers, marker='o', color='b', label='Weighted Wager', linewidth=2, markersize=6)
         plt.plot(months, total_wagers, marker='s', color='r', label='Total Wager', linewidth=2, markersize=6)
+        
+        # Add projection lines for current month only
+        if projected_total is not None:
+            # Create projection points (current month only)
+            current_month_idx = len(months) - 1
+            plt.plot(current_month_idx, projected_total, marker='^', color='red', 
+                    markersize=8, markerfacecolor='none', markeredgewidth=2, 
+                    label='Projected Total', linestyle='none')
+            plt.plot(current_month_idx, projected_weighted, marker='^', color='blue', 
+                    markersize=8, markerfacecolor='none', markeredgewidth=2, 
+                    label='Projected Weighted', linestyle='none')
         plt.title('Month-to-Month Wager Totals', fontsize=16, fontweight='bold')
         plt.xlabel('Month', fontsize=12)
         plt.ylabel('Wager (USD)', fontsize=12)
@@ -440,6 +489,14 @@ class User(commands.Cog):
                 inline=True
             )
             
+            # Add projection field if we have projections
+            if projected_total is not None and projected_weighted is not None:
+                embed.add_field(
+                    name="Month-End Projection", 
+                    value=f"**Total:** ${projected_total:,.2f}\n**Weighted:** ${projected_weighted:,.2f}", 
+                    inline=True
+                )
+            
             if len(monthly_data) > 1:
                 previous = monthly_data[-2]
                 total_change = latest['total_wager'] - previous['total_wager']
@@ -455,7 +512,12 @@ class User(commands.Cog):
                 )
         
         embed.set_image(url="attachment://monthtomonth.png")
-        embed.set_footer(text=f"Showing last {len(monthly_data)} months • Data auto-updates monthly")
+        
+        # Update footer based on whether projections are shown
+        footer_text = f"Showing last {len(monthly_data)} months • Data auto-updates monthly"
+        if projected_total is not None:
+            footer_text += f" • Projections based on {now.day} days elapsed"
+        embed.set_footer(text=footer_text)
         
         await interaction.followup.send(embed=embed, file=file)
 
