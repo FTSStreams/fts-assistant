@@ -223,7 +223,7 @@ class DataManager(commands.Cog):
             logger.info(f"[DataManager] Uploading {len(files_to_upload)} files to GitHub...")
             
             for filename, data in files_to_upload:
-                self.upload_to_github(filename, data)
+                await self.upload_to_github(filename, data)
                 
             logger.info("[DataManager] All JSON files uploaded successfully")
             
@@ -746,8 +746,8 @@ class DataManager(commands.Cog):
                 "last_updated": datetime.now(dt.UTC).isoformat()
             }
     
-    def upload_to_github(self, filename, data):
-        """Upload a single file to GitHub"""
+    async def upload_to_github(self, filename, data):
+        """Upload a single file to GitHub asynchronously"""
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
         REPO_OWNER = "FTSStreams"
         REPO_NAME = "wagerData"
@@ -764,8 +764,15 @@ class DataManager(commands.Cog):
             json_content = json.dumps(data, indent=2)
             content = base64.b64encode(json_content.encode()).decode()
             
-            # Get the current file SHA if it exists
-            resp = requests.get(API_URL, headers=headers)
+            # Use asyncio.to_thread to make the requests non-blocking
+            def make_get_request():
+                return requests.get(API_URL, headers=headers)
+            
+            def make_put_request(payload):
+                return requests.put(API_URL, headers=headers, json=payload)
+            
+            # Get the current file SHA if it exists (async)
+            resp = await asyncio.to_thread(make_get_request)
             if resp.status_code == 200:
                 sha = resp.json()["sha"]
             else:
@@ -779,7 +786,8 @@ class DataManager(commands.Cog):
             if sha:
                 data_payload["sha"] = sha
             
-            put_resp = requests.put(API_URL, headers=headers, json=data_payload)
+            # Upload the file (async)
+            put_resp = await asyncio.to_thread(make_put_request, data_payload)
             if put_resp.status_code in (200, 201):
                 logger.info(f"[DataManager] {filename} uploaded to GitHub successfully")
             else:
