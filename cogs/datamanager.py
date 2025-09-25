@@ -440,19 +440,20 @@ class DataManager(commands.Cog):
         
         # Process tip type totals
         for tip_type, total_amount, tip_count in tip_type_totals:
+            amount = float(total_amount) if total_amount is not None else 0.0
             tips_json["summary"]["by_type"][tip_type] = {
-                "total_amount": float(total_amount),
+                "total_amount": amount,
                 "tip_count": tip_count
             }
             tips_json["summary"]["total_tips_sent"] += tip_count
-            tips_json["summary"]["total_amount_sent"] += float(total_amount)
+            tips_json["summary"]["total_amount_sent"] += amount
         
         # Process top recipients (with UNCENSORED usernames for JSON data)
         for user_id, username, total_received, total_tips in top_recipients:
             tips_json["top_recipients"].append({
                 "user_id": user_id,
                 "username": username,  # UNCENSORED for JSON data
-                "total_received": float(total_received),
+                "total_received": float(total_received) if total_received is not None else 0.0,
                 "total_tips": total_tips
             })
         
@@ -468,12 +469,13 @@ class DataManager(commands.Cog):
                 }
             
             user_tips[user_id]["tips_by_type"][tip_type] = {
-                "amount": float(total_amount),
+                "amount": float(total_amount) if total_amount is not None else 0.0,
                 "count": tip_count,
                 "first_tip": first_tip.isoformat() if first_tip else None,
                 "latest_tip": latest_tip.isoformat() if latest_tip else None
             }
-            user_tips[user_id]["total_received"] += float(total_amount)
+            amount = float(total_amount) if total_amount is not None else 0.0
+            user_tips[user_id]["total_received"] += amount
         
         # Convert to list and sort by total received
         tips_json["detailed_data"] = sorted(
@@ -490,7 +492,7 @@ class DataManager(commands.Cog):
                 "tip_type": tip_type,
                 "month": month,
                 "year": year,
-                "amount": float(monthly_amount),
+                "amount": float(monthly_amount) if monthly_amount is not None else 0.0,
                 "count": monthly_count,
                 "period_key": f"{year}-{month:02d}"  # Easy searching: "2025-07"
             })
@@ -521,24 +523,25 @@ class DataManager(commands.Cog):
             winner_username = challenge.get("winner_username", "Unknown")
             
             # Add to total prizes paid
-            history_json["total_prizes_paid"] += float(challenge.get("prize", 0))
+            prize_amount = float(challenge.get("prize", 0)) if challenge.get("prize") is not None else 0.0
+            history_json["total_prizes_paid"] += prize_amount
             
             # Build challenge data
             challenge_data = {
                 "challenge_id": challenge.get("challenge_id"),
                 "game_name": challenge.get("game"),
                 "game_identifier": challenge.get("game_identifier"),
-                "required_multiplier": float(challenge.get("required_multiplier", 0)),
-                "achieved_multiplier": float(challenge.get("multiplier", 0)),
-                "min_bet_requirement": float(challenge.get("min_bet", 0)) if challenge.get("min_bet") else None,
+                "required_multiplier": float(challenge.get("required_multiplier", 0)) if challenge.get("required_multiplier") is not None else 0.0,
+                "achieved_multiplier": float(challenge.get("multiplier", 0)) if challenge.get("multiplier") is not None else 0.0,
+                "min_bet_requirement": float(challenge.get("min_bet", 0)) if challenge.get("min_bet") is not None else None,
                 "winner": {
                     "username": winner_username,  # UNCENSORED for JSON data
                     "user_id": challenge.get("winner_uid"),
-                    "bet_amount": float(challenge.get("bet", 0)),
-                    "payout": float(challenge.get("payout", 0)),
-                    "multiplier_achieved": float(challenge.get("multiplier", 0))
+                    "bet_amount": float(challenge.get("bet", 0)) if challenge.get("bet") is not None else 0.0,
+                    "payout": float(challenge.get("payout", 0)) if challenge.get("payout") is not None else 0.0,
+                    "multiplier_achieved": float(challenge.get("multiplier", 0)) if challenge.get("multiplier") is not None else 0.0
                 },
-                "prize_amount": float(challenge.get("prize", 0)),
+                "prize_amount": prize_amount,
                 "challenge_start": challenge.get("challenge_start").isoformat() if challenge.get("challenge_start") else None
             }
             
