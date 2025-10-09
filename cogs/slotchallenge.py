@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from utils import send_tip, get_current_month_range, fetch_user_game_stats
-from db i            desc += f"**Multiplier:** `x{challenge['required_multi']}`  **Prize:** `${challenge.get('prize', 0)}`{min_bet_str}\n"port (
+from db import (
     get_all_active_slot_challenges, add_active_slot_challenge, remove_active_slot_challenge, log_slot_challenge,
     get_leaderboard_message_id, save_leaderboard_message_id, save_tip_log
 )
