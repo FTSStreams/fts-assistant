@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from utils import send_tip, get_current_month_range, fetch_user_game_stats
-from db import (
+from db i            desc += f"**Multiplier:** `x{challenge['required_multi']}`  **Prize:** `${challenge.get('prize', 0)}`{min_bet_str}\n"port (
     get_all_active_slot_challenges, add_active_slot_challenge, remove_active_slot_challenge, log_slot_challenge,
     get_leaderboard_message_id, save_leaderboard_message_id, save_tip_log
 )
@@ -48,9 +48,11 @@ class SlotChallenge(commands.Cog):
                 else:
                     winner_display_name = "\\*\\*\\*"
                 
+                # Handle potential None values for multiplier
+                winner_multiplier = winner.get('multiplier') or 0
                 embed = discord.Embed(
                     title="🏆 Slot Challenge Results! 🏆",
-                    description=f"**1st Place:** {winner_display_name}\nMultiplier: x{winner['multiplier']:.2f}",
+                    description=f"**1st Place:** {winner_display_name}\nMultiplier: x{winner_multiplier:.2f}",
                     color=discord.Color.green()
                 )
                 if second:
@@ -59,11 +61,12 @@ class SlotChallenge(commands.Cog):
                         second_display_name = second_display_name[:-3] + "\\*\\*\\*"
                     else:
                         second_display_name = "\\*\\*\\*"
-                    embed.description += f"\n\n**2nd Place:** {second_display_name}\nMultiplier: x{second['multiplier']:.2f}"
+                    second_multiplier = second.get('multiplier') or 0
+                    embed.description += f"\n\n**2nd Place:** {second_display_name}\nMultiplier: x{second_multiplier:.2f}"
                 embed.add_field(name="Bet Size", value=f"${winner.get('bet', 0):.2f}", inline=True)
                 embed.add_field(name="Payout", value=f"${winner.get('payout', 0):.2f}", inline=True)
                 embed.add_field(name="Required Multiplier", value=f"x{challenge['required_multi']}", inline=True)
-                embed.add_field(name="Prize", value=f"${challenge['prize']}", inline=True)
+                embed.add_field(name="Prize", value=f"${challenge.get('prize', 0)}", inline=True)
                 embed.add_field(name="Game", value=challenge['game_name'], inline=True)
                 if challenge.get('min_bet'):
                     embed.add_field(name="Minimum Bet", value=f"${challenge['min_bet']}", inline=True)
@@ -239,7 +242,7 @@ class SlotChallenge(commands.Cog):
                 color=discord.Color.red()
             )
             embed.add_field(name="Required Multiplier", value=f"x{challenge['required_multi']}", inline=True)
-            embed.add_field(name="Prize", value=f"${challenge['prize']}", inline=True)
+            embed.add_field(name="Prize", value=f"${challenge.get('prize', 0)}", inline=True)
             embed.set_footer(text=f"Challenge start time (UTC): {challenge['start_time']}")
             await logs_channel.send(embed=embed)
 
@@ -540,10 +543,17 @@ class SlotChallenge(commands.Cog):
                 username = f'{username[:-3]}\\*\\*\\*'
             else:
                 username = '\\*\\*\\*'
+            # Handle potential None values with safe formatting
+            prize = c.get('prize') or 0
+            multiplier = c.get('multiplier') or 0
+            required_multiplier = c.get('required_multiplier') or 0
+            payout = c.get('payout') or 0
+            bet = c.get('bet') or 0
+            
             desc += (
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f":trophy: {game_display} | :moneybag: ${c['prize']:.2f} | :crown: {username}\n"
-                f":heavy_multiplication_x: Achieved/Required Multi: x{c['multiplier']:.2f}/{c['required_multiplier']} | :dollar: Payout: ${c['payout']:.2f} (Base Bet: ${c['bet']:.2f})\n"
+                f":trophy: {game_display} | :moneybag: ${prize:.2f} | :crown: {username}\n"
+                f":heavy_multiplication_x: Achieved/Required Multi: x{multiplier:.2f}/{required_multiplier} | :dollar: Payout: ${payout:.2f} (Base Bet: ${bet:.2f})\n"
                 f":date: {ts_str}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             )
