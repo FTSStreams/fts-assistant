@@ -54,7 +54,24 @@ class DataManager(commands.Cog):
             backfilled_count = 0
             for year, month in months_to_backfill:
                 try:
-                    logger.info(f"[DataManager] Attempting to backfill {year}-{month:02d}")
+                    # First, check if monthly totals already exist in database
+                    # This avoids unnecessary API calls for existing data
+                    conn = get_db_connection()
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "SELECT COUNT(*) FROM monthly_totals WHERE year = %s AND month = %s",
+                                (year, month)
+                            )
+                            exists = cur.fetchone()[0] > 0
+                    finally:
+                        release_db_connection(conn)
+                    
+                    if exists:
+                        logger.info(f"[DataManager] Monthly totals for {year}-{month:02d} already exist, skipping backfill")
+                        continue
+                    
+                    logger.info(f"[DataManager] Backfilling {year}-{month:02d} - fetching API data")
                     
                     # Get date range for this month
                     start_date, end_date = get_month_range(year, month)
