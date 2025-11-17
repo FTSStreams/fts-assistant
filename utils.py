@@ -117,6 +117,20 @@ def get_current_month_range():
         end = start.replace(month=now.month + 1) - dt.timedelta(seconds=1)
     return start.isoformat(), end.isoformat()
 
+def get_current_week_range():
+    """Get the current week range (Monday to Sunday) in UTC"""
+    now = datetime.now(dt.UTC)
+    # Get the start of the current week (Monday)
+    days_since_monday = now.weekday()  # Monday is 0, Sunday is 6
+    start_of_week = now - dt.timedelta(days=days_since_monday)
+    start = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # Get the end of the current week (Sunday 23:59:59)
+    end_of_week = start + dt.timedelta(days=6)
+    end = end_of_week.replace(hour=23, minute=59, second=59, microsecond=999999)
+    
+    return start.isoformat(), end.isoformat()
+
 def get_month_range(year, month):
     """Get date range for a specific year/month"""
     start = datetime(year, month, 1, 0, 0, 0, tzinfo=dt.timezone.utc)

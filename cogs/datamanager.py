@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands, tasks
-from utils import fetch_total_wager, fetch_weighted_wager, get_current_month_range, fetch_user_game_stats, get_month_range, generate_backfill_months
+from utils import fetch_total_wager, fetch_weighted_wager, get_current_month_range, fetch_user_game_stats, get_month_range, generate_backfill_months, get_current_week_range
 from db import get_all_active_slot_challenges, get_all_completed_slot_challenges, get_db_connection, release_db_connection, save_monthly_totals, backfill_monthly_totals_for_date
 import os
 import logging
@@ -282,26 +282,38 @@ class DataManager(commands.Cog):
         return leaderboard_results
     
     def generate_multiplier_leaderboard_json(self):
-        """Generate multiplier leaderboard JSON"""
-        weighted_wager_data = self.cached_data.get('weighted_wager', [])
-        period = self.cached_data.get('period', {})
+        """Generate weekly multiplier leaderboard JSON"""
+        # Get current week range for multiplier leaderboard
+        week_start, week_end = get_current_week_range()
+        
+        try:
+            # Fetch weekly weighted wager data specifically for multiplier leaderboard
+            weekly_weighted_data = fetch_weighted_wager(week_start, week_end)
+        except Exception as e:
+            logger.error(f"[DataManager] Error fetching weekly multiplier data: {e}")
+            weekly_weighted_data = []
         
         # Filter and sort by highestMultiplier
-        multi_data = [entry for entry in weighted_wager_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
+        multi_data = [entry for entry in weekly_weighted_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
         multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
         
-        PRIZE_DISTRIBUTION = [75, 50, 25, 10, 5]
+        PRIZE_DISTRIBUTION = [20, 15, 5]  # Weekly prizes
         
         leaderboard_json = {
-            "leaderboard_type": "multiplier",
-            "period": period,
-            "last_updated": self.cached_data.get('last_updated'),
-            "last_updated_timestamp": self.cached_data.get('last_updated_timestamp'),
+            "leaderboard_type": "weekly_multiplier",
+            "period": {
+                "start_date": week_start,
+                "end_date": week_end,
+                "start_timestamp": int(datetime.strptime(week_start, '%Y-%m-%dT%H:%M:%S%z').timestamp()),
+                "end_timestamp": int(datetime.strptime(week_end, '%Y-%m-%dT%H:%M:%S%z').timestamp())
+            },
+            "last_updated": datetime.now(dt.UTC).isoformat(),
+            "last_updated_timestamp": int(datetime.now(dt.UTC).timestamp()),
             "entries": []
         }
         
-        # Add top 5 entries
-        for i in range(5):
+        # Add top 3 entries for weekly competition
+        for i in range(3):
             if i < len(multi_data):
                 entry = multi_data[i]
                 username = entry.get("username", "Unknown")
