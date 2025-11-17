@@ -101,7 +101,7 @@ class MultiLeaderboard(commands.Cog):
                 ),
                 inline=False
             )
-        embed.set_footer(text="All payouts will be made within 24 hours of week ending (Sunday 11:59 PM UTC).")
+        embed.set_footer(text="Our automated reward distribution system tips winners every Sunday at 11:59 PM UTC.")
         
         # Prepare JSON data for export (weekly format)
         leaderboard_json = {
