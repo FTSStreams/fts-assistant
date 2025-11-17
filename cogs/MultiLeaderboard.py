@@ -53,8 +53,8 @@ class MultiLeaderboard(commands.Cog):
             title="🏆 **Weekly Top Multipliers Leaderboard** 🏆",
             description=(
                 f"**Weekly Competition Period:**\n"
-                f"From: <t:{int(datetime.strptime(start_date, '%Y-%m-%dT%H:%M:%S%z').timestamp())}:F>\n"
-                f"To: <t:{int(datetime.strptime(end_date, '%Y-%m-%dT%H:%M:%S%z').timestamp())}:F>\n\n"
+                f"From: <t:{int(datetime.fromisoformat(start_date.replace('Z', '+00:00')).timestamp())}:F>\n"
+                f"To: <t:{int(datetime.fromisoformat(end_date.replace('Z', '+00:00')).timestamp())}:F>\n\n"
                 f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"
                 "This leaderboard ranks users by their highest single multiplier hit this week.\n"
                 "**Resets every Monday at 12:00 AM UTC**\n\n"
@@ -109,8 +109,8 @@ class MultiLeaderboard(commands.Cog):
             "period": {
                 "start": start_date,
                 "end": end_date,
-                "start_timestamp": int(datetime.strptime(start_date, '%Y-%m-%dT%H:%M:%S%z').timestamp()),
-                "end_timestamp": int(datetime.strptime(end_date, '%Y-%m-%dT%H:%M:%S%z').timestamp())
+                "start_timestamp": int(datetime.fromisoformat(start_date.replace('Z', '+00:00')).timestamp()),
+                "end_timestamp": int(datetime.fromisoformat(end_date.replace('Z', '+00:00')).timestamp())
             },
             "last_updated": datetime.now(dt.UTC).isoformat(),
             "last_updated_timestamp": int(datetime.now(dt.UTC).timestamp()),
@@ -442,10 +442,22 @@ class MultiLeaderboard(commands.Cog):
             
             # Add timing information
             payout_status = "✅ ALREADY PAID OUT" if already_paid else f"⏰ Payouts in {hours_until}h {minutes_until}m"
+            
+            # Parse dates safely (handle microseconds)
+            try:
+                start_timestamp = int(datetime.fromisoformat(start_date.replace('Z', '+00:00')).timestamp())
+            except:
+                start_timestamp = int(datetime.strptime(start_date[:19] + '+00:00', '%Y-%m-%dT%H:%M:%S%z').timestamp())
+            
+            try:
+                end_timestamp = int(datetime.fromisoformat(end_date.replace('Z', '+00:00')).timestamp())
+            except:
+                end_timestamp = int(datetime.strptime(end_date[:19] + '+00:00', '%Y-%m-%dT%H:%M:%S%z').timestamp())
+            
             embed.add_field(
                 name="📅 **Current Week Info**",
                 value=(
-                    f"**Week Period**: <t:{int(datetime.strptime(start_date, '%Y-%m-%dT%H:%M:%S%z').timestamp())}:d> - <t:{int(datetime.strptime(end_date, '%Y-%m-%dT%H:%M:%S%z').timestamp())}:d>\n"
+                    f"**Week Period**: <t:{start_timestamp}:d> - <t:{end_timestamp}:d>\n"
                     f"**Next Payout**: <t:{int(next_payout.timestamp())}:F>\n"
                     f"**Status**: {payout_status}\n"
                     f"**Current Time**: <t:{int(now.timestamp())}:F>"

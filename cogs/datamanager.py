@@ -150,8 +150,8 @@ class DataManager(commands.Cog):
                 'period': {
                     'start_date': start_date,
                     'end_date': end_date,
-                    'start_timestamp': int(datetime.strptime(start_date, '%Y-%m-%dT%H:%M:%S%z').timestamp()),
-                    'end_timestamp': int(datetime.strptime(end_date, '%Y-%m-%dT%H:%M:%S%z').timestamp())
+                    'start_timestamp': int(datetime.fromisoformat(start_date.replace('Z', '+00:00')).timestamp()),
+                    'end_timestamp': int(datetime.fromisoformat(end_date.replace('Z', '+00:00')).timestamp())
                 },
                 'last_updated': datetime.now(dt.UTC).isoformat(),
                 'last_updated_timestamp': int(datetime.now(dt.UTC).timestamp())
@@ -304,8 +304,8 @@ class DataManager(commands.Cog):
             "period": {
                 "start_date": week_start,
                 "end_date": week_end,
-                "start_timestamp": int(datetime.strptime(week_start, '%Y-%m-%dT%H:%M:%S%z').timestamp()),
-                "end_timestamp": int(datetime.strptime(week_end, '%Y-%m-%dT%H:%M:%S%z').timestamp())
+                "start_timestamp": int(datetime.fromisoformat(week_start.replace('Z', '+00:00')).timestamp()),
+                "end_timestamp": int(datetime.fromisoformat(week_end.replace('Z', '+00:00')).timestamp())
             },
             "last_updated": datetime.now(dt.UTC).isoformat(),
             "last_updated_timestamp": int(datetime.now(dt.UTC).timestamp()),
