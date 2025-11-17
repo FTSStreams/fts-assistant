@@ -49,6 +49,14 @@ class MultiLeaderboard(commands.Cog):
         # Filter and sort by highestMultiplier
         multi_data = [entry for entry in weekly_weighted_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
         multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
+        # Calculate next Monday 12:00 AM UTC for reset timestamp
+        now = datetime.now(dt.UTC)
+        days_until_monday = (7 - now.weekday()) % 7  # Get days until next Monday
+        if days_until_monday == 0:  # If it's Monday, get next Monday
+            days_until_monday = 7
+        next_monday = now + dt.timedelta(days=days_until_monday)
+        next_monday = next_monday.replace(hour=0, minute=0, second=0, microsecond=0)
+        
         embed = discord.Embed(
             title="🏆 **Weekly Top Multipliers Leaderboard** 🏆",
             description=(
@@ -57,7 +65,7 @@ class MultiLeaderboard(commands.Cog):
                 f"To: <t:{int(datetime.fromisoformat(end_date.replace('Z', '+00:00')).timestamp())}:F>\n\n"
                 f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"
                 "This leaderboard ranks users by their highest single multiplier hit this week.\n"
-                "**Resets every Monday at 12:00 AM UTC**\n\n"
+                f"**Resets:** <t:{int(next_monday.timestamp())}:F>\n\n"
                 "💵 **All amounts displayed are in USD.**\n\n"
             ),
             color=discord.Color.purple()
