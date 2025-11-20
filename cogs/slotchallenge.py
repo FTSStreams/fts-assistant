@@ -56,16 +56,16 @@ class SlotChallenge(commands.Cog):
                 
                 # Add game and challenge info
                 embed.add_field(name="Game", value=challenge['game_name'], inline=False)
-                embed.add_field(name="Required Multiplier", value=f"x{int(challenge['required_multi'])}", inline=True)
-                embed.add_field(name="Prize", value=f"${challenge.get('prize', 0):.2f}", inline=True)
+                embed.add_field(name="Required Multiplier", value=f"x{int(challenge['required_multi'])}", inline=False)
+                embed.add_field(name="Prize", value=f"${challenge.get('prize', 0):.2f}", inline=False)
                 if challenge.get('min_bet'):
-                    embed.add_field(name="Minimum Bet", value=f"${challenge['min_bet']:.2f}", inline=True)
+                    embed.add_field(name="Minimum Bet", value=f"${challenge['min_bet']:.2f}", inline=False)
                 
                 # Add winner info
                 embed.add_field(name="🥇 Winner", value=winner_display_name, inline=False)
-                embed.add_field(name="✅ Multiplier Achieved", value=f"x{winner.get('multiplier', 0):.2f}", inline=True)
-                embed.add_field(name="💰 Bet → Payout", value=f"${winner.get('bet', 0):.2f} → ${winner.get('payout', 0):.2f}", inline=True)
-                embed.add_field(name="💸 Prize Sent", value=f"${challenge.get('prize', 0):.2f}", inline=True)
+                embed.add_field(name="✅ Multiplier Achieved", value=f"x{winner.get('multiplier', 0):.2f}", inline=False)
+                embed.add_field(name="💰 Bet → Payout", value=f"${winner.get('bet', 0):.2f} → ${winner.get('payout', 0):.2f}", inline=False)
+                embed.add_field(name="💸 Prize Sent", value=f"${challenge.get('prize', 0):.2f}", inline=False)
                 
                 # Add timestamps for challenge duration
                 try:
@@ -123,9 +123,9 @@ class SlotChallenge(commands.Cog):
                         color=discord.Color.orange()
                     )
                     embed.add_field(name="Game", value=challenge['game_name'], inline=False)
-                    embed.add_field(name="Winner", value=winner['username'], inline=True)
-                    embed.add_field(name="Multiplier Achieved", value=f"x{winner.get('multiplier', 0):.2f}", inline=True)
-                    embed.add_field(name="Prize Amount", value=f"${challenge.get('prize', 0):.2f}", inline=True)
+                    embed.add_field(name="Winner", value=winner['username'], inline=False)
+                    embed.add_field(name="Multiplier Achieved", value=f"x{winner.get('multiplier', 0):.2f}", inline=False)
+                    embed.add_field(name="Prize Amount", value=f"${challenge.get('prize', 0):.2f}", inline=False)
                     embed.add_field(name="❌ Payment Failed", value="Insufficient account balance", inline=False)
                     embed.add_field(name="📋 Next Steps", value="Please create a ticket in <#1296221508145905674>", inline=False)
                     embed.add_field(name="Challenge ID", value=f"#{challenge['challenge_id']}", inline=True)
@@ -176,10 +176,10 @@ class SlotChallenge(commands.Cog):
                 color=discord.Color.blue()
             )
             embed.add_field(name="Game", value=clean_game_name, inline=False)
-            embed.add_field(name="Required Multiplier", value=f"x{int(required_multi)}", inline=True)
-            embed.add_field(name="Prize", value=f"${prize:.2f}", inline=True)
+            embed.add_field(name="Required Multiplier", value=f"x{int(required_multi)}", inline=False)
+            embed.add_field(name="Prize", value=f"${prize:.2f}", inline=False)
             if min_bet:
-                embed.add_field(name="Minimum Bet", value=f"${min_bet:.2f}", inline=True)
+                embed.add_field(name="Minimum Bet", value=f"${min_bet:.2f}", inline=False)
             
             # Add timestamp for start time
             try:
@@ -294,8 +294,8 @@ class SlotChallenge(commands.Cog):
                 color=discord.Color.red()
             )
             embed.add_field(name="Game", value=challenge['game_name'], inline=False)
-            embed.add_field(name="Required Multiplier", value=f"x{int(challenge['required_multi'])}", inline=True)
-            embed.add_field(name="Prize", value=f"${challenge.get('prize', 0):.2f}", inline=True)
+            embed.add_field(name="Required Multiplier", value=f"x{int(challenge['required_multi'])}", inline=False)
+            embed.add_field(name="Prize", value=f"${challenge.get('prize', 0):.2f}", inline=False)
             embed.add_field(name="Reason", value="Admin Cancellation", inline=False)
             
             # Add timestamps for challenge duration
@@ -618,8 +618,8 @@ class SlotChallenge(commands.Cog):
                 # Game and challenge info
                 embed.add_field(name="Game", value=challenge.get('game', 'Unknown'), inline=False)
                 required_multi = challenge.get('required_multiplier', 0)
-                embed.add_field(name="Required Multiplier", value=f"x{int(required_multi)}", inline=True)
-                embed.add_field(name="Prize", value=f"${challenge.get('prize', 0):.2f}", inline=True)
+                embed.add_field(name="Required Multiplier", value=f"x{int(required_multi)}", inline=False)
+                embed.add_field(name="Prize", value=f"${challenge.get('prize', 0):.2f}", inline=False)
                 
                 # Winner info (censor username)
                 winner_name = challenge.get('winner_username', 'Unknown')
@@ -629,11 +629,11 @@ class SlotChallenge(commands.Cog):
                     winner_display = "***"
                     
                 embed.add_field(name="🥇 Winner", value=winner_display, inline=False)
-                embed.add_field(name="✅ Multiplier Achieved", value=f"x{challenge.get('multiplier', 0):.2f}", inline=True)
+                embed.add_field(name="✅ Multiplier Achieved", value=f"x{challenge.get('multiplier', 0):.2f}", inline=False)
                 bet_amount = challenge.get('bet', 0)
                 payout_amount = challenge.get('payout', 0)
-                embed.add_field(name="💰 Bet → Payout", value=f"${bet_amount:.2f} → ${payout_amount:.2f}", inline=True)
-                embed.add_field(name="💸 Prize Sent", value=f"${challenge.get('prize', 0):.2f}", inline=True)
+                embed.add_field(name="💰 Bet → Payout", value=f"${bet_amount:.2f} → ${payout_amount:.2f}", inline=False)
+                embed.add_field(name="💸 Prize Sent", value=f"${challenge.get('prize', 0):.2f}", inline=False)
                 
                 # Timestamps for challenge duration
                 try:
