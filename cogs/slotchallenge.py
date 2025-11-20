@@ -48,24 +48,23 @@ class SlotChallenge(commands.Cog):
                 else:
                     winner_display_name = "***"
                 
-                # Create new detailed completion embed with timestamps
+                # Create new detailed completion embed with single-line format
                 embed = discord.Embed(
                     title="🏆 Slot Challenge Complete!",
                     color=discord.Color.green()
                 )
                 
-                # Add game and challenge info
-                embed.add_field(name="Game", value=challenge['game_name'], inline=False)
-                embed.add_field(name="Required Multiplier", value=f"x{int(challenge['required_multi'])}", inline=False)
-                embed.add_field(name="Prize", value=f"${challenge.get('prize', 0):.2f}", inline=False)
+                # Build description with single-line format
+                description = f"**Game:** {challenge['game_name']}\n"
+                description += f"**Required Multiplier:** x{int(challenge['required_multi'])}\n"
+                description += f"**Prize:** ${challenge.get('prize', 0):.2f}\n"
                 if challenge.get('min_bet'):
-                    embed.add_field(name="Minimum Bet", value=f"${challenge['min_bet']:.2f}", inline=False)
-                
-                # Add winner info
-                embed.add_field(name="🥇 Winner", value=winner_display_name, inline=False)
-                embed.add_field(name="✅ Multiplier Achieved", value=f"x{winner.get('multiplier', 0):.2f}", inline=False)
-                embed.add_field(name="💰 Bet → Payout", value=f"${winner.get('bet', 0):.2f} → ${winner.get('payout', 0):.2f}", inline=False)
-                embed.add_field(name="💸 Prize Sent", value=f"${challenge.get('prize', 0):.2f}", inline=False)
+                    description += f"**Minimum Bet:** ${challenge['min_bet']:.2f}\n"
+                description += f"\n"
+                description += f"🥇 **Winner:** {winner_display_name}\n"
+                description += f"✅ **Multiplier Achieved:** x{winner.get('multiplier', 0):.2f}\n"
+                description += f"💰 **Bet → Payout:** ${winner.get('bet', 0):.2f} → ${winner.get('payout', 0):.2f}\n"
+                description += f"💸 **Prize Sent:** ${challenge.get('prize', 0):.2f}\n\n"
                 
                 # Add timestamps for challenge duration
                 try:
@@ -73,15 +72,13 @@ class SlotChallenge(commands.Cog):
                     end_dt = datetime.now(timezone.utc)
                     start_ts = int(start_dt.timestamp())
                     end_ts = int(end_dt.timestamp())
-                    embed.add_field(
-                        name="Challenge Duration", 
-                        value=f"<t:{start_ts}:F> → <t:{end_ts}:F>", 
-                        inline=False
-                    )
+                    description += f"**Challenge Duration:** <t:{start_ts}:F> → <t:{end_ts}:F>\n"
                 except Exception:
-                    embed.set_footer(text=f"Challenge start: {challenge['start_time']}")
+                    description += f"**Challenge Duration:** Started {challenge['start_time']}\n"
                 
-                embed.add_field(name="Challenge ID", value=f"#{challenge['challenge_id']}", inline=True)
+                description += f"**Challenge ID:** #{challenge['challenge_id']}"
+                
+                embed.description = description
                 
                 # Send with role ping
                 if history_channel:
@@ -122,13 +119,17 @@ class SlotChallenge(commands.Cog):
                         title="⚠️ Challenge Complete - Payment Issue",
                         color=discord.Color.orange()
                     )
-                    embed.add_field(name="Game", value=challenge['game_name'], inline=False)
-                    embed.add_field(name="Winner", value=winner['username'], inline=False)
-                    embed.add_field(name="Multiplier Achieved", value=f"x{winner.get('multiplier', 0):.2f}", inline=False)
-                    embed.add_field(name="Prize Amount", value=f"${challenge.get('prize', 0):.2f}", inline=False)
-                    embed.add_field(name="❌ Payment Failed", value="Insufficient account balance", inline=False)
-                    embed.add_field(name="📋 Next Steps", value="Please create a ticket in <#1296221508145905674>", inline=False)
-                    embed.add_field(name="Challenge ID", value=f"#{challenge['challenge_id']}", inline=True)
+                    
+                    # Build single-line description
+                    description = f"**Game:** {challenge['game_name']}\n"
+                    description += f"**Winner:** {winner['username']}\n"
+                    description += f"**Multiplier Achieved:** x{winner.get('multiplier', 0):.2f}\n"
+                    description += f"**Prize Amount:** ${challenge.get('prize', 0):.2f}\n\n"
+                    description += f"❌ **Payment Failed:** Insufficient account balance\n"
+                    description += f"📋 **Next Steps:** Please create a ticket in <#1296221508145905674>\n\n"
+                    description += f"**Challenge ID:** #{challenge['challenge_id']}"
+                    
+                    embed.description = description
                     
                     ping_role_id = os.getenv("SLOT_CHALLENGE_PING_ROLE_ID")
                     content = f"<@&{ping_role_id}>" if ping_role_id else None
@@ -175,23 +176,28 @@ class SlotChallenge(commands.Cog):
                 title="🎰 New Slot Challenge Started!",
                 color=discord.Color.blue()
             )
-            embed.add_field(name="Game", value=clean_game_name, inline=False)
-            embed.add_field(name="Required Multiplier", value=f"x{int(required_multi)}", inline=False)
-            embed.add_field(name="Prize", value=f"${prize:.2f}", inline=False)
+            
+            # Build single-line description
+            description = f"**Game:** {clean_game_name}\n"
+            description += f"**Required Multiplier:** x{int(required_multi)}\n"
+            description += f"**Prize:** ${prize:.2f}\n"
             if min_bet:
-                embed.add_field(name="Minimum Bet", value=f"${min_bet:.2f}", inline=False)
+                description += f"**Minimum Bet:** ${min_bet:.2f}\n"
+            description += f"\n"
             
             # Add timestamp for start time
             try:
                 start_dt = datetime.fromisoformat(challenge_start_utc)
                 start_ts = int(start_dt.timestamp())
-                embed.add_field(name="⏰ Challenge Active", value="Ready to start!", inline=False)
-                embed.add_field(name="Started", value=f"<t:{start_ts}:F>", inline=False)
+                description += f"⏰ **Challenge Active:** Ready to start!\n"
+                description += f"**Started:** <t:{start_ts}:F>\n\n"
             except Exception:
-                embed.add_field(name="Started", value=challenge_start_utc, inline=False)
+                description += f"**Started:** {challenge_start_utc}\n\n"
             
-            embed.add_field(name="Challenge ID", value=f"#{challenge_id}", inline=True)
-            embed.add_field(name="🍀 Status", value="Good luck!", inline=True)
+            description += f"**Challenge ID:** #{challenge_id}\n"
+            description += f"🍀 **Status:** Good luck!"
+            
+            embed.description = description
             
             ping_role_id = os.getenv("SLOT_CHALLENGE_PING_ROLE_ID")
             content = f"<@&{ping_role_id}>" if ping_role_id else None
@@ -293,10 +299,12 @@ class SlotChallenge(commands.Cog):
                 title="❌ Slot Challenge Cancelled",
                 color=discord.Color.red()
             )
-            embed.add_field(name="Game", value=challenge['game_name'], inline=False)
-            embed.add_field(name="Required Multiplier", value=f"x{int(challenge['required_multi'])}", inline=False)
-            embed.add_field(name="Prize", value=f"${challenge.get('prize', 0):.2f}", inline=False)
-            embed.add_field(name="Reason", value="Admin Cancellation", inline=False)
+            
+            # Build single-line description
+            description = f"**Game:** {challenge['game_name']}\n"
+            description += f"**Required Multiplier:** x{int(challenge['required_multi'])}\n"
+            description += f"**Prize:** ${challenge.get('prize', 0):.2f}\n\n"
+            description += f"**Reason:** Admin Cancellation\n\n"
             
             # Add timestamps for challenge duration
             try:
@@ -304,15 +312,13 @@ class SlotChallenge(commands.Cog):
                 end_dt = datetime.now(timezone.utc)
                 start_ts = int(start_dt.timestamp())
                 end_ts = int(end_dt.timestamp())
-                embed.add_field(
-                    name="Challenge Duration", 
-                    value=f"<t:{start_ts}:F> → <t:{end_ts}:F>", 
-                    inline=False
-                )
+                description += f"**Challenge Duration:** <t:{start_ts}:F> → <t:{end_ts}:F>\n"
             except Exception:
-                embed.set_footer(text=f"Challenge start time: {challenge['start_time']}")
+                description += f"**Challenge Duration:** Started {challenge['start_time']}\n"
             
-            embed.add_field(name="Challenge ID", value=f"#{challenge_id}", inline=True)
+            description += f"**Challenge ID:** #{challenge_id}"
+            
+            embed.description = description
             
             ping_role_id = os.getenv("SLOT_CHALLENGE_PING_ROLE_ID")
             content = f"<@&{ping_role_id}>" if ping_role_id else None
@@ -615,25 +621,24 @@ class SlotChallenge(commands.Cog):
                     color=discord.Color.green()
                 )
                 
-                # Game and challenge info
-                embed.add_field(name="Game", value=challenge.get('game', 'Unknown'), inline=False)
-                required_multi = challenge.get('required_multiplier', 0)
-                embed.add_field(name="Required Multiplier", value=f"x{int(required_multi)}", inline=False)
-                embed.add_field(name="Prize", value=f"${challenge.get('prize', 0):.2f}", inline=False)
-                
                 # Winner info (censor username)
                 winner_name = challenge.get('winner_username', 'Unknown')
                 if len(winner_name) > 3:
                     winner_display = winner_name[:-3] + "***"
                 else:
                     winner_display = "***"
-                    
-                embed.add_field(name="🥇 Winner", value=winner_display, inline=False)
-                embed.add_field(name="✅ Multiplier Achieved", value=f"x{challenge.get('multiplier', 0):.2f}", inline=False)
+                
+                # Build single-line description
+                description = f"**Game:** {challenge.get('game', 'Unknown')}\n"
+                required_multi = challenge.get('required_multiplier', 0)
+                description += f"**Required Multiplier:** x{int(required_multi)}\n"
+                description += f"**Prize:** ${challenge.get('prize', 0):.2f}\n\n"
+                description += f"🥇 **Winner:** {winner_display}\n"
+                description += f"✅ **Multiplier Achieved:** x{challenge.get('multiplier', 0):.2f}\n"
                 bet_amount = challenge.get('bet', 0)
                 payout_amount = challenge.get('payout', 0)
-                embed.add_field(name="💰 Bet → Payout", value=f"${bet_amount:.2f} → ${payout_amount:.2f}", inline=False)
-                embed.add_field(name="💸 Prize Sent", value=f"${challenge.get('prize', 0):.2f}", inline=False)
+                description += f"💰 **Bet → Payout:** ${bet_amount:.2f} → ${payout_amount:.2f}\n"
+                description += f"💸 **Prize Sent:** ${challenge.get('prize', 0):.2f}\n\n"
                 
                 # Timestamps for challenge duration
                 try:
@@ -656,15 +661,13 @@ class SlotChallenge(commands.Cog):
                     
                     start_ts = int(start_dt.timestamp())
                     end_ts = int(end_dt.timestamp())
-                    embed.add_field(
-                        name="Challenge Duration", 
-                        value=f"<t:{start_ts}:F> → <t:{end_ts}:F>", 
-                        inline=False
-                    )
+                    description += f"**Challenge Duration:** <t:{start_ts}:F> → <t:{end_ts}:F>\n"
                 except Exception as e:
-                    embed.set_footer(text=f"Challenge start: {challenge.get('challenge_start', 'Unknown')}")
+                    description += f"**Challenge Duration:** Started {challenge.get('challenge_start', 'Unknown')}\n"
                 
-                embed.add_field(name="Challenge ID", value=f"#{challenge.get('challenge_id', 'Unknown')}", inline=True)
+                description += f"**Challenge ID:** #{challenge.get('challenge_id', 'Unknown')}"
+                
+                embed.description = description
                 
                 # Post with role ping
                 ping_role_id = os.getenv("SLOT_CHALLENGE_PING_ROLE_ID")
