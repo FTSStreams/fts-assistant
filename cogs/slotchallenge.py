@@ -15,7 +15,7 @@ import asyncio
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
 CHALLENGE_CHANNEL_ID = int(os.getenv("CHALLENGE_CHANNEL_ID"))
-LOGS_CHANNEL_ID = 1386537169170071572  # Winner/cancel log channel
+HISTORY_CHANNEL_ID = 1387301442598998016  # Consolidated history channel for all events
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID"))
 
 class SlotChallenge(commands.Cog):
@@ -25,7 +25,7 @@ class SlotChallenge(commands.Cog):
         self.ensure_challenge_embed.start()
         self.payout_queue = asyncio.Queue()
         self.process_payout_queue_task = asyncio.create_task(self.process_payout_queue())
-        self.update_multi_challenge_history.start()
+        # History now uses individual posts instead of large embed updates
     
     def get_data_manager(self):
         """Helper to get DataManager cog"""
@@ -33,7 +33,7 @@ class SlotChallenge(commands.Cog):
 
     async def process_payout_queue(self):
         while True:
-            challenge, winner, second, logs_channel = await self.payout_queue.get()
+            challenge, winner, second, history_channel = await self.payout_queue.get()
             tip_response = await send_tip(
                 user_id=os.getenv("ROOBET_USER_ID"),
                 to_username=winner["username"],
@@ -41,44 +41,53 @@ class SlotChallenge(commands.Cog):
                 amount=challenge["prize"]
             )
             if tip_response.get("success"):
-                # Censor usernames for public display and escape asterisks
+                # Censor usernames for public display
                 winner_display_name = winner['username']
                 if len(winner_display_name) > 3:
-                    winner_display_name = winner_display_name[:-3] + "\\*\\*\\*"
+                    winner_display_name = winner_display_name[:-3] + "***"
                 else:
-                    winner_display_name = "\\*\\*\\*"
+                    winner_display_name = "***"
                 
-                # Handle potential None values for multiplier
-                winner_multiplier = winner.get('multiplier') or 0
+                # Create new detailed completion embed with timestamps
                 embed = discord.Embed(
-                    title="🏆 Slot Challenge Results! 🏆",
-                    description=f"**1st Place:** {winner_display_name}\nMultiplier: x{winner_multiplier:.2f}",
+                    title="🏆 Slot Challenge Complete!",
                     color=discord.Color.green()
                 )
-                if second:
-                    second_display_name = second['username']
-                    if len(second_display_name) > 3:
-                        second_display_name = second_display_name[:-3] + "\\*\\*\\*"
-                    else:
-                        second_display_name = "\\*\\*\\*"
-                    second_multiplier = second.get('multiplier') or 0
-                    embed.description += f"\n\n**2nd Place:** {second_display_name}\nMultiplier: x{second_multiplier:.2f}"
-                embed.add_field(name="Bet Size", value=f"${winner.get('bet', 0):.2f}", inline=True)
-                embed.add_field(name="Payout", value=f"${winner.get('payout', 0):.2f}", inline=True)
-                embed.add_field(name="Required Multiplier", value=f"x{challenge['required_multi']}", inline=True)
-                embed.add_field(name="Prize", value=f"${challenge.get('prize', 0)}", inline=True)
-                embed.add_field(name="Game", value=challenge['game_name'], inline=True)
+                
+                # Add game and challenge info
+                embed.add_field(name="Game", value=challenge['game_name'], inline=False)
+                embed.add_field(name="Required Multiplier", value=f"x{int(challenge['required_multi'])}", inline=True)
+                embed.add_field(name="Prize", value=f"${challenge.get('prize', 0):.2f}", inline=True)
                 if challenge.get('min_bet'):
-                    embed.add_field(name="Minimum Bet", value=f"${challenge['min_bet']}", inline=True)
-                # Use plain text for the start time in the footer
+                    embed.add_field(name="Minimum Bet", value=f"${challenge['min_bet']:.2f}", inline=True)
+                
+                # Add winner info
+                embed.add_field(name="🥇 Winner", value=winner_display_name, inline=False)
+                embed.add_field(name="✅ Multiplier Achieved", value=f"x{winner.get('multiplier', 0):.2f}", inline=True)
+                embed.add_field(name="💰 Bet → Payout", value=f"${winner.get('bet', 0):.2f} → ${winner.get('payout', 0):.2f}", inline=True)
+                embed.add_field(name="💸 Prize Sent", value=f"${challenge.get('prize', 0):.2f}", inline=True)
+                
+                # Add timestamps for challenge duration
                 try:
-                    dt_obj = datetime.fromisoformat(str(challenge['start_time']))
-                    start_time_str = dt_obj.strftime('%Y-%m-%d %H:%M:%S UTC')
+                    start_dt = datetime.fromisoformat(str(challenge['start_time']).replace('Z', '+00:00'))
+                    end_dt = datetime.now(timezone.utc)
+                    start_ts = int(start_dt.timestamp())
+                    end_ts = int(end_dt.timestamp())
+                    embed.add_field(
+                        name="Challenge Duration", 
+                        value=f"<t:{start_ts}:F> → <t:{end_ts}:F>", 
+                        inline=False
+                    )
                 except Exception:
-                    start_time_str = str(challenge['start_time'])
-                embed.set_footer(text=f"Challenge start: {start_time_str}")
-                if logs_channel:
-                    await logs_channel.send(embed=embed)
+                    embed.set_footer(text=f"Challenge start: {challenge['start_time']}")
+                
+                embed.add_field(name="Challenge ID", value=f"#{challenge['challenge_id']}", inline=True)
+                
+                # Send with role ping
+                if history_channel:
+                    ping_role_id = os.getenv("SLOT_CHALLENGE_PING_ROLE_ID")
+                    content = f"<@&{ping_role_id}>" if ping_role_id else None
+                    await history_channel.send(content=content, embed=embed)
                 logger.info(f"Calling log_slot_challenge for COMPLETED: id={challenge['challenge_id']} game={challenge['game_name']} winner={winner['username']}")
                 # Use the actual completion time for logging
                 completion_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -107,8 +116,23 @@ class SlotChallenge(commands.Cog):
                     year=datetime.now(timezone.utc).year
                 )
             else:
-                if logs_channel:
-                    await logs_channel.send(f"❌ Failed to tip prize to {winner['username']}. Please check logs.")
+                # Send failed payout embed
+                if history_channel:
+                    embed = discord.Embed(
+                        title="⚠️ Challenge Complete - Payment Issue",
+                        color=discord.Color.orange()
+                    )
+                    embed.add_field(name="Game", value=challenge['game_name'], inline=False)
+                    embed.add_field(name="Winner", value=winner['username'], inline=True)
+                    embed.add_field(name="Multiplier Achieved", value=f"x{winner.get('multiplier', 0):.2f}", inline=True)
+                    embed.add_field(name="Prize Amount", value=f"${challenge.get('prize', 0):.2f}", inline=True)
+                    embed.add_field(name="❌ Payment Failed", value="Insufficient account balance", inline=False)
+                    embed.add_field(name="📋 Next Steps", value="Please create a ticket in <#1296221508145905674>", inline=False)
+                    embed.add_field(name="Challenge ID", value=f"#{challenge['challenge_id']}", inline=True)
+                    
+                    ping_role_id = os.getenv("SLOT_CHALLENGE_PING_ROLE_ID")
+                    content = f"<@&{ping_role_id}>" if ping_role_id else None
+                    await history_channel.send(content=content, embed=embed)
             await asyncio.sleep(30)
             self.payout_queue.task_done()
 
@@ -143,6 +167,36 @@ class SlotChallenge(commands.Cog):
         )
         # Update or create the single embed listing all challenges
         await self.update_challenges_embed()
+        
+        # Send new challenge notification to history channel
+        history_channel = self.bot.get_channel(HISTORY_CHANNEL_ID)
+        if history_channel:
+            embed = discord.Embed(
+                title="🎰 New Slot Challenge Started!",
+                color=discord.Color.blue()
+            )
+            embed.add_field(name="Game", value=clean_game_name, inline=False)
+            embed.add_field(name="Required Multiplier", value=f"x{int(required_multi)}", inline=True)
+            embed.add_field(name="Prize", value=f"${prize:.2f}", inline=True)
+            if min_bet:
+                embed.add_field(name="Minimum Bet", value=f"${min_bet:.2f}", inline=True)
+            
+            # Add timestamp for start time
+            try:
+                start_dt = datetime.fromisoformat(challenge_start_utc)
+                start_ts = int(start_dt.timestamp())
+                embed.add_field(name="⏰ Challenge Active", value="Ready to start!", inline=False)
+                embed.add_field(name="Started", value=f"<t:{start_ts}:F>", inline=False)
+            except Exception:
+                embed.add_field(name="Started", value=challenge_start_utc, inline=False)
+            
+            embed.add_field(name="Challenge ID", value=f"#{challenge_id}", inline=True)
+            embed.add_field(name="🍀 Status", value="Good luck!", inline=True)
+            
+            ping_role_id = os.getenv("SLOT_CHALLENGE_PING_ROLE_ID")
+            content = f"<@&{ping_role_id}>" if ping_role_id else None
+            await history_channel.send(content=content, embed=embed)
+        
         await interaction.response.send_message(f"Slot challenge set and announced. Challenge ID: {challenge_id}", ephemeral=True)
 
     async def update_challenges_embed(self):
@@ -230,21 +284,39 @@ class SlotChallenge(commands.Cog):
         )
         remove_active_slot_challenge(challenge_id)
         await self.update_challenges_embed()
-        # Instantly update history embed when challenge is cancelled
-        await self.refresh_multi_challenge_history_embed()
         await interaction.response.send_message(f"Slot challenge ID {challenge_id} cancelled.", ephemeral=True)
-        # Log to logs channel
-        logs_channel = self.bot.get_channel(LOGS_CHANNEL_ID)
-        if logs_channel:
+        
+        # Send cancellation notification to history channel
+        history_channel = self.bot.get_channel(HISTORY_CHANNEL_ID)
+        if history_channel:
             embed = discord.Embed(
                 title="❌ Slot Challenge Cancelled",
-                description=f"Challenge ID {challenge_id} ({challenge['game_name']}) was cancelled by an admin.",
                 color=discord.Color.red()
             )
-            embed.add_field(name="Required Multiplier", value=f"x{challenge['required_multi']}", inline=True)
-            embed.add_field(name="Prize", value=f"${challenge.get('prize', 0)}", inline=True)
-            embed.set_footer(text=f"Challenge start time (UTC): {challenge['start_time']}")
-            await logs_channel.send(embed=embed)
+            embed.add_field(name="Game", value=challenge['game_name'], inline=False)
+            embed.add_field(name="Required Multiplier", value=f"x{int(challenge['required_multi'])}", inline=True)
+            embed.add_field(name="Prize", value=f"${challenge.get('prize', 0):.2f}", inline=True)
+            embed.add_field(name="Reason", value="Admin Cancellation", inline=False)
+            
+            # Add timestamps for challenge duration
+            try:
+                start_dt = datetime.fromisoformat(str(challenge['start_time']).replace('Z', '+00:00'))
+                end_dt = datetime.now(timezone.utc)
+                start_ts = int(start_dt.timestamp())
+                end_ts = int(end_dt.timestamp())
+                embed.add_field(
+                    name="Challenge Duration", 
+                    value=f"<t:{start_ts}:F> → <t:{end_ts}:F>", 
+                    inline=False
+                )
+            except Exception:
+                embed.set_footer(text=f"Challenge start time: {challenge['start_time']}")
+            
+            embed.add_field(name="Challenge ID", value=f"#{challenge_id}", inline=True)
+            
+            ping_role_id = os.getenv("SLOT_CHALLENGE_PING_ROLE_ID")
+            content = f"<@&{ping_role_id}>" if ping_role_id else None
+            await history_channel.send(content=content, embed=embed)
 
     @tasks.loop(minutes=10)  # Now synchronized with DataManager schedule
     async def check_challenge(self):
@@ -319,8 +391,8 @@ class SlotChallenge(commands.Cog):
                 winners_sorted = sorted(winners, key=lambda x: x["multiplier"], reverse=True)
                 winner = winners_sorted[0]
                 second = winners_sorted[1] if len(winners_sorted) > 1 else None
-                logs_channel = self.bot.get_channel(LOGS_CHANNEL_ID)
-                self.payout_queue.put_nowait((challenge, winner, second, logs_channel))
+                history_channel = self.bot.get_channel(HISTORY_CHANNEL_ID)
+                self.payout_queue.put_nowait((challenge, winner, second, history_channel))
                 completed_ids.add(challenge["challenge_id"])
                 logger.info(f"[SlotChallenge] Challenge {challenge['game_name']} completed by {winner['username']} with {winner['multiplier']}x")
                 
@@ -505,99 +577,114 @@ class SlotChallenge(commands.Cog):
             for chunk in chunks[1:]:
                 await interaction.followup.send(chunk, ephemeral=True)
 
-    @tasks.loop(minutes=5)
-    async def update_multi_challenge_history(self):
-        await asyncio.sleep(600)  # 10 minute offset
-        await self.refresh_multi_challenge_history_embed()
+    # Removed large embed history update - now using individual posts for each event
 
-    async def refresh_multi_challenge_history_embed(self):
-        await self.bot.wait_until_ready()
-        channel = self.bot.get_channel(1387301442598998016)
-        if not channel:
-            logger.warning("Multi-challenge history channel not found.")
-            return
-        from db import get_all_completed_slot_challenges
-        challenges = get_all_completed_slot_challenges()
-        if not challenges:
-            return
-        now_ts = int(datetime.now(dt.UTC).timestamp())
-        desc = f"⏰ **Last Updated:** <t:{now_ts}:R>\n\n"
-        for c in challenges:
-            import dateutil.parser
-            try:
-                dt_obj = c['challenge_start']
-                if isinstance(dt_obj, str):
-                    dt_obj = dateutil.parser.isoparse(dt_obj)
-                unix_ts = int(dt_obj.timestamp())
-                ts_str = f'<t:{unix_ts}:F>'
-            except Exception:
-                ts_str = str(c['challenge_start'])
-            if c.get('game_identifier'):
-                safe_game_name = c['game'].replace('_', '\\_')
-                game_url = f"https://roobet.com/casino/game/{c['game_identifier']}"
-                game_display = f"[{safe_game_name}]({game_url})"
-            else:
-                game_display = c['game'].replace('_', '\\_')
-            username = c['winner_username'].strip()
-            if len(username) > 3:
-                username = f'{username[:-3]}\\*\\*\\*'
-            else:
-                username = '\\*\\*\\*'
-            # Handle potential None values with safe formatting
-            prize = c.get('prize') or 0
-            multiplier = c.get('multiplier') or 0
-            required_multiplier = c.get('required_multiplier') or 0
-            payout = c.get('payout') or 0
-            bet = c.get('bet') or 0
-            
-            desc += (
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f":trophy: {game_display} | :moneybag: ${prize:.2f} | :crown: {username}\n"
-                f":heavy_multiplication_x: Achieved/Required Multi: x{multiplier:.2f}/{required_multiplier} | :dollar: Payout: ${payout:.2f} (Base Bet: ${bet:.2f})\n"
-                f":date: {ts_str}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            )
-        embed = discord.Embed(title="Slot Challenge History", description=desc[:4096], color=discord.Color.gold())
-        
-        # Use consistent message ID tracking like leaderboards
-        message_id = get_leaderboard_message_id(key="challenge_history_message_id")
-        if message_id:
-            try:
-                history_message = await channel.fetch_message(message_id)
-                await history_message.edit(embed=embed)
-                logger.info("[SlotChallenge] Challenge history message updated.")
-            except discord.errors.NotFound:
-                logger.warning(f"Challenge history message ID {message_id} not found, sending new message.")
-                try:
-                    history_message = await channel.send(embed=embed)
-                    save_leaderboard_message_id(history_message.id, key="challenge_history_message_id")
-                    logger.info("[SlotChallenge] New challenge history message sent.")
-                except discord.errors.Forbidden:
-                    logger.error("Bot lacks permission to send messages in challenge history channel.")
-            except discord.errors.Forbidden:
-                logger.error("Bot lacks permission to edit messages in challenge history channel.")
-        else:
-            logger.info("[SlotChallenge] No challenge history message ID found, sending new message.")
-            try:
-                history_message = await channel.send(embed=embed)
-                save_leaderboard_message_id(history_message.id, key="challenge_history_message_id")
-                logger.info("[SlotChallenge] New challenge history message sent.")
-            except discord.errors.Forbidden:
-                logger.error("Bot lacks permission to send messages in challenge history channel.")
+    # Large embed history system removed - using individual posts for better scalability
 
-    @app_commands.command(name="manualrefreshhistory", description="Manually refresh the Slot Challenge History embed (admin only, temporary)")
-    async def manualrefreshhistory(self, interaction: discord.Interaction):
+    # Manual refresh command removed - individual posts don't need refreshing
+
+    @app_commands.command(name="backfill_challenge_history", description="ONE-TIME: Post all completed challenges as individual embeds (REMOVE AFTER USE)")
+    async def backfill_challenge_history(self, interaction: discord.Interaction):
         if interaction.user.id != BOT_OWNER_ID:
             await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
             return
+        
         await interaction.response.defer(thinking=True)
-        await self.refresh_multi_challenge_history_embed()
-        await interaction.followup.send("Slot Challenge History has been manually refreshed.", ephemeral=True)
+        
+        from db import get_all_completed_slot_challenges
+        challenges = get_all_completed_slot_challenges()
+        
+        if not challenges:
+            await interaction.followup.send("No completed challenges found in database.", ephemeral=True)
+            return
+        
+        # Sort by challenge start time (oldest first)
+        challenges.sort(key=lambda x: x.get('challenge_start', '1970-01-01'))
+        
+        history_channel = self.bot.get_channel(HISTORY_CHANNEL_ID)
+        if not history_channel:
+            await interaction.followup.send("History channel not found.", ephemeral=True)
+            return
+        
+        posted_count = 0
+        for challenge in challenges:
+            try:
+                # Create completion embed in same format as new system
+                embed = discord.Embed(
+                    title="🏆 Slot Challenge Complete!",
+                    color=discord.Color.green()
+                )
+                
+                # Game and challenge info
+                embed.add_field(name="Game", value=challenge.get('game', 'Unknown'), inline=False)
+                required_multi = challenge.get('required_multiplier', 0)
+                embed.add_field(name="Required Multiplier", value=f"x{int(required_multi)}", inline=True)
+                embed.add_field(name="Prize", value=f"${challenge.get('prize', 0):.2f}", inline=True)
+                
+                # Winner info (censor username)
+                winner_name = challenge.get('winner_username', 'Unknown')
+                if len(winner_name) > 3:
+                    winner_display = winner_name[:-3] + "***"
+                else:
+                    winner_display = "***"
+                    
+                embed.add_field(name="🥇 Winner", value=winner_display, inline=False)
+                embed.add_field(name="✅ Multiplier Achieved", value=f"x{challenge.get('multiplier', 0):.2f}", inline=True)
+                bet_amount = challenge.get('bet', 0)
+                payout_amount = challenge.get('payout', 0)
+                embed.add_field(name="💰 Bet → Payout", value=f"${bet_amount:.2f} → ${payout_amount:.2f}", inline=True)
+                embed.add_field(name="💸 Prize Sent", value=f"${challenge.get('prize', 0):.2f}", inline=True)
+                
+                # Timestamps for challenge duration
+                try:
+                    import dateutil.parser
+                    start_dt = challenge['challenge_start']
+                    if isinstance(start_dt, str):
+                        start_dt = dateutil.parser.isoparse(start_dt)
+                    
+                    # Use completion time if available, otherwise estimate
+                    completion_time = challenge.get('completion_time')
+                    if completion_time:
+                        if isinstance(completion_time, str):
+                            end_dt = dateutil.parser.isoparse(completion_time)
+                        else:
+                            end_dt = completion_time
+                    else:
+                        # Estimate completion time as start + 1 hour if not available
+                        import datetime as dt
+                        end_dt = start_dt + dt.timedelta(hours=1)
+                    
+                    start_ts = int(start_dt.timestamp())
+                    end_ts = int(end_dt.timestamp())
+                    embed.add_field(
+                        name="Challenge Duration", 
+                        value=f"<t:{start_ts}:F> → <t:{end_ts}:F>", 
+                        inline=False
+                    )
+                except Exception as e:
+                    embed.set_footer(text=f"Challenge start: {challenge.get('challenge_start', 'Unknown')}")
+                
+                embed.add_field(name="Challenge ID", value=f"#{challenge.get('challenge_id', 'Unknown')}", inline=True)
+                
+                # Post with role ping
+                ping_role_id = os.getenv("SLOT_CHALLENGE_PING_ROLE_ID")
+                content = f"<@&{ping_role_id}>" if ping_role_id else None
+                await history_channel.send(content=content, embed=embed)
+                
+                posted_count += 1
+                
+                # Small delay to prevent rate limiting
+                await asyncio.sleep(2)
+                
+            except Exception as e:
+                logger.error(f"Error posting challenge {challenge.get('challenge_id', 'Unknown')}: {e}")
+                continue
+        
+        await interaction.followup.send(f"✅ Successfully posted {posted_count} completed challenges to history channel. **REMEMBER TO REMOVE THIS COMMAND AFTER USE!**", ephemeral=True)
 
     def cog_unload(self):
         self.check_challenge.cancel()
         self.ensure_challenge_embed.cancel()
-        self.update_multi_challenge_history.cancel()
         if hasattr(self, 'process_payout_queue_task'):
             self.process_payout_queue_task.cancel()
 
