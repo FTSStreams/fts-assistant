@@ -371,7 +371,11 @@ class MultiLeaderboard(commands.Cog):
                         )
                         
                         embed.set_footer(text=f"Next weekly competition starts Monday 12:00 AM UTC")
-                        await logs_channel.send(embed=embed)
+                        
+                        # Ping the notification role if configured
+                        ping_role_id = os.getenv("WEEKLY_MULTIPLIER_PING_ROLE_ID")
+                        content = f"<@&{ping_role_id}>" if ping_role_id else None
+                        await logs_channel.send(content=content, embed=embed)
                         
             # Clean up the processing lock record
             conn = get_db_connection()
