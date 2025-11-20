@@ -212,7 +212,7 @@ class SlotChallenge(commands.Cog):
         desc = f"⏰ **Last Updated:** <t:{now_ts}:R>\n\n"
         desc += "First to hit the required multiplier wins the prize!\n"
         desc += "All prizes are paid out automatically by our secure system.\n"
-        desc += "See <#{}> for payout logs!\n\n".format(LOGS_CHANNEL_ID)
+        desc += f"See <#{HISTORY_CHANNEL_ID}> for event logs!\n\n"
         for challenge in active:
             try:
                 dt_obj = challenge['start_time']
