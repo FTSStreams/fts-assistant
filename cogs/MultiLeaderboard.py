@@ -337,32 +337,38 @@ class MultiLeaderboard(commands.Cog):
                 if logs_channel_id:
                     logs_channel = self.bot.get_channel(logs_channel_id)
                     if logs_channel:
-                        embed = discord.Embed(
-                            title="🏆 Weekly Multiplier Leaderboard Payouts Complete!",
-                            description=f"**Week of {week_key}**\n\n"
-                                      f"✅ **{winners_processed} winners** have been paid their prizes!\n"
-                                      f"💰 **Total Distributed**: ${sum(PRIZE_DISTRIBUTION[:winners_processed]):.2f} USD",
-                            color=discord.Color.green()
-                        )
-                        
+                        # Format the detailed winners list
+                        winners_text = "**Winners:**\n\n"
                         for i in range(winners_processed):
                             entry = multi_data[i]
                             username = entry.get("username", "Unknown")
                             # Censor username for public display
                             if len(username) > 3:
-                                display_username = username[:-3] + "\\*\\*\\*"
+                                display_username = username[:-3] + "***"
                             else:
-                                display_username = "\\*\\*\\*"
+                                display_username = "***"
                             
                             multiplier = entry["highestMultiplier"].get("multiplier", 0)
                             game_name = entry["highestMultiplier"].get("gameTitle", "Unknown")
+                            wagered = entry["highestMultiplier"].get("wagered", 0)
+                            payout = entry["highestMultiplier"].get("payout", 0)
                             prize = PRIZE_DISTRIBUTION[i]
                             
-                            embed.add_field(
-                                name=f"🥇 Rank #{i+1} - {display_username}",
-                                value=f"x{multiplier:.2f} on {game_name}\n💸 Prize: ${prize} USD",
-                                inline=False
+                            medal = ["🥇", "🥈", "🥉"][i]
+                            place = ["1st", "2nd", "3rd"][i]
+                            
+                            winners_text += (
+                                f"{medal} **{place} Place:** @{display_username} - **x{multiplier:,.2f} multiplier** → **${prize:.2f}**\n"
+                                f"   🎮 Game: {game_name}\n"
+                                f"   💰 Bet: ${wagered:,.2f} | Payout: ${payout:,.2f}\n\n"
                             )
+                        
+                        # Create the embed with the detailed format
+                        embed = discord.Embed(
+                            title="🏆 Weekly Multiplier Leaderboard Payouts",
+                            description=f"**Week of {week_key}**\n\n{winners_text}*Payouts completed successfully via Roobet affiliate system*",
+                            color=discord.Color.green()
+                        )
                         
                         embed.set_footer(text=f"Next weekly competition starts Monday 12:00 AM UTC")
                         await logs_channel.send(embed=embed)
@@ -473,13 +479,22 @@ class MultiLeaderboard(commands.Cog):
                 inline=False
             )
             
-            # Add current leaderboard
+            # Add current leaderboard in EXACT same format as real payout logs
             if multi_data:
-                leaderboard_text = ""
+                # Show exact format that will appear in the logs channel
+                week_key_for_display = start_date[:10]  # Same format as real payout
+                winners_preview = f"🏆 **Weekly Multiplier Leaderboard Payouts**\n**Week of {week_key_for_display}**\n\n**Winners:**\n\n"
+                
                 for i in range(min(3, len(multi_data))):
                     entry = multi_data[i]
                     username = entry.get("username", "Unknown")
-                    # Don't censor for admin command
+                    # Show uncensored for admin, but note what will be censored
+                    display_username = username
+                    if len(username) > 3:
+                        censored_username = username[:-3] + "***"
+                    else:
+                        censored_username = "***"
+                    
                     multiplier = entry["highestMultiplier"].get("multiplier", 0)
                     game = entry["highestMultiplier"].get("gameTitle", "Unknown")
                     wagered = entry["highestMultiplier"].get("wagered", 0)
@@ -487,17 +502,19 @@ class MultiLeaderboard(commands.Cog):
                     prize = PRIZE_DISTRIBUTION[i]
                     
                     medal = ["🥇", "🥈", "🥉"][i]
-                    leaderboard_text += (
-                        f"{medal} **#{i+1} - {username}**\n"
-                        f"   💥 Multiplier: `x{multiplier:,.2f}`\n"
+                    place = ["1st", "2nd", "3rd"][i]
+                    
+                    winners_preview += (
+                        f"{medal} **{place} Place:** @{display_username} - **x{multiplier:,.2f} multiplier** → **${prize:.2f}**\n"
                         f"   🎮 Game: {game}\n"
-                        f"   💰 Bet: `${wagered:,.2f}` → Payout: `${payout:,.2f}`\n"
-                        f"   🎁 Prize: `${prize} USD`\n\n"
+                        f"   💰 Bet: ${wagered:,.2f} | Payout: ${payout:,.2f}\n\n"
                     )
                 
+                winners_preview += "*Payouts completed successfully via Roobet affiliate system*"
+                
                 embed.add_field(
-                    name="🏆 **Current Top 3 Winners**",
-                    value=leaderboard_text or "No qualifiers yet",
+                    name="📋 **Exact Log Preview (What Will Be Posted)**",
+                    value=winners_preview[:1024],  # Discord field limit
                     inline=False
                 )
             else:
