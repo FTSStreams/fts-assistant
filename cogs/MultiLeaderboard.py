@@ -269,7 +269,7 @@ class MultiLeaderboard(commands.Cog):
                             id SERIAL PRIMARY KEY,
                             week_start DATE NOT NULL,
                             rank INTEGER NOT NULL,
-                            user_id BIGINT NOT NULL,
+                            user_id VARCHAR(255) NOT NULL,
                             username VARCHAR(255) NOT NULL,
                             prize_amount DECIMAL(10,2) NOT NULL,
                             multiplier DECIMAL(10,2) NOT NULL,
