@@ -14,7 +14,7 @@ GUILD_ID = int(os.getenv("GUILD_ID"))
 MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID"))  # No default, must be set in env
 if not MULTI_LEADERBOARD_CHANNEL_ID:
     raise RuntimeError("MULTI_LEADERBOARD_CHANNEL_ID environment variable must be set!")
-PRIZE_DISTRIBUTION = [20, 15, 5]  # Weekly prizes: $20, $15, $5
+PRIZE_DISTRIBUTION = [3, 2, 1]  # TEMP TEST: $3, $2, $1 (normally $20, $15, $5)
 
 class MultiLeaderboard(commands.Cog):
     def __init__(self, bot):
@@ -192,16 +192,16 @@ class MultiLeaderboard(commands.Cog):
 
     @tasks.loop(minutes=5)  # Check every 5 minutes for weekly payout
     async def weekly_payout_check(self):
-        """Check if it's time for weekly multiplier payouts (TEMP: Monday 18:45 UTC for testing)"""
+        """Check if it's time for weekly multiplier payouts (TEMP: Monday 18:55 UTC for testing)"""
         try:
             now = datetime.now(dt.UTC)
             
-            # TEMPORARY: Check on Monday at 18:45 UTC for testing purposes
+            # TEMPORARY: Check on Monday at 18:55 UTC for testing purposes
             is_monday = now.weekday() == 0  # Monday = 0
-            is_payout_time = now.hour == 18 and 45 <= now.minute <= 49
+            is_payout_time = now.hour == 18 and 55 <= now.minute <= 59
             
             # Debug logging - log every check during the critical window
-            if is_monday and now.hour == 18 and 40 <= now.minute <= 50:
+            if is_monday and now.hour == 18 and 50 <= now.minute <= 59:
                 logger.info(f"[MultiLeaderboard] Monday 18:XX UTC (TEST) - Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC - Minute: {now.minute}")
             
             if not (is_monday and is_payout_time):
@@ -260,65 +260,50 @@ class MultiLeaderboard(commands.Cog):
             start_date, end_date = get_current_week_range()
             week_key = f"{start_date[:10]}"  # Use start date as week identifier (YYYY-MM-DD)
             
-            # IMPROVED: Use database lock to prevent duplicate processing
+            # First, ensure the table exists
             conn = get_db_connection()
             try:
                 with conn.cursor() as cur:
-                    # Check if we already paid out this week with a lock
-                    cur.execute("BEGIN;")
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS weekly_multiplier_payouts (
+                            id SERIAL PRIMARY KEY,
+                            week_start DATE NOT NULL,
+                            rank INTEGER NOT NULL,
+                            user_id BIGINT NOT NULL,
+                            username VARCHAR(255) NOT NULL,
+                            prize_amount DECIMAL(10,2) NOT NULL,
+                            multiplier DECIMAL(10,2) NOT NULL,
+                            game_name VARCHAR(255),
+                            paid_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                            UNIQUE(week_start, rank)
+                        );
+                    """)
+                    conn.commit()
+                    logger.info("[MultiLeaderboard] ✅ Ensured weekly_multiplier_payouts table exists")
+            except Exception as e:
+                logger.warning(f"[MultiLeaderboard] ⚠️ Could not create table: {e}")
+                conn.rollback()
+            finally:
+                release_db_connection(conn)
+            
+            # Now check if already paid out this week
+            conn = get_db_connection()
+            try:
+                with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT COUNT(*) FROM weekly_multiplier_payouts WHERE week_start = %s FOR UPDATE;",
+                        "SELECT COUNT(*) FROM weekly_multiplier_payouts WHERE week_start = %s AND rank > 0;",
                         (week_key,)
                     )
-                    already_paid = cur.fetchone()[0] > 0
+                    result = cur.fetchone()
+                    already_paid = result[0] > 0 if result else False
                     
                     if already_paid:
-                        logger.info(f"[MultiLeaderboard] Week {week_key} already paid out, skipping")
-                        cur.execute("ROLLBACK;")
+                        logger.info(f"[MultiLeaderboard] Week {week_key} already paid out in database ({result[0]} records), skipping")
                         return
-                    
-                    # Insert a lock record immediately to prevent race conditions
-                    cur.execute("""
-                        INSERT INTO weekly_multiplier_payouts 
-                        (week_start, rank, user_id, username, prize_amount, multiplier, game_name)
-                        VALUES (%s, 0, 0, 'PROCESSING_LOCK', 0, 0, 'LOCK_RECORD')
-                    """, (week_key,))
-                    cur.execute("COMMIT;")
-                    logger.info(f"[MultiLeaderboard] Acquired processing lock for week {week_key}")
-                    
+                    else:
+                        logger.info(f"[MultiLeaderboard] No previous payouts found for week {week_key}, proceeding with payout")
             except Exception as e:
-                # Table might not exist yet, create it
-                logger.info(f"[MultiLeaderboard] Creating weekly_multiplier_payouts table: {e}")
-                try:
-                    with conn.cursor() as cur:
-                        cur.execute("""
-                            CREATE TABLE IF NOT EXISTS weekly_multiplier_payouts (
-                                id SERIAL PRIMARY KEY,
-                                week_start DATE NOT NULL,
-                                rank INTEGER NOT NULL,
-                                user_id BIGINT NOT NULL,
-                                username VARCHAR(255) NOT NULL,
-                                prize_amount DECIMAL(10,2) NOT NULL,
-                                multiplier DECIMAL(10,2) NOT NULL,
-                                game_name VARCHAR(255),
-                                paid_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                                UNIQUE(week_start, rank)
-                            );
-                        """)
-                        conn.commit()
-                        logger.info("[MultiLeaderboard] Created weekly_multiplier_payouts table")
-                        
-                        # Insert lock record
-                        cur.execute("""
-                            INSERT INTO weekly_multiplier_payouts 
-                            (week_start, rank, user_id, username, prize_amount, multiplier, game_name)
-                            VALUES (%s, 0, 0, 'PROCESSING_LOCK', 0, 0, 'LOCK_RECORD')
-                        """, (week_key,))
-                        conn.commit()
-                        
-                except Exception as create_error:
-                    logger.error(f"[MultiLeaderboard] Error creating table: {create_error}")
-                    return
+                logger.error(f"[MultiLeaderboard] Error checking database: {e}")
             finally:
                 release_db_connection(conn)
             
