@@ -192,27 +192,33 @@ class MultiLeaderboard(commands.Cog):
 
     @tasks.loop(minutes=5)  # Check every 5 minutes for weekly payout
     async def weekly_payout_check(self):
-        """Check if it's time for weekly multiplier payouts (Sunday 11:59 PM UTC)"""
+        """Check if it's time for weekly multiplier payouts (TEMP: Monday 6:40 UTC for testing)"""
         try:
             now = datetime.now(dt.UTC)
             
-            # Check if we're within the payout window: Sunday 23:55 - 23:59 UTC
-            is_sunday = now.weekday() == 6  # Sunday = 6
-            is_payout_time = now.hour == 23 and 55 <= now.minute <= 59
+            # TEMPORARY: Check on Monday at 6:40 UTC for testing purposes
+            is_monday = now.weekday() == 0  # Monday = 0
+            is_payout_time = now.hour == 6 and 40 <= now.minute <= 44
             
-            if not (is_sunday and is_payout_time):
+            # Debug logging - log every check during the critical window
+            if is_monday and now.hour == 6 and 35 <= now.minute <= 45:
+                logger.info(f"[MultiLeaderboard] Monday 6:XX UTC (TEST) - Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC - Minute: {now.minute}")
+            
+            if not (is_monday and is_payout_time):
                 return
             
             # Get the week identifier (Monday of current week)
             current_week_start, _ = get_current_week_range()
             current_week_key = current_week_start[:10]  # YYYY-MM-DD format
             
+            logger.info(f"[MultiLeaderboard] ⏰ PAYOUT WINDOW DETECTED! Time: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC, Week: {current_week_key}")
+            
             # Prevent duplicate processing of same week
             if self.last_payout_week == current_week_key:
-                logger.debug(f"[MultiLeaderboard] Week {current_week_key} already processed, skipping")
+                logger.info(f"[MultiLeaderboard] Week {current_week_key} already processed locally, skipping")
                 return
             
-            logger.info(f"[MultiLeaderboard] Sunday 23:55-23:59 UTC window detected - Processing weekly payouts for week {current_week_key}")
+            logger.info(f"[MultiLeaderboard] Checking database for previous payouts on week {current_week_key}")
             
             # Check database to see if we've already paid out this week
             conn = get_db_connection()
@@ -226,22 +232,26 @@ class MultiLeaderboard(commands.Cog):
                     already_paid = result[0] > 0 if result else False
                     
                     if already_paid:
-                        logger.info(f"[MultiLeaderboard] Week {current_week_key} already paid out in database, skipping")
+                        logger.info(f"[MultiLeaderboard] Week {current_week_key} already paid out in database ({result[0]} records), skipping")
                         self.last_payout_week = current_week_key
                         return
+                    else:
+                        logger.info(f"[MultiLeaderboard] No previous payouts found for week {current_week_key}, proceeding with payout")
             except Exception as e:
-                logger.debug(f"[MultiLeaderboard] Database check (table may not exist yet): {e}")
+                logger.warning(f"[MultiLeaderboard] Database check failed (table may not exist yet): {e}, attempting to create table")
             finally:
                 release_db_connection(conn)
             
             # Process the payouts
+            logger.info(f"[MultiLeaderboard] 🚀 EXECUTING WEEKLY PAYOUTS NOW!")
             await self.process_weekly_payouts()
             
             # Mark week as processed locally
             self.last_payout_week = current_week_key
+            logger.info(f"[MultiLeaderboard] ✅ PAYOUT PROCESS COMPLETED for week {current_week_key}")
             
         except Exception as e:
-            logger.error(f"[MultiLeaderboard] Error in weekly_payout_check: {e}", exc_info=True)
+            logger.error(f"[MultiLeaderboard] ERROR in weekly_payout_check: {e}", exc_info=True)
 
     async def process_weekly_payouts(self):
         """Process payouts for the current week's top 3 multiplier winners"""
@@ -313,12 +323,14 @@ class MultiLeaderboard(commands.Cog):
                 release_db_connection(conn)
             
             # Fetch weekly data and get top 3
-            logger.info(f"[MultiLeaderboard] Fetching weekly data for payouts: {start_date} to {end_date}")
+            logger.info(f"[MultiLeaderboard] 📊 Fetching weekly data for payouts: {start_date} to {end_date}")
             weekly_weighted_data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date)
+            logger.info(f"[MultiLeaderboard] 📊 Received {len(weekly_weighted_data)} entries from API")
             
             # Filter and sort by highest multiplier
             multi_data = [entry for entry in weekly_weighted_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
             multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
+            logger.info(f"[MultiLeaderboard] 📊 Filtered to {len(multi_data)} entries with valid multipliers")
             
             # Process top 3 winners
             winners_processed = 0
@@ -331,10 +343,11 @@ class MultiLeaderboard(commands.Cog):
                 prize_amount = PRIZE_DISTRIBUTION[i]
                 
                 if not user_id or not username:
+                    logger.warning(f"[MultiLeaderboard] ⚠️ Rank #{i+1} missing user_id or username, skipping")
                     continue
                 
                 # Send the tip
-                logger.info(f"[MultiLeaderboard] Sending weekly prize: ${prize_amount} to {username} (Rank #{i+1})")
+                logger.info(f"[MultiLeaderboard] 💸 Sending weekly prize: ${prize_amount} to {username} (Rank #{i+1}, x{multiplier:.2f})")
                 tip_response = await send_tip(
                     user_id=os.getenv("ROOBET_USER_ID"),
                     to_username=username,
@@ -342,7 +355,10 @@ class MultiLeaderboard(commands.Cog):
                     amount=prize_amount
                 )
                 
+                logger.info(f"[MultiLeaderboard] Tip response: {tip_response}")
+                
                 if tip_response.get("success"):
+                    logger.info(f"[MultiLeaderboard] ✅ Tip SUCCESSFUL for {username}")
                     # Record the payout in database
                     conn = get_db_connection()
                     try:
@@ -353,6 +369,9 @@ class MultiLeaderboard(commands.Cog):
                                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                             """, (week_key, i+1, user_id, username, prize_amount, multiplier, game_name))
                             conn.commit()
+                            logger.info(f"[MultiLeaderboard] 💾 Recorded payout in database for {username}")
+                    except Exception as db_error:
+                        logger.error(f"[MultiLeaderboard] ❌ Failed to record payout in database: {db_error}")
                     finally:
                         release_db_connection(conn)
                     
@@ -367,12 +386,13 @@ class MultiLeaderboard(commands.Cog):
                     )
                     
                     winners_processed += 1
-                    logger.info(f"[MultiLeaderboard] Successfully paid ${prize_amount} to {username} for Rank #{i+1}")
+                    logger.info(f"[MultiLeaderboard] 🏆 Successfully paid ${prize_amount} to {username} for Rank #{i+1}")
                     
                 else:
-                    logger.error(f"[MultiLeaderboard] Failed to tip {username}: {tip_response.get('message')}")
+                    logger.error(f"[MultiLeaderboard] ❌ FAILED to tip {username}: Response={tip_response}")
                 
                 # INCREASED: 30 second delay between tips to ensure processing
+                logger.info(f"[MultiLeaderboard] ⏳ Waiting 30 seconds before next tip...")
                 await asyncio.sleep(30)
             
             # Send summary to logs channel if any winners were processed
@@ -420,6 +440,13 @@ class MultiLeaderboard(commands.Cog):
                         ping_role_id = os.getenv("WEEKLY_MULTIPLIER_PING_ROLE_ID")
                         content = f"<@&{ping_role_id}>" if ping_role_id else None
                         await logs_channel.send(content=content, embed=embed)
+                        logger.info(f"[MultiLeaderboard] 📢 Posted payout summary to logs channel")
+                    else:
+                        logger.warning(f"[MultiLeaderboard] ⚠️ Logs channel {logs_channel_id} not found, cannot post summary")
+                else:
+                    logger.warning(f"[MultiLeaderboard] ⚠️ WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID not configured, skipping summary post")
+            else:
+                logger.warning(f"[MultiLeaderboard] ⚠️ No winners processed, skipping summary post to logs channel")
                         
             # Clean up the processing lock record
             conn = get_db_connection()
@@ -430,14 +457,16 @@ class MultiLeaderboard(commands.Cog):
                         (week_key,)
                     )
                     conn.commit()
-                    logger.info(f"[MultiLeaderboard] Cleaned up processing lock for week {week_key}")
+                    logger.info(f"[MultiLeaderboard] 🧹 Cleaned up processing lock for week {week_key}")
+            except Exception as cleanup_error:
+                logger.warning(f"[MultiLeaderboard] Failed to clean up lock record: {cleanup_error}")
             finally:
                 release_db_connection(conn)
                         
-            logger.info(f"[MultiLeaderboard] Weekly payout process completed. {winners_processed} winners processed.")
+            logger.info(f"[MultiLeaderboard] ✅✅✅ WEEKLY PAYOUT PROCESS COMPLETED. {winners_processed} winners processed. ✅✅✅")
             
         except Exception as e:
-            logger.error(f"[MultiLeaderboard] Error in weekly payout process: {e}")
+            logger.error(f"[MultiLeaderboard] ❌❌❌ CRITICAL ERROR in weekly payout process: {e}", exc_info=True)
             import traceback
             logger.error(f"[MultiLeaderboard] Traceback: {traceback.format_exc()}")
 
