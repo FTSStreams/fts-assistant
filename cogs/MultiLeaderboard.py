@@ -50,13 +50,13 @@ class MultiLeaderboard(commands.Cog):
         # Filter and sort by highestMultiplier
         multi_data = [entry for entry in weekly_weighted_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
         multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
-        # Calculate next Monday 12:00 AM UTC for reset timestamp
+        # Calculate next Friday 12:00 AM UTC for reset timestamp
         now = datetime.now(dt.UTC)
-        days_until_monday = (7 - now.weekday()) % 7  # Get days until next Monday
-        if days_until_monday == 0:  # If it's Monday, get next Monday
-            days_until_monday = 7
-        next_monday = now + dt.timedelta(days=days_until_monday)
-        next_monday = next_monday.replace(hour=0, minute=0, second=0, microsecond=0)
+        days_until_friday = (4 - now.weekday()) % 7  # Friday is weekday 4
+        if days_until_friday == 0:  # If it's Friday, get next Friday
+            days_until_friday = 7
+        next_friday = now + dt.timedelta(days=days_until_friday)
+        next_friday = next_friday.replace(hour=0, minute=0, second=0, microsecond=0)
         
         embed = discord.Embed(
             title="🏆 **Weekly Top Multipliers Leaderboard** 🏆",
@@ -66,7 +66,7 @@ class MultiLeaderboard(commands.Cog):
                 f"To: <t:{int(datetime.fromisoformat(end_date.replace('Z', '+00:00')).timestamp())}:F>\n\n"
                 f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"
                 "This leaderboard ranks users by their highest single multiplier hit this week.\n"
-                f"**Resets:** <t:{int(next_monday.timestamp())}:F>\n\n"
+                f"**Resets:** <t:{int(next_friday.timestamp())}:F>\n\n"
                 "💵 **All amounts displayed are in USD.**\n\n"
             ),
             color=discord.Color.purple()
@@ -110,7 +110,7 @@ class MultiLeaderboard(commands.Cog):
                 ),
                 inline=False
             )
-        embed.set_footer(text="Our automated reward distribution system tips winners every Sunday at 11:59 PM UTC.")
+        embed.set_footer(text="Our automated reward distribution system tips winners every Friday at 12:00 AM UTC.")
         
         # Prepare JSON data for export (weekly format)
         leaderboard_json = {
