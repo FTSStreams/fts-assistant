@@ -192,17 +192,17 @@ class MultiLeaderboard(commands.Cog):
 
     @tasks.loop(minutes=5)  # Check every 5 minutes for weekly payout
     async def weekly_payout_check(self):
-        """Check if it's time for weekly multiplier payouts (TEMP: Monday 6:40 UTC for testing)"""
+        """Check if it's time for weekly multiplier payouts (TEMP: Monday 18:45 UTC for testing)"""
         try:
             now = datetime.now(dt.UTC)
             
-            # TEMPORARY: Check on Monday at 6:40 UTC for testing purposes
+            # TEMPORARY: Check on Monday at 18:45 UTC for testing purposes
             is_monday = now.weekday() == 0  # Monday = 0
-            is_payout_time = now.hour == 6 and 40 <= now.minute <= 44
+            is_payout_time = now.hour == 18 and 45 <= now.minute <= 49
             
             # Debug logging - log every check during the critical window
-            if is_monday and now.hour == 6 and 35 <= now.minute <= 45:
-                logger.info(f"[MultiLeaderboard] Monday 6:XX UTC (TEST) - Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC - Minute: {now.minute}")
+            if is_monday and now.hour == 18 and 40 <= now.minute <= 50:
+                logger.info(f"[MultiLeaderboard] Monday 18:XX UTC (TEST) - Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC - Minute: {now.minute}")
             
             if not (is_monday and is_payout_time):
                 return
