@@ -192,19 +192,19 @@ class MultiLeaderboard(commands.Cog):
 
     @tasks.loop(minutes=5)  # Check every 5 minutes for weekly payout
     async def weekly_payout_check(self):
-        """Check if it's time for weekly multiplier payouts (TEMP: Monday 18:55 UTC for testing)"""
+        """Check if it's time for weekly multiplier payouts (TEMP: Friday 00:00 UTC for testing)"""
         try:
             now = datetime.now(dt.UTC)
             
-            # TEMPORARY: Check on Monday at 18:55 UTC for testing purposes
-            is_monday = now.weekday() == 0  # Monday = 0
-            is_payout_time = now.hour == 18 and 55 <= now.minute <= 59
+            # TEMPORARY: Check on Friday at 00:00 UTC for testing purposes
+            is_friday = now.weekday() == 4  # Friday = 4
+            is_payout_time = now.hour == 0 and 0 <= now.minute <= 4
             
             # Debug logging - log every check during the critical window
-            if is_monday and now.hour == 18 and 50 <= now.minute <= 59:
-                logger.info(f"[MultiLeaderboard] Monday 18:XX UTC (TEST) - Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC - Minute: {now.minute}")
+            if is_friday and now.hour == 0 and 0 <= now.minute <= 4:
+                logger.info(f"[MultiLeaderboard] Friday 00:XX UTC (TEST) - Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC - Minute: {now.minute}")
             
-            if not (is_monday and is_payout_time):
+            if not (is_friday and is_payout_time):
                 return
             
             # Get the week identifier (Monday of current week)
@@ -391,11 +391,11 @@ class MultiLeaderboard(commands.Cog):
                         for i in range(winners_processed):
                             entry = multi_data[i]
                             username = entry.get("username", "Unknown")
-                            # Censor username for public display
+                            # Censor username for public display - use bullet points instead of asterisks to avoid markdown issues
                             if len(username) > 3:
-                                display_username = username[:-3] + "***"
+                                display_username = username[:3] + "•••"
                             else:
-                                display_username = "***"
+                                display_username = "•••"
                             
                             multiplier = entry["highestMultiplier"].get("multiplier", 0)
                             game_name = entry["highestMultiplier"].get("gameTitle", "Unknown")
@@ -413,13 +413,30 @@ class MultiLeaderboard(commands.Cog):
                             )
                         
                         # Create the embed with the detailed format
+                        # Convert week_key (YYYY-MM-DD) to timestamp for start of week
+                        try:
+                            week_start_dt = datetime.fromisoformat(week_key + "T00:00:00+00:00")
+                            week_start_ts = int(week_start_dt.timestamp())
+                            # Week ends on Sunday, so add 6 days
+                            week_end_dt = week_start_dt + dt.timedelta(days=6)
+                            week_end_dt = week_end_dt.replace(hour=23, minute=59, second=59)
+                            week_end_ts = int(week_end_dt.timestamp())
+                        except:
+                            week_start_ts = None
+                            week_end_ts = None
+                        
+                        if week_start_ts and week_end_ts:
+                            description = f"**Week Period:** <t:{week_start_ts}:F> → <t:{week_end_ts}:F>\n\n{winners_text}*Payouts completed successfully via Roobet affiliate system*"
+                        else:
+                            description = f"**Week of {week_key}**\n\n{winners_text}*Payouts completed successfully via Roobet affiliate system*"
+                        
                         embed = discord.Embed(
                             title="🏆 Weekly Multiplier Leaderboard Payouts",
-                            description=f"**Week of {week_key}**\n\n{winners_text}*Payouts completed successfully via Roobet affiliate system*",
+                            description=description,
                             color=discord.Color.green()
                         )
                         
-                        embed.set_footer(text=f"Next weekly competition starts Monday 12:00 AM UTC")
+                        embed.set_footer(text=f"Next weekly competition starts Friday 12:00 AM UTC")
                         
                         # Ping the notification role if configured
                         ping_role_id = os.getenv("WEEKLY_MULTIPLIER_PING_ROLE_ID")
@@ -704,15 +721,15 @@ class MultiLeaderboard(commands.Cog):
                 if logs_channel_id:
                     logs_channel = self.bot.get_channel(logs_channel_id)
                     if logs_channel:
-                        # Format the detailed winners list
-                        winners_text = "**Winners (TEST PAYOUT):**\n\n"
+                        # Format the detailed winners list - EXACT SAME FORMAT AS REAL PAYOUT
+                        winners_text = ""
                         for winner in winners_data:
                             username = winner["username"]
-                            # Censor username for public display
+                            # Censor username for public display - use bullet points instead of asterisks to avoid markdown issues
                             if len(username) > 3:
-                                display_username = username[:-3] + "***"
+                                display_username = username[:3] + "•••"
                             else:
-                                display_username = "***"
+                                display_username = "•••"
                             
                             multiplier = winner["multiplier"]
                             game_name = winner["game_name"]
@@ -730,14 +747,31 @@ class MultiLeaderboard(commands.Cog):
                                 f"   💰 Bet: ${wagered:,.2f} | Payout: ${payout:,.2f}\n\n"
                             )
                         
-                        # Create the embed with the detailed format
+                        # Create the embed with the EXACT SAME format as real payout
+                        # Convert week_key (YYYY-MM-DD) to timestamp for start of week
+                        try:
+                            week_start_dt = datetime.fromisoformat(week_key + "T00:00:00+00:00")
+                            week_start_ts = int(week_start_dt.timestamp())
+                            # Week ends on Sunday, so add 6 days
+                            week_end_dt = week_start_dt + dt.timedelta(days=6)
+                            week_end_dt = week_end_dt.replace(hour=23, minute=59, second=59)
+                            week_end_ts = int(week_end_dt.timestamp())
+                        except:
+                            week_start_ts = None
+                            week_end_ts = None
+                        
+                        if week_start_ts and week_end_ts:
+                            description = f"**Week Period:** <t:{week_start_ts}:F> → <t:{week_end_ts}:F>\n\n{winners_text}*Payouts completed successfully via Roobet affiliate system*"
+                        else:
+                            description = f"**Week of {week_key}**\n\n{winners_text}*Payouts completed successfully via Roobet affiliate system*"
+                        
                         embed = discord.Embed(
-                            title="🏆 Weekly Multiplier Leaderboard Payouts (TEST)",
-                            description=f"**Week of {week_key}** - Test Payout\n\n{winners_text}*Test payouts completed via Roobet affiliate system*",
-                            color=discord.Color.orange()
+                            title="🏆 Weekly Multiplier Leaderboard Payouts",
+                            description=description,
+                            color=discord.Color.green()
                         )
                         
-                        embed.set_footer(text=f"Test payout run at {now.strftime('%Y-%m-%d %H:%M:%S')} UTC by {interaction.user}")
+                        embed.set_footer(text=f"Next weekly competition starts Friday 12:00 AM UTC")
                         
                         # Ping the notification role if configured
                         ping_role_id = os.getenv("WEEKLY_MULTIPLIER_PING_ROLE_ID")
