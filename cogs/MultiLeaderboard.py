@@ -483,20 +483,20 @@ class MultiLeaderboard(commands.Cog):
             now = datetime.now(dt.UTC)
             start_date, end_date = get_current_week_range()
             
-            # Calculate time until next payout (Sunday 11:59 PM UTC)
-            days_until_sunday = (6 - now.weekday()) % 7  # 6 = Sunday
-            if now.weekday() == 6:  # If it's already Sunday
-                if now.hour < 23 or (now.hour == 23 and now.minute < 59):
-                    # Payout is later today
-                    next_payout = now.replace(hour=23, minute=59, second=0, microsecond=0)
+            # Calculate time until next payout (Friday 00:00 UTC)
+            days_until_friday = (4 - now.weekday()) % 7  # Friday = 4
+            if now.weekday() == 4:  # If it's already Friday
+                if now.hour == 0 and now.minute < 4:
+                    # Payout window is now
+                    next_payout = now.replace(hour=0, minute=0, second=0, microsecond=0)
                 else:
                     # Payout is next week
                     next_payout = now + dt.timedelta(days=7)
-                    next_payout = next_payout.replace(hour=23, minute=59, second=0, microsecond=0)
+                    next_payout = next_payout.replace(hour=0, minute=0, second=0, microsecond=0)
             else:
-                # Payout is this coming Sunday
-                next_payout = now + dt.timedelta(days=days_until_sunday)
-                next_payout = next_payout.replace(hour=23, minute=59, second=0, microsecond=0)
+                # Payout is this coming Friday
+                next_payout = now + dt.timedelta(days=days_until_friday)
+                next_payout = next_payout.replace(hour=0, minute=0, second=0, microsecond=0)
             
             time_until_payout = next_payout - now
             hours_until = int(time_until_payout.total_seconds() // 3600)
@@ -632,7 +632,7 @@ class MultiLeaderboard(commands.Cog):
                     f"**Week Key**: `{week_key}`\n"
                     f"**Data Entries**: {len(weekly_weighted_data)} total users\n"
                     f"**Qualified Players**: {len(multi_data)} with multipliers\n"
-                    f"**Current Day**: {now.strftime('%A')} (Sunday = Payout Day)\n"
+                    f"**Current Day**: {now.strftime('%A')} (Friday = Payout Day)\n"
                     f"**Timezone**: UTC"
                 ),
                 inline=False
