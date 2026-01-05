@@ -14,7 +14,7 @@ GUILD_ID = int(os.getenv("GUILD_ID"))
 MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID"))  # No default, must be set in env
 if not MULTI_LEADERBOARD_CHANNEL_ID:
     raise RuntimeError("MULTI_LEADERBOARD_CHANNEL_ID environment variable must be set!")
-PRIZE_DISTRIBUTION = [3, 2, 1]  # TEMP TEST: $3, $2, $1 (normally $20, $15, $5)
+PRIZE_DISTRIBUTION = [20, 15, 5]  # Weekly prizes: $20, $15, $5
 
 class MultiLeaderboard(commands.Cog):
     def __init__(self, bot):
@@ -192,17 +192,17 @@ class MultiLeaderboard(commands.Cog):
 
     @tasks.loop(minutes=5)  # Check every 5 minutes for weekly payout
     async def weekly_payout_check(self):
-        """Check if it's time for weekly multiplier payouts (TEMP: Friday 00:00 UTC for testing)"""
+        """Check if it's time for weekly multiplier payouts (Friday 00:00 UTC)"""
         try:
             now = datetime.now(dt.UTC)
             
-            # TEMPORARY: Check on Friday at 00:00 UTC for testing purposes
+            # Check if we're within the payout window: Friday 00:00-00:04 UTC
             is_friday = now.weekday() == 4  # Friday = 4
             is_payout_time = now.hour == 0 and 0 <= now.minute <= 4
             
             # Debug logging - log every check during the critical window
-            if is_friday and now.hour == 0 and 0 <= now.minute <= 4:
-                logger.info(f"[MultiLeaderboard] Friday 00:XX UTC (TEST) - Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC - Minute: {now.minute}")
+            if is_friday and now.hour == 0 and -1 <= now.minute <= 5:
+                logger.info(f"[MultiLeaderboard] Friday 00:XX UTC - Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC - Minute: {now.minute}")
             
             if not (is_friday and is_payout_time):
                 return
