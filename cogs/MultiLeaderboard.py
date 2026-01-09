@@ -201,8 +201,8 @@ class MultiLeaderboard(commands.Cog):
             is_payout_time = now.hour == 0 and 0 <= now.minute <= 4
             
             # Debug logging - log every check during the critical window
-            if is_friday and now.hour == 0 and -1 <= now.minute <= 5:
-                logger.info(f"[MultiLeaderboard] Friday 00:XX UTC - Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC - Minute: {now.minute}")
+            if is_friday and now.hour == 0:
+                logger.info(f"[MultiLeaderboard] 🔍 PAYOUT WINDOW CHECK - Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC - Minute: {now.minute} - Is payout time: {is_payout_time}")
             
             if not (is_friday and is_payout_time):
                 return
@@ -795,6 +795,10 @@ class MultiLeaderboard(commands.Cog):
     @update_multi_leaderboard.before_loop
     async def before_multi_leaderboard_loop(self):
         await self.bot.wait_until_ready()
+
+    @weekly_payout_check.error
+    async def weekly_payout_check_error(self, error):
+        logger.error(f"[MultiLeaderboard] TASK LOOP ERROR in weekly_payout_check: {error}", exc_info=True)
 
     def cog_unload(self):
         self.update_multi_leaderboard.cancel()
