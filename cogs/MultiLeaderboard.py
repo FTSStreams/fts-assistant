@@ -36,8 +36,15 @@ class MultiLeaderboard(commands.Cog):
             logger.error("MultiLeaderboard channel not found.")
             return
         
-        # Get current week range (Monday to Sunday)
-        start_date, end_date = get_current_week_range()
+        # Get the UPCOMING week range (the week we're currently competing in)
+        now = datetime.now(dt.UTC)
+        days_since_friday = (now.weekday() - 4) % 7
+        start_of_week = now - dt.timedelta(days=days_since_friday)
+        start_date = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        
+        end_of_week = start_of_week + dt.timedelta(days=6)
+        end_date = end_of_week.replace(hour=23, minute=59, second=59, microsecond=999999).isoformat()
+        
         logger.info(f"[MultiLeaderboard] Fetching weekly data from {start_date} to {end_date}")
         
         try:
@@ -254,16 +261,28 @@ class MultiLeaderboard(commands.Cog):
             logger.error(f"[MultiLeaderboard] ERROR in weekly_payout_check: {e}", exc_info=True)
 
     async def process_weekly_payouts(self):
-        """Process payouts for the current week's top 3 multiplier winners"""
+        """Process payouts for the previous week's top 3 multiplier winners"""
         try:
-            # Get current week range
-            start_date, end_date = get_current_week_range()
+            # Get PREVIOUS week range (the week that just completed)
+            now = datetime.now(dt.UTC)
+            # Go back 7 days to get the previous week
+            prev_week = now - dt.timedelta(days=7)
+            # Get the week range for that previous week
+            days_since_friday = (prev_week.weekday() - 4) % 7
+            start_of_week = prev_week - dt.timedelta(days=days_since_friday)
+            start_date = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+            
+            end_of_week = start_of_week + dt.timedelta(days=6)
+            end_date = end_of_week.replace(hour=23, minute=59, second=59, microsecond=999999).isoformat()
+            
+            logger.info(f"[MultiLeaderboard] 📅 Payout week range: {start_date} to {end_date}")
             week_key = f"{start_date[:10]}"  # Use start date as week identifier (YYYY-MM-DD)
             
-            # First, ensure the table exists
+            # First, ensure the table exists and has correct schema
             conn = get_db_connection()
             try:
                 with conn.cursor() as cur:
+                    # Create table if it doesn't exist
                     cur.execute("""
                         CREATE TABLE IF NOT EXISTS weekly_multiplier_payouts (
                             id SERIAL PRIMARY KEY,
@@ -278,10 +297,19 @@ class MultiLeaderboard(commands.Cog):
                             UNIQUE(week_start, rank)
                         );
                     """)
+                    
+                    # Try to alter user_id column to VARCHAR if it exists as BIGINT
+                    try:
+                        cur.execute("ALTER TABLE weekly_multiplier_payouts ALTER COLUMN user_id TYPE VARCHAR(255);")
+                        logger.info("[MultiLeaderboard] ✅ Altered user_id column to VARCHAR(255)")
+                    except Exception as alter_error:
+                        # Column might already be VARCHAR, that's fine
+                        logger.debug(f"[MultiLeaderboard] user_id column alter (may already be correct): {alter_error}")
+                    
                     conn.commit()
-                    logger.info("[MultiLeaderboard] ✅ Ensured weekly_multiplier_payouts table exists")
+                    logger.info("[MultiLeaderboard] ✅ Ensured weekly_multiplier_payouts table exists with correct schema")
             except Exception as e:
-                logger.warning(f"[MultiLeaderboard] ⚠️ Could not create table: {e}")
+                logger.warning(f"[MultiLeaderboard] ⚠️ Could not create/alter table: {e}")
                 conn.rollback()
             finally:
                 release_db_connection(conn)
