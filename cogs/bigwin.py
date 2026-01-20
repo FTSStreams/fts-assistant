@@ -46,16 +46,15 @@ class BigWin(commands.Cog):
             title="🎰 BIG WIN ALERT 🎰",
             description=f"**Game:** {game_name}\n"
                        f"**Multi:** {multiplier:,.2f}x\n"
-                       f"**Payout:** ${payout:,.2f} (${bet_size:,.2f} Bet)",
+                       f"**Payout:** ${payout:,.2f}\n"
+                       f"**Bet Size:** ${bet_size:,.2f}\n\n"
+                       f"{replay_link}",
             color=discord.Color.gold()
         )
         
         # Get role ID from environment
         bigwin_role_id = os.getenv("BIGWIN_ROLE_ID")
-        role_ping = f"<@&{bigwin_role_id}>" if bigwin_role_id else ""
-        
-        # Combine role ping, embed, and replay link
-        content = f"{role_ping}\n{replay_link}" if role_ping else replay_link
+        content = f"<@&{bigwin_role_id}>" if bigwin_role_id else None
         
         # Send the big win announcement
         await interaction.response.send_message(content=content, embed=embed)
