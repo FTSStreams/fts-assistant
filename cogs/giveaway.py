@@ -35,6 +35,7 @@ class Giveaway(commands.Cog):
         
         # Calculate end time
         now = datetime.now(dt.UTC)
+        start_timestamp = int(now.timestamp())
         end_time = now + timedelta(minutes=time_minutes)
         end_timestamp = int(end_time.timestamp())
         
@@ -106,18 +107,33 @@ class Giveaway(commands.Cog):
         
         # Update embed with winner
         end_embed = discord.Embed(
-            title="🎉 GIVEAWAY ENDED 🎉",
+            title="🏆 GIVEAWAY ENDED 🏆",
             description=f"**Prize:** {prize}\n\n"
-                       f"**Winner:** {winner.mention}\n"
-                       f"**Total Entries:** {len(users)}",
+                       f"🎊 **Winner:** {winner.mention} 🎊\n\n"
+                       f"**Started:** <t:{start_timestamp}:F>\n"
+                       f"**Ended:** <t:{end_timestamp}:F>\n"
+                       f"**Total Entries:** {len(users)} participants",
             color=discord.Color.green()
         )
-        end_embed.set_footer(text=f"Started by {interaction.user.display_name}")
+        end_embed.set_footer(text=f"Hosted by {interaction.user.display_name} • Thanks for participating!")
         
         await message.edit(embed=end_embed)
         
-        # Send winner announcement
-        await message.channel.send(f"🎊 Congratulations {winner.mention}! You won **{prize}**! 🎊")
+        # Send winner announcement with claim instructions
+        congrats_embed = discord.Embed(
+            title="🎊 GIVEAWAY WINNER 🎊",
+            description=f"Congratulations {winner.mention}!\n\n"
+                       f"You won **{prize}**!\n\n"
+                       f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                       f"**🎁 How to Claim Your Prize:**\n"
+                       f"Please create a ticket in <#1321614329584697474> to claim your reward!\n\n"
+                       f"*Make sure to mention this giveaway win in your ticket.*",
+            color=discord.Color.gold()
+        )
+        congrats_embed.set_thumbnail(url=winner.display_avatar.url)
+        congrats_embed.set_footer(text="🎉 Thank you for participating in our giveaway!")
+        
+        await message.channel.send(content=winner.mention, embed=congrats_embed)
 
 async def setup(bot):
     await bot.add_cog(Giveaway(bot))
