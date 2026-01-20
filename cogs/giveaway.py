@@ -51,8 +51,11 @@ class Giveaway(commands.Cog):
         embed.set_footer(text=f"Started by {interaction.user.display_name}")
         embed.timestamp = now
         
-        # Send the giveaway message
-        await interaction.response.send_message(embed=embed)
+        # Send the giveaway message with role ping
+        giveaway_role_id = os.getenv("GIVEAWAY_ROLE_ID")
+        content = f"<@&{giveaway_role_id}>" if giveaway_role_id else None
+        
+        await interaction.response.send_message(content=content, embed=embed)
         message = await interaction.original_response()
         
         # Add reaction
