@@ -29,7 +29,8 @@ COGS = [
     "cogs.user",
     "cogs.MultiLeaderboard",
     "cogs.slotchallenge",
-    "cogs.giveaway"
+    "cogs.giveaway",
+    "cogs.bigwin"
 ]
 
 @bot.event
