@@ -44,8 +44,8 @@ class Giveaway(commands.Cog):
             title="🎉 GIVEAWAY 🎉",
             description=f"**Prize:** {prize}\n\n"
                        f"React with 🎉 to enter!\n\n"
-                       f"**Ends:** <t:{end_timestamp}:F>\n"
-                       f"**Time Remaining:** <t:{end_timestamp}:R>",
+                       f"🕒 **Ends:** <t:{end_timestamp}:F>\n"
+                       f"⏰ **Closes:** <t:{end_timestamp}:R>",
             color=discord.Color.gold()
         )
         embed.set_footer(text=f"Started by {interaction.user.display_name}")
@@ -120,14 +120,15 @@ class Giveaway(commands.Cog):
         await message.edit(embed=end_embed)
         
         # Send winner announcement with claim instructions
+        support_channel_id = os.getenv("SUPPORT_TICKET_CHANNEL_ID")
         congrats_embed = discord.Embed(
             title="🎊 GIVEAWAY WINNER 🎊",
             description=f"Congratulations {winner.mention}!\n\n"
                        f"You won **{prize}**!\n\n"
                        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
                        f"**🎁 How to Claim Your Prize:**\n"
-                       f"Please create a ticket in <#1321614329584697474> to claim your reward!\n\n"
-                       f"*Make sure to mention this giveaway win in your ticket.*",
+                       f"Please create a ticket in <#{support_channel_id}> to claim your reward!\n\n"
+                       f"*Make sure you mention your Roobet ID in your ticket.*",
             color=discord.Color.gold()
         )
         congrats_embed.set_thumbnail(url=winner.display_avatar.url)
