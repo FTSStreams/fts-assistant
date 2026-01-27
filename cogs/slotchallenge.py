@@ -371,12 +371,15 @@ class SlotChallenge(commands.Cog):
                     multiplier = hm.get('multiplier', 0)
                     min_bet = challenge.get('min_bet')
                     
+                    # Ensure required_multi is a float for comparison
+                    required_multi = float(challenge['required_multi'])
+                    
                     # Log user data for verification
                     logger.info(f"[SlotChallenge] User: {entry['username']} | Bet: ${wagered:.2f} | Payout: ${hm.get('payout', 0):.2f} | Multi: x{multiplier}")
                     
                     # Check if this multiplier meets the challenge requirements
                     if (
-                        multiplier >= challenge['required_multi']
+                        multiplier >= required_multi
                         and (min_bet is None or wagered >= min_bet)
                     ):
                         winners.append({
