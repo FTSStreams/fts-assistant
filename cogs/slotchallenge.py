@@ -373,15 +373,21 @@ class SlotChallenge(commands.Cog):
                     
                     # Ensure required_multi is a float for comparison
                     required_multi = float(challenge['required_multi'])
+                    # Ensure min_bet is a float if it exists
+                    if min_bet is not None:
+                        min_bet = float(min_bet)
                     
                     # Log user data for verification
                     logger.info(f"[SlotChallenge] User: {entry['username']} | Bet: ${wagered:.2f} | Payout: ${hm.get('payout', 0):.2f} | Multi: x{multiplier}")
                     
                     # Check if this multiplier meets the challenge requirements
-                    if (
-                        multiplier >= required_multi
-                        and (min_bet is None or wagered >= min_bet)
-                    ):
+                    meets_multi = multiplier >= required_multi
+                    meets_bet = (min_bet is None or wagered >= min_bet)
+                    
+                    # DEBUG: Log the comparison results
+                    logger.info(f"[SlotChallenge] DEBUG - {entry['username']}: multi {multiplier} >= {required_multi}? {meets_multi} | bet ${wagered} >= ${min_bet}? {meets_bet}")
+                    
+                    if meets_multi and meets_bet:
                         winners.append({
                             "uid": entry['uid'],
                             "username": entry['username'],
