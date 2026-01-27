@@ -382,7 +382,8 @@ class SlotChallenge(commands.Cog):
                     
                     # Check if this multiplier meets the challenge requirements
                     meets_multi = multiplier >= required_multi
-                    meets_bet = (min_bet is None or wagered >= min_bet)
+                    # Use rounding for bet comparison to avoid floating-point precision issues
+                    meets_bet = (min_bet is None or round(wagered, 2) >= round(min_bet, 2))
                     
                     # DEBUG: Log the comparison results
                     logger.info(f"[SlotChallenge] DEBUG - {entry['username']}: multi {multiplier} >= {required_multi}? {meets_multi} | bet ${wagered} >= ${min_bet}? {meets_bet}")
