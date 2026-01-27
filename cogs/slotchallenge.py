@@ -417,8 +417,6 @@ class SlotChallenge(commands.Cog):
             remove_active_slot_challenge(cid)
         if completed_ids:
             await self.update_challenges_embed()
-            # Instantly update history embed when challenges are completed
-            await self.refresh_multi_challenge_history_embed()
         
         # Always update challenge embed after checking (ensures fresh data)
         logger.info("[SlotChallenge] Updating challenge embed after check cycle")
