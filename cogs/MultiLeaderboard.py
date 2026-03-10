@@ -57,13 +57,18 @@ class MultiLeaderboard(commands.Cog):
         # Filter and sort by highestMultiplier
         multi_data = [entry for entry in weekly_weighted_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
         multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
-        # Calculate next Friday 22:15 UTC for reset timestamp
+        # Calculate next payout/reset timestamp (Friday 00:15 UTC)
         now = datetime.now(dt.UTC)
         days_until_friday = (4 - now.weekday()) % 7  # Friday is weekday 4
-        if days_until_friday == 0:  # If it's Friday, get next Friday
-            days_until_friday = 7
-        next_friday = now + dt.timedelta(days=days_until_friday)
-        next_friday = next_friday.replace(hour=22, minute=15, second=0, microsecond=0)
+        if days_until_friday == 0 and now.hour == 0 and now.minute < 15:
+            # It's Friday and payout/reset is still upcoming in a few minutes
+            next_friday = now.replace(hour=0, minute=15, second=0, microsecond=0)
+        else:
+            # Otherwise, show the next weekly Friday 00:15 UTC reset
+            if days_until_friday == 0:
+                days_until_friday = 7
+            next_friday = now + dt.timedelta(days=days_until_friday)
+            next_friday = next_friday.replace(hour=0, minute=15, second=0, microsecond=0)
         
         embed = discord.Embed(
             title="🏆 **Weekly Top Multipliers Leaderboard** 🏆",
@@ -117,7 +122,7 @@ class MultiLeaderboard(commands.Cog):
                 ),
                 inline=False
             )
-        embed.set_footer(text="Our automated reward distribution system tips winners every Friday at 10:15 PM UTC.")
+        embed.set_footer(text="Our automated reward distribution system tips winners every Friday at 12:15 AM UTC.")
         
         # Prepare JSON data for export (weekly format)
         leaderboard_json = {
@@ -199,16 +204,16 @@ class MultiLeaderboard(commands.Cog):
 
     @tasks.loop(minutes=5)  # Check every 5 minutes for weekly payout
     async def weekly_payout_check(self):
-        """Check if it's time for weekly multiplier payouts (Friday 22:15 UTC)"""
+        """Check if it's time for weekly multiplier payouts (Friday 00:15 UTC)"""
         try:
             now = datetime.now(dt.UTC)
             
-            # Check if we're within the payout window: Friday 22:15-22:19 UTC
+            # Check if we're within the payout window: Friday 00:15-00:19 UTC
             is_friday = now.weekday() == 4  # Friday = 4
-            is_payout_time = now.hour == 22 and 15 <= now.minute <= 19
+            is_payout_time = now.hour == 0 and 15 <= now.minute <= 19
             
             # Debug logging - log every check during the critical window
-            if is_friday and now.hour == 22:
+            if is_friday and now.hour == 0:
                 logger.info(f"[MultiLeaderboard] 🔍 PAYOUT WINDOW CHECK - Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC - Minute: {now.minute} - Is payout time: {is_payout_time}")
             
             if not (is_friday and is_payout_time):
@@ -464,7 +469,7 @@ class MultiLeaderboard(commands.Cog):
                             color=discord.Color.green()
                         )
                         
-                        embed.set_footer(text=f"Next weekly competition starts Friday 10:15 PM UTC")
+                        embed.set_footer(text=f"Next weekly competition starts Friday 12:15 AM UTC")
                         
                         # Ping the notification role if configured
                         ping_role_id = os.getenv("WEEKLY_MULTIPLIER_PING_ROLE_ID")
@@ -511,20 +516,20 @@ class MultiLeaderboard(commands.Cog):
             now = datetime.now(dt.UTC)
             start_date, end_date = get_current_week_range()
             
-            # Calculate time until next payout (Friday 22:15 UTC)
+            # Calculate time until next payout (Friday 00:15 UTC)
             days_until_friday = (4 - now.weekday()) % 7  # Friday = 4
             if now.weekday() == 4:  # If it's already Friday
-                if now.hour < 22 or (now.hour == 22 and now.minute < 15):
+                if now.hour == 0 and now.minute < 15:
                     # Payout is later today
-                    next_payout = now.replace(hour=22, minute=15, second=0, microsecond=0)
+                    next_payout = now.replace(hour=0, minute=15, second=0, microsecond=0)
                 else:
                     # Payout is next week
                     next_payout = now + dt.timedelta(days=7)
-                    next_payout = next_payout.replace(hour=22, minute=15, second=0, microsecond=0)
+                    next_payout = next_payout.replace(hour=0, minute=15, second=0, microsecond=0)
             else:
                 # Payout is this coming Friday
                 next_payout = now + dt.timedelta(days=days_until_friday)
-                next_payout = next_payout.replace(hour=22, minute=15, second=0, microsecond=0)
+                next_payout = next_payout.replace(hour=0, minute=15, second=0, microsecond=0)
             
             time_until_payout = next_payout - now
             hours_until = int(time_until_payout.total_seconds() // 3600)
@@ -799,7 +804,7 @@ class MultiLeaderboard(commands.Cog):
                             color=discord.Color.green()
                         )
                         
-                        embed.set_footer(text=f"Next weekly competition starts Friday 10:15 PM UTC")
+                        embed.set_footer(text=f"Next weekly competition starts Friday 12:15 AM UTC")
                         
                         # Ping the notification role if configured
                         ping_role_id = os.getenv("WEEKLY_MULTIPLIER_PING_ROLE_ID")
