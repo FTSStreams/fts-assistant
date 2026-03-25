@@ -27,6 +27,48 @@ class MultiLeaderboard(commands.Cog):
         """Get the DataManager cog"""
         return self.bot.get_cog('DataManager')
 
+    def _mask_public_username(self, username):
+        if len(username) > 3:
+            return username[:3] + "•••"
+        return "•••"
+
+    def _build_weekly_payout_embed(self, title, winners_data, week_start_ts=None, week_end_ts=None, week_key=None):
+        winners_text = ""
+        for winner in winners_data:
+            display_username = self._mask_public_username(winner["username"])
+            medal = ["🥇", "🥈", "🥉"][winner["rank"] - 1]
+            place = ["1st", "2nd", "3rd"][winner["rank"] - 1]
+            winners_text += (
+                f"{medal} **{place} Place:** @{display_username} - **x{winner['multiplier']:,.2f} multiplier**\n"
+                f"   🎰 Game: {winner['game_name']}\n"
+                f"   💰 Bet: ${winner['wagered']:,.2f} | Payout: ${winner['payout']:,.2f}\n"
+                f"   💸 Prize: ${winner['prize']:.0f}\n\n"
+            )
+
+        if not winners_text:
+            winners_text = "No multiplier data found for this week.\n\n"
+
+        if week_start_ts and week_end_ts:
+            description = (
+                f"**Week Period:** <t:{week_start_ts}:F> → <t:{week_end_ts}:F>\n\n"
+                f"{winners_text}"
+                "Track this week's multiplier leaderboard -> <#1352322188102991932>"
+            )
+        else:
+            description = (
+                f"**Week of {week_key}**\n\n"
+                f"{winners_text}"
+                "Track this week's multiplier leaderboard -> <#1352322188102991932>"
+            )
+
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=discord.Color.green()
+        )
+        embed.set_footer(text="AutoTip Engine Live • Payouts Sent Successfully")
+        return embed
+
     @tasks.loop(minutes=10)
     async def update_multi_leaderboard(self):
         logger.info("[MultiLeaderboard] Starting weekly multiplier leaderboard update cycle, waiting 2 minutes...")
@@ -208,9 +250,9 @@ class MultiLeaderboard(commands.Cog):
         try:
             now = datetime.now(dt.UTC)
             
-            # Check if we're within the payout window: Friday 00:15-00:19 UTC
+            # Check if we're within the payout window: Friday 00:15-00:59 UTC
             is_friday = now.weekday() == 4  # Friday = 4
-            is_payout_time = now.hour == 0 and 15 <= now.minute <= 19
+            is_payout_time = now.hour == 0 and 15 <= now.minute <= 59
             
             # Debug logging - log every check during the critical window
             if is_friday and now.hour == 0:
@@ -230,43 +272,29 @@ class MultiLeaderboard(commands.Cog):
                 logger.info(f"[MultiLeaderboard] Week {current_week_key} already processed locally, skipping")
                 return
             
-            logger.info(f"[MultiLeaderboard] Checking database for previous payouts on week {current_week_key}")
-            
-            # Check database to see if we've already paid out this week
-            conn = get_db_connection()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT COUNT(*) FROM weekly_multiplier_payouts WHERE week_start = %s AND rank > 0;",
-                        (current_week_key,)
-                    )
-                    result = cur.fetchone()
-                    already_paid = result[0] > 0 if result else False
-                    
-                    if already_paid:
-                        logger.info(f"[MultiLeaderboard] Week {current_week_key} already paid out in database ({result[0]} records), skipping")
-                        self.last_payout_week = current_week_key
-                        return
-                    else:
-                        logger.info(f"[MultiLeaderboard] No previous payouts found for week {current_week_key}, proceeding with payout")
-            except Exception as e:
-                logger.warning(f"[MultiLeaderboard] Database check failed (table may not exist yet): {e}, attempting to create table")
-            finally:
-                release_db_connection(conn)
-            
             # Process the payouts
             logger.info(f"[MultiLeaderboard] 🚀 EXECUTING WEEKLY PAYOUTS NOW!")
-            await self.process_weekly_payouts()
-            
-            # Mark week as processed locally
-            self.last_payout_week = current_week_key
-            logger.info(f"[MultiLeaderboard] ✅ PAYOUT PROCESS COMPLETED for week {current_week_key}")
+            payout_complete = await self.process_weekly_payouts()
+
+            if payout_complete:
+                # Mark week as processed locally only when week is fully complete.
+                self.last_payout_week = current_week_key
+                logger.info(f"[MultiLeaderboard] ✅ PAYOUT PROCESS COMPLETED for week {current_week_key}")
+            else:
+                logger.warning(
+                    f"[MultiLeaderboard] ⚠️ PAYOUT PARTIAL for week {current_week_key}. "
+                    "Will allow retry in next payout window/manual trigger."
+                )
             
         except Exception as e:
             logger.error(f"[MultiLeaderboard] ERROR in weekly_payout_check: {e}", exc_info=True)
 
     async def process_weekly_payouts(self):
-        """Process payouts for the previous week's top 3 multiplier winners"""
+        """Process payouts for the previous week's top 3 multiplier winners.
+
+        Returns True when the week's expected winners are fully paid/recorded.
+        Returns False when payout is partial or a fatal error occurs.
+        """
         try:
             # Get PREVIOUS week range (the week that just completed)
             now = datetime.now(dt.UTC)
@@ -319,40 +347,65 @@ class MultiLeaderboard(commands.Cog):
             finally:
                 release_db_connection(conn)
             
-            # Now check if already paid out this week
-            conn = get_db_connection()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT COUNT(*) FROM weekly_multiplier_payouts WHERE week_start = %s AND rank > 0;",
-                        (week_key,)
-                    )
-                    result = cur.fetchone()
-                    already_paid = result[0] > 0 if result else False
-                    
-                    if already_paid:
-                        logger.info(f"[MultiLeaderboard] Week {week_key} already paid out in database ({result[0]} records), skipping")
-                        return
-                    else:
-                        logger.info(f"[MultiLeaderboard] No previous payouts found for week {week_key}, proceeding with payout")
-            except Exception as e:
-                logger.error(f"[MultiLeaderboard] Error checking database: {e}")
-            finally:
-                release_db_connection(conn)
-            
             # Fetch weekly data and get top 3
             logger.info(f"[MultiLeaderboard] 📊 Fetching weekly data for payouts: {start_date} to {end_date}")
             weekly_weighted_data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date)
             logger.info(f"[MultiLeaderboard] 📊 Received {len(weekly_weighted_data)} entries from API")
-            
+
             # Filter and sort by highest multiplier
             multi_data = [entry for entry in weekly_weighted_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
             multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
             logger.info(f"[MultiLeaderboard] 📊 Filtered to {len(multi_data)} entries with valid multipliers")
-            
-            # Process top 3 winners
+
+            expected_winner_count = min(3, len(multi_data))
+            if expected_winner_count == 0:
+                logger.warning("[MultiLeaderboard] ⚠️ No valid multiplier winners found for payout week")
+                return True
+
+            # Load already-paid ranks for this week so we can retry only missing ranks.
+            conn = get_db_connection()
+            paid_rows_by_rank = {}
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT rank, username, multiplier, game_name, prize_amount
+                        FROM weekly_multiplier_payouts
+                        WHERE week_start = %s AND rank > 0
+                        ORDER BY rank ASC;
+                        """,
+                        (week_key,)
+                    )
+                    for rank, username, multiplier, game_name, prize_amount in cur.fetchall():
+                        paid_rows_by_rank[int(rank)] = {
+                            "rank": int(rank),
+                            "username": username,
+                            "multiplier": float(multiplier),
+                            "game_name": game_name,
+                            "wagered": 0.0,
+                            "payout": 0.0,
+                            "prize": float(prize_amount),
+                        }
+            except Exception as e:
+                logger.error(f"[MultiLeaderboard] Error checking database: {e}")
+            finally:
+                release_db_connection(conn)
+
+            if len(paid_rows_by_rank) >= expected_winner_count:
+                logger.info(
+                    f"[MultiLeaderboard] Week {week_key} already complete in database "
+                    f"({len(paid_rows_by_rank)}/{expected_winner_count}), skipping payouts"
+                )
+                return True
+
+            # Process only unpaid ranks among the top expected winners.
             winners_processed = 0
-            for i in range(min(3, len(multi_data))):
+            for i in range(expected_winner_count):
+                rank = i + 1
+                if rank in paid_rows_by_rank:
+                    logger.info(f"[MultiLeaderboard] Rank #{rank} already paid for week {week_key}, skipping")
+                    continue
+
                 entry = multi_data[i]
                 user_id = entry.get("uid")
                 username = entry.get("username", "Unknown")
@@ -385,7 +438,8 @@ class MultiLeaderboard(commands.Cog):
                                 INSERT INTO weekly_multiplier_payouts 
                                 (week_start, rank, user_id, username, prize_amount, multiplier, game_name)
                                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-                            """, (week_key, i+1, user_id, username, prize_amount, multiplier, game_name))
+                                ON CONFLICT (week_start, rank) DO NOTHING
+                            """, (week_key, rank, user_id, username, prize_amount, multiplier, game_name))
                             conn.commit()
                             logger.info(f"[MultiLeaderboard] 💾 Recorded payout in database for {username}")
                     except Exception as db_error:
@@ -404,7 +458,7 @@ class MultiLeaderboard(commands.Cog):
                     )
                     
                     winners_processed += 1
-                    logger.info(f"[MultiLeaderboard] 🏆 Successfully paid ${prize_amount} to {username} for Rank #{i+1}")
+                    logger.info(f"[MultiLeaderboard] 🏆 Successfully paid ${prize_amount} to {username} for Rank #{rank}")
                     
                 else:
                     logger.error(f"[MultiLeaderboard] ❌ FAILED to tip {username}: Response={tip_response}")
@@ -413,38 +467,46 @@ class MultiLeaderboard(commands.Cog):
                 logger.info(f"[MultiLeaderboard] ⏳ Waiting 30 seconds before next tip...")
                 await asyncio.sleep(30)
             
-            # Send summary to logs channel if any winners were processed
+            # Reload paid rows to determine completion and build summary from actual recorded winners.
+            paid_rows_by_rank = {}
+            conn = get_db_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT rank, username, multiplier, game_name, prize_amount
+                        FROM weekly_multiplier_payouts
+                        WHERE week_start = %s AND rank > 0
+                        ORDER BY rank ASC;
+                        """,
+                        (week_key,)
+                    )
+                    for rank, username, multiplier, game_name, prize_amount in cur.fetchall():
+                        paid_rows_by_rank[int(rank)] = {
+                            "rank": int(rank),
+                            "username": username,
+                            "multiplier": float(multiplier),
+                            "game_name": game_name,
+                            "wagered": 0.0,
+                            "payout": 0.0,
+                            "prize": float(prize_amount),
+                        }
+            except Exception as e:
+                logger.error(f"[MultiLeaderboard] Error reloading paid rows: {e}")
+            finally:
+                release_db_connection(conn)
+
+            payout_complete = len(paid_rows_by_rank) >= expected_winner_count
+
+            # Send summary to logs channel if we processed payouts in this run.
             if winners_processed > 0:
                 logs_channel_id = int(os.getenv("WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID", "0"))  # New env var for weekly multiplier payouts
                 if logs_channel_id:
                     logs_channel = self.bot.get_channel(logs_channel_id)
                     if logs_channel:
-                        # Format the detailed winners list
-                        winners_text = "**Winners:**\n\n"
-                        for i in range(winners_processed):
-                            entry = multi_data[i]
-                            username = entry.get("username", "Unknown")
-                            # Censor username for public display - use bullet points instead of asterisks to avoid markdown issues
-                            if len(username) > 3:
-                                display_username = username[:3] + "•••"
-                            else:
-                                display_username = "•••"
-                            
-                            multiplier = entry["highestMultiplier"].get("multiplier", 0)
-                            game_name = entry["highestMultiplier"].get("gameTitle", "Unknown")
-                            wagered = entry["highestMultiplier"].get("wagered", 0)
-                            payout = entry["highestMultiplier"].get("payout", 0)
-                            prize = PRIZE_DISTRIBUTION[i]
-                            
-                            medal = ["🥇", "🥈", "🥉"][i]
-                            place = ["1st", "2nd", "3rd"][i]
-                            
-                            winners_text += (
-                                f"{medal} **{place} Place:** @{display_username} - **x{multiplier:,.2f} multiplier**\n"
-                                f"   🎰 Game: {game_name}\n"
-                                f"   💰 Bet: ${wagered:,.2f} | Payout: ${payout:,.2f}\n"
-                                f"   💸 Prize: ${prize:.0f}\n\n"
-                            )
+                        summary_winners = []
+                        for rank in sorted(paid_rows_by_rank.keys()):
+                            summary_winners.append(paid_rows_by_rank[rank])
                         
                         # Create the embed with the detailed format
                         # Convert week_key (YYYY-MM-DD) to timestamp for start of week
@@ -459,26 +521,13 @@ class MultiLeaderboard(commands.Cog):
                             week_start_ts = None
                             week_end_ts = None
                         
-                        if week_start_ts and week_end_ts:
-                            description = (
-                                f"**Week Period:** <t:{week_start_ts}:F> → <t:{week_end_ts}:F>\n\n"
-                                f"{winners_text}"
-                                f"Track this week's multiplier leaderboard -> <#1352322188102991932>"
-                            )
-                        else:
-                            description = (
-                                f"**Week of {week_key}**\n\n"
-                                f"{winners_text}"
-                                f"Track this week's multiplier leaderboard -> <#1352322188102991932>"
-                            )
-                        
-                        embed = discord.Embed(
-                            title="🏆 Weekly Multiplier Leaderboard Payouts",
-                            description=description,
-                            color=discord.Color.green()
+                        embed = self._build_weekly_payout_embed(
+                            "🏆 Weekly Multiplier Leaderboard Payouts",
+                            summary_winners,
+                            week_start_ts=week_start_ts,
+                            week_end_ts=week_end_ts,
+                            week_key=week_key,
                         )
-                        
-                        embed.set_footer(text="AutoTip Engine Live • Payouts Sent Successfully")
                         
                         # Ping the notification role if configured
                         ping_role_id = os.getenv("WEEKLY_MULTIPLIER_PING_ROLE_ID")
@@ -508,11 +557,18 @@ class MultiLeaderboard(commands.Cog):
                 release_db_connection(conn)
                         
             logger.info(f"[MultiLeaderboard] ✅✅✅ WEEKLY PAYOUT PROCESS COMPLETED. {winners_processed} winners processed. ✅✅✅")
+            if not payout_complete:
+                logger.warning(
+                    f"[MultiLeaderboard] ⚠️ Week {week_key} payout is partial: "
+                    f"{len(paid_rows_by_rank)}/{expected_winner_count} ranks recorded"
+                )
+            return payout_complete
             
         except Exception as e:
             logger.error(f"[MultiLeaderboard] ❌❌❌ CRITICAL ERROR in weekly payout process: {e}", exc_info=True)
             import traceback
             logger.error(f"[MultiLeaderboard] Traceback: {traceback.format_exc()}")
+            return False
 
     @app_commands.command(name="testmultihistory", description="Simulate current weekly multiplier leaderboard and payout timing (admin only)")
     @app_commands.default_permissions(administrator=True)
@@ -521,45 +577,8 @@ class MultiLeaderboard(commands.Cog):
         await interaction.response.defer()
         
         try:
-            # Get current time and week information
-            now = datetime.now(dt.UTC)
             start_date, end_date = get_current_week_range()
-            
-            # Calculate time until next payout (Friday 00:15 UTC)
-            days_until_friday = (4 - now.weekday()) % 7  # Friday = 4
-            if now.weekday() == 4:  # If it's already Friday
-                if now.hour == 0 and now.minute < 15:
-                    # Payout is later today
-                    next_payout = now.replace(hour=0, minute=15, second=0, microsecond=0)
-                else:
-                    # Payout is next week
-                    next_payout = now + dt.timedelta(days=7)
-                    next_payout = next_payout.replace(hour=0, minute=15, second=0, microsecond=0)
-            else:
-                # Payout is this coming Friday
-                next_payout = now + dt.timedelta(days=days_until_friday)
-                next_payout = next_payout.replace(hour=0, minute=15, second=0, microsecond=0)
-            
-            time_until_payout = next_payout - now
-            hours_until = int(time_until_payout.total_seconds() // 3600)
-            minutes_until = int((time_until_payout.total_seconds() % 3600) // 60)
-            
-            # Check if this week was already paid out
             week_key = f"{start_date[:10]}"
-            conn = get_db_connection()
-            already_paid = False
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT COUNT(*) FROM weekly_multiplier_payouts WHERE week_start = %s AND rank > 0",
-                        (week_key,)
-                    )
-                    already_paid = cur.fetchone()[0] > 0
-            except:
-                # Table might not exist
-                pass
-            finally:
-                release_db_connection(conn)
             
             # Fetch current weekly data
             logger.info(f"[TestMultiHistory] Fetching weekly data: {start_date} to {end_date}")
@@ -568,15 +587,6 @@ class MultiLeaderboard(commands.Cog):
             # Filter and sort by highest multiplier
             multi_data = [entry for entry in weekly_weighted_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
             multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
-            
-            # Create the simulation embed
-            embed = discord.Embed(
-                title="🧪 **Weekly Multiplier Leaderboard Simulation** 🧪",
-                color=discord.Color.blue()
-            )
-            
-            # Add timing information
-            payout_status = "✅ ALREADY PAID OUT" if already_paid else f"⏰ Payouts in {hours_until}h {minutes_until}m"
             
             # Parse dates safely (handle microseconds)
             try:
@@ -588,100 +598,26 @@ class MultiLeaderboard(commands.Cog):
                 end_timestamp = int(datetime.fromisoformat(end_date.replace('Z', '+00:00')).timestamp())
             except:
                 end_timestamp = int(datetime.strptime(end_date[:19] + '+00:00', '%Y-%m-%dT%H:%M:%S%z').timestamp())
-            
-            embed.add_field(
-                name="📅 **Current Week Info**",
-                value=(
-                    f"**Week Period**: <t:{start_timestamp}:d> - <t:{end_timestamp}:d>\n"
-                    f"**Next Payout**: <t:{int(next_payout.timestamp())}:F>\n"
-                    f"**Status**: {payout_status}\n"
-                    f"**Current Time**: <t:{int(now.timestamp())}:F>"
-                ),
-                inline=False
-            )
-            
-            # Add current leaderboard in EXACT same format as real payout logs
-            if multi_data:
-                # Show exact format that will appear in the logs channel
-                week_key_for_display = start_date[:10]  # Same format as real payout
-                winners_preview = f"🏆 **Weekly Multiplier Leaderboard Payouts**\n**Week of {week_key_for_display}**\n\n**Winners:**\n\n"
-                
-                for i in range(min(3, len(multi_data))):
-                    entry = multi_data[i]
-                    username = entry.get("username", "Unknown")
-                    # Show uncensored for admin, but note what will be censored
-                    display_username = username
-                    if len(username) > 3:
-                        censored_username = username[:-3] + "***"
-                    else:
-                        censored_username = "***"
-                    
-                    multiplier = entry["highestMultiplier"].get("multiplier", 0)
-                    game = entry["highestMultiplier"].get("gameTitle", "Unknown")
-                    wagered = entry["highestMultiplier"].get("wagered", 0)
-                    payout = entry["highestMultiplier"].get("payout", 0)
-                    prize = PRIZE_DISTRIBUTION[i]
-                    
-                    medal = ["🥇", "🥈", "🥉"][i]
-                    place = ["1st", "2nd", "3rd"][i]
-                    
-                    winners_preview += (
-                        f"{medal} **{place} Place:** @{display_username} - **x{multiplier:,.2f} multiplier**\n"
-                        f"   🎰 Game: {game}\n"
-                        f"   💰 Bet: ${wagered:,.2f} | Payout: ${payout:,.2f}\n"
-                        f"   💸 Prize: ${prize:.0f}\n\n"
-                    )
 
-                winners_preview += "Track this week's multiplier leaderboard -> <#1352322188102991932>"
-                
-                embed.add_field(
-                    name="📋 **Exact Log Preview (What Will Be Posted)**",
-                    value=winners_preview[:1024],  # Discord field limit
-                    inline=False
-                )
-            else:
-                embed.add_field(
-                    name="🏆 **Current Top 3 Winners**",
-                    value="No multiplier data found for this week",
-                    inline=False
-                )
-            
-            # Add payout simulation details
-            if not already_paid and multi_data:
-                total_payout = sum(PRIZE_DISTRIBUTION[:min(3, len(multi_data))])
-                simulation_text = (
-                    f"**Total Payout**: ${total_payout} USD\n"
-                    f"**Processing Time**: ~90 seconds (30s delays between tips)\n"
-                    f"**Announcement Channel**: <#{os.getenv('WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID', 'NOT_SET')}>\n"
-                    f"**Database Lock**: Will prevent duplicate payouts\n"
-                    f"**Tip Type**: `weekly_multiplier` in tipstats"
-                )
-                embed.add_field(
-                    name="💸 **Payout Simulation**",
-                    value=simulation_text,
-                    inline=False
-                )
-            elif already_paid:
-                embed.add_field(
-                    name="✅ **Payout Complete**",
-                    value="This week's winners have already been paid out.",
-                    inline=False
-                )
-            
-            # Add technical details
-            embed.add_field(
-                name="🔧 **Technical Details**",
-                value=(
-                    f"**Week Key**: `{week_key}`\n"
-                    f"**Data Entries**: {len(weekly_weighted_data)} total users\n"
-                    f"**Qualified Players**: {len(multi_data)} with multipliers\n"
-                    f"**Current Day**: {now.strftime('%A')} (Friday = Payout Day)\n"
-                    f"**Timezone**: UTC"
-                ),
-                inline=False
+            summary_winners = []
+            for i, entry in enumerate(multi_data[:3]):
+                summary_winners.append({
+                    "rank": i + 1,
+                    "username": entry.get("username", "Unknown"),
+                    "multiplier": entry["highestMultiplier"].get("multiplier", 0),
+                    "game_name": entry["highestMultiplier"].get("gameTitle", "Unknown"),
+                    "wagered": entry["highestMultiplier"].get("wagered", 0),
+                    "payout": entry["highestMultiplier"].get("payout", 0),
+                    "prize": PRIZE_DISTRIBUTION[i],
+                })
+
+            embed = self._build_weekly_payout_embed(
+                "🧪 Weekly Multiplier Leaderboard Simulation 🧪",
+                summary_winners,
+                week_start_ts=start_timestamp,
+                week_end_ts=end_timestamp,
+                week_key=week_key,
             )
-            
-            embed.set_footer(text=f"Simulation run at {now.strftime('%Y-%m-%d %H:%M:%S')} UTC • Admin Only Command")
             
             await interaction.followup.send(embed=embed)
             logger.info(f"[TestMultiHistory] Simulation command executed by {interaction.user}")
@@ -764,32 +700,9 @@ class MultiLeaderboard(commands.Cog):
                 if logs_channel_id:
                     logs_channel = self.bot.get_channel(logs_channel_id)
                     if logs_channel:
-                        # Format the detailed winners list - EXACT SAME FORMAT AS REAL PAYOUT
-                        winners_text = ""
+                        summary_winners = []
                         for winner in winners_data:
-                            username = winner["username"]
-                            # Censor username for public display - use bullet points instead of asterisks to avoid markdown issues
-                            if len(username) > 3:
-                                display_username = username[:3] + "•••"
-                            else:
-                                display_username = "•••"
-                            
-                            multiplier = winner["multiplier"]
-                            game_name = winner["game_name"]
-                            wagered = winner["wagered"]
-                            payout = winner["payout"]
-                            prize = winner["prize"]
-                            rank = winner["rank"]
-                            
-                            medal = ["🥇", "🥈", "🥉"][rank - 1]
-                            place = ["1st", "2nd", "3rd"][rank - 1]
-                            
-                            winners_text += (
-                                f"{medal} **{place} Place:** @{display_username} - **x{multiplier:,.2f} multiplier**\n"
-                                f"   🎰 Game: {game_name}\n"
-                                f"   💰 Bet: ${wagered:,.2f} | Payout: ${payout:,.2f}\n"
-                                f"   💸 Prize: ${prize:.0f}\n\n"
-                            )
+                            summary_winners.append(winner)
                         
                         # Create the embed with the EXACT SAME format as real payout
                         # Convert week_key (YYYY-MM-DD) to timestamp for start of week
@@ -804,26 +717,13 @@ class MultiLeaderboard(commands.Cog):
                             week_start_ts = None
                             week_end_ts = None
                         
-                        if week_start_ts and week_end_ts:
-                            description = (
-                                f"**Week Period:** <t:{week_start_ts}:F> → <t:{week_end_ts}:F>\n\n"
-                                f"{winners_text}"
-                                f"Track this week's multiplier leaderboard -> <#1352322188102991932>"
-                            )
-                        else:
-                            description = (
-                                f"**Week of {week_key}**\n\n"
-                                f"{winners_text}"
-                                f"Track this week's multiplier leaderboard -> <#1352322188102991932>"
-                            )
-                        
-                        embed = discord.Embed(
-                            title="🏆 Weekly Multiplier Leaderboard Payouts",
-                            description=description,
-                            color=discord.Color.green()
+                        embed = self._build_weekly_payout_embed(
+                            "🏆 Weekly Multiplier Leaderboard Payouts",
+                            summary_winners,
+                            week_start_ts=week_start_ts,
+                            week_end_ts=week_end_ts,
+                            week_key=week_key,
                         )
-                        
-                        embed.set_footer(text="AutoTip Engine Live • Payouts Sent Successfully")
                         
                         # Ping the notification role if configured
                         ping_role_id = os.getenv("WEEKLY_MULTIPLIER_PING_ROLE_ID")
