@@ -73,12 +73,22 @@ class RooVsFlip(commands.Cog):
         self.monthly_payout_check.cancel()
 
     async def recover_missed_payout_on_startup(self):
-        """Self-heal: if previous month is not finalized, run payout once at startup."""
+        """Self-heal: if the current period has ended but wasn't paid, run payout once."""
         now = datetime.now(dt.UTC)
-        if now.month == 1:
-            payout_year, payout_month = now.year - 1, 12
+        event_start = get_roovsflip_event_start()
+        if not event_start:
+            return
+
+        period_end = self.compute_period_end(event_start)
+        if now < period_end:
+            logger.info("[RooVsFlip] Startup check: period still running, no recovery needed.")
+            return
+
+        # Derive the payout month from the period end (the month just before it)
+        if period_end.month == 1:
+            payout_year, payout_month = period_end.year - 1, 12
         else:
-            payout_year, payout_month = now.year, now.month - 1
+            payout_year, payout_month = period_end.year, period_end.month - 1
 
         month_key = f"{payout_year}-{payout_month:02d}"
         if is_roovsflip_paid(payout_year, payout_month):
@@ -92,6 +102,32 @@ class RooVsFlip(commands.Cog):
         await self.run_monthly_payout(payout_year, payout_month, automated=True)
         if is_roovsflip_paid(payout_year, payout_month):
             self.last_payout_month = month_key
+
+    # ─── Period helpers ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def compute_period_end(event_start_str):
+        """
+        Return the UTC datetime when the current challenge period ends.
+
+        Rule:
+          - If the event started on the 1st of a month (normal monthly reset),
+            the period ends at the start of the *next* month.
+          - If the event started mid-month (first-ever launch), extend by an
+            extra month so the first period runs roughly 5-6 weeks instead of
+            just the remaining days of the launch month.
+        """
+        try:
+            start = datetime.fromisoformat(event_start_str.replace("Z", "+00:00"))
+        except Exception:
+            start = datetime.now(dt.UTC)
+
+        # Mid-month launch → skip forward two months; first-of-month → one month
+        months_ahead = 2 if start.day > 1 else 1
+        target_month = start.month + months_ahead
+        target_year = start.year + (target_month - 1) // 12
+        target_month = ((target_month - 1) % 12) + 1
+        return datetime(target_year, target_month, 1, tzinfo=dt.UTC)
 
     # ─── Prize helpers ────────────────────────────────────────────────────────
 
@@ -216,17 +252,8 @@ class RooVsFlip(commands.Cog):
         except Exception:
             start_ts = now_ts
 
-        # End-of-current-month timestamp
-        if now.month == 12:
-            end_dt = now.replace(
-                year=now.year + 1, month=1, day=1,
-                hour=0, minute=0, second=0, microsecond=0
-            )
-        else:
-            end_dt = now.replace(
-                month=now.month + 1, day=1,
-                hour=0, minute=0, second=0, microsecond=0
-            )
+        # End of this challenge period (mid-month start → 2 months; 1st-of-month → 1 month)
+        end_dt = self.compute_period_end(event_start_str)
         end_ts = int(end_dt.timestamp())
 
         total_games = len(queue)
@@ -382,11 +409,22 @@ class RooVsFlip(commands.Cog):
             if not (now.day == 1 and now.hour == 0 and 0 <= now.minute <= 4):
                 return
 
-            # Determine which month just ended
-            if now.month == 1:
-                payout_year, payout_month = now.year - 1, 12
+            # Only proceed if the current period has actually ended
+            event_start = get_roovsflip_event_start()
+            if not event_start:
+                return
+            period_end = self.compute_period_end(event_start)
+            if now < period_end:
+                logger.info(
+                    f"[RooVsFlip] Payout window: period not over yet (ends <t:{int(period_end.timestamp())}:F>), skipping."
+                )
+                return
+
+            # Determine which month just ended (the month before period_end)
+            if period_end.month == 1:
+                payout_year, payout_month = period_end.year - 1, 12
             else:
-                payout_year, payout_month = now.year, now.month - 1
+                payout_year, payout_month = period_end.year, period_end.month - 1
 
             month_key = f"{payout_year}-{payout_month:02d}"
             logger.info(f"[RooVsFlip] Payout window — checking month {month_key}")
