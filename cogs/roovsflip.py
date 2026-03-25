@@ -36,9 +36,12 @@ ROO_VS_FLIP_PING_ROLE_ID = os.getenv("ROO_VS_FLIP_PING_ROLE_ID")
 PRIZE_POOL = 500.00
 MAX_QUEUE_SIZE = 5
 EMBED_MAX_PARTICIPANTS = 15  # Keep description under Discord's 4096-char limit
+PAYOUT_DELAY_SECONDS = 30
 
 
 class RooVsFlip(commands.Cog):
+    rvf = app_commands.Group(name="rvf", description="Roo Vs Flip management commands")
+
     def __init__(self, bot):
         self.bot = bot
         self.last_payout_month = None  # e.g. "2026-03" – prevents double-processing
@@ -407,11 +410,13 @@ class RooVsFlip(commands.Cog):
         queue = get_roovsflip_queue()
         event_start = get_roovsflip_event_start()
 
-        # ── Determine new event start (1st of current month 00:00 UTC) ───────
+        # ── Determine next event start from the paid-out month ───────────────
+        if payout_month == 12:
+            next_year, next_month = payout_year + 1, 1
+        else:
+            next_year, next_month = payout_year, payout_month + 1
+        new_start = datetime(next_year, next_month, 1, tzinfo=dt.UTC).isoformat()
         now = datetime.now(dt.UTC)
-        new_start = now.replace(
-            day=1, hour=0, minute=0, second=0, microsecond=0
-        ).isoformat()
 
         if not queue:
             logger.warning(
@@ -509,7 +514,7 @@ class RooVsFlip(commands.Cog):
                 payout_year, payout_month,
                 winner["uid"], winner["username"], prize,
             )
-            await asyncio.sleep(5)
+            await asyncio.sleep(PAYOUT_DELAY_SECONDS)
 
         # If no winners, still mark month as processed
         if winner_count == 0:
@@ -537,9 +542,9 @@ class RooVsFlip(commands.Cog):
 
     # ─── Admin Commands ───────────────────────────────────────────────────────
 
-    @app_commands.command(
-        name="setroovsflipqueue",
-        description="Set or overwrite the active Roo Vs Flip queue slot.",
+    @rvf.command(
+        name="setgame",
+        description="Set or overwrite a slot in the active queue.",
     )
     @app_commands.describe(
         position="Queue slot (1–5)",
@@ -594,8 +599,8 @@ class RooVsFlip(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(
-        name="roovsflipqueue",
+    @rvf.command(
+        name="queue",
         description="View the active and next-month Roo Vs Flip queues.",
     )
     async def view_queue(self, interaction: discord.Interaction):
@@ -609,8 +614,8 @@ class RooVsFlip(commands.Cog):
         event_start = get_roovsflip_event_start()
         if not active_queue and not draft_queue:
             await interaction.response.send_message(
-                "📋 Queues are empty. Use `/setroovsflipqueue` to bootstrap the active "
-                "queue, then `/queuenextmonth` for future months.",
+                "📋 Queues are empty. Use `/rvf setgame` to bootstrap the active "
+                "queue, then `/rvf draftgame` for future months.",
                 ephemeral=True,
             )
             return
@@ -654,14 +659,14 @@ class RooVsFlip(commands.Cog):
                 )
             lines.append(f"`{len(draft_queue)}/{MAX_QUEUE_SIZE} slots`")
         else:
-            lines.append("*(empty — edit with `/queuenextmonth`)*")
+            lines.append("*(empty — edit with `/rvf draftgame`)*")
 
         await interaction.response.send_message(
             "\n".join(lines), ephemeral=True
         )
 
-    @app_commands.command(
-        name="clearroovsflipqueue",
+    @rvf.command(
+        name="cleargame",
         description="Remove one active queue slot, or clear the active queue.",
     )
     @app_commands.describe(
@@ -690,9 +695,9 @@ class RooVsFlip(commands.Cog):
                 "✅ All queue slots cleared.", ephemeral=True
             )
 
-    @app_commands.command(
-        name="queuenextmonth",
-        description="Queue a game into the next month's Roo Vs Flip draft.",
+    @rvf.command(
+        name="draftgame",
+        description="Queue a game into next month's Roo Vs Flip draft.",
     )
     @app_commands.describe(
         position="Queue slot (1–5)",
@@ -726,15 +731,28 @@ class RooVsFlip(commands.Cog):
                 "❌ Required multiplier must be > 0.", ephemeral=True
             )
             return
-        set_roovsflip_draft_queue_slot(position, game_name, game_identifier, emoji, req_multi)
+
+        # Block duplicate game identifiers across other draft slots
+        existing_draft = get_roovsflip_draft_queue()
+        for g in existing_draft:
+            if g["game_identifier"] == game_identifier and g["position"] != position:
+                await interaction.response.send_message(
+                    f"❌ `{game_identifier}` is already in draft slot **{g['position']}**. "
+                    f"Remove it first.",
+                    ephemeral=True,
+                )
+                return
+
+        clean_name = game_name.replace('"', "").replace("'", "")
+        set_roovsflip_draft_queue_slot(position, clean_name, game_identifier, emoji, req_multi)
         game_url = f"https://roobet.com/casino/game/{game_identifier}"
         await interaction.response.send_message(
-            f"✅ {emoji} [**{game_name}**]({game_url}) queued at slot **{position}** for next month (req: **x{req_multi}**).",
+            f"✅ {emoji} [**{clean_name}**]({game_url}) queued at slot **{position}** for next month (req: **x{req_multi}**).",
             ephemeral=True,
         )
 
-    @app_commands.command(
-        name="tempfetchupdate",
+    @rvf.command(
+        name="refresh",
         description="Fetch fresh Roo Vs Flip data and update the live embed now.",
     )
     async def temp_fetch_update(self, interaction: discord.Interaction):
@@ -789,8 +807,8 @@ class RooVsFlip(commands.Cog):
                 f"❌ Error: {str(e)[:100]}", ephemeral=True
             )
 
-    @app_commands.command(
-        name="templogoutput",
+    @rvf.command(
+        name="preview",
         description="Preview the results embed as if Roo Vs Flip ended right now.",
     )
     async def temp_log_output(self, interaction: discord.Interaction):
@@ -875,12 +893,9 @@ class RooVsFlip(commands.Cog):
                 f"❌ Error: {str(e)[:100]}", ephemeral=True
             )
 
-    @app_commands.command(
-        name="roovsflipresult",
-        description=(
-            "Manually trigger the Roo Vs Flip payout and reset NOW. "
-            "⚠️ This counts as the month's official payout."
-        ),
+    @rvf.command(
+        name="payout",
+        description="Manually trigger the Roo Vs Flip payout and reset. ⚠️ Official payout.",
     )
     async def manual_result(self, interaction: discord.Interaction):
         if interaction.user.id != BOT_OWNER_ID:
@@ -889,18 +904,24 @@ class RooVsFlip(commands.Cog):
             )
             return
         now = datetime.now(dt.UTC)
-        # For a manual trigger we pay out the CURRENT month's event
-        if is_roovsflip_paid(now.year, now.month):
+
+        # Match automated payout behavior: settle the previous month.
+        if now.month == 1:
+            target_year, target_month = now.year - 1, 12
+        else:
+            target_year, target_month = now.year, now.month - 1
+
+        if is_roovsflip_paid(target_year, target_month):
             await interaction.response.send_message(
-                f"⚠️ Payout for **{now.year}-{now.month:02d}** has already been "
-                f"processed.",
+                f"⚠️ Payout for **{target_year}-{target_month:02d}** has already been processed.",
                 ephemeral=True,
             )
             return
         await interaction.response.send_message(
-            "⏳ Running Roo Vs Flip payout now…", ephemeral=True
+            f"⏳ Running Roo Vs Flip payout for **{target_year}-{target_month:02d}** now…",
+            ephemeral=True,
         )
-        await self.run_monthly_payout(now.year, now.month, automated=False)
+        await self.run_monthly_payout(target_year, target_month, automated=False)
         await interaction.followup.send(
             "✅ Roo Vs Flip payout complete. Event has been reset for the new period.",
             ephemeral=True,
