@@ -355,9 +355,10 @@ class SlotChallenge(commands.Cog):
             try:
                 from utils import fetch_weighted_wager
                 game_data = await asyncio.to_thread(fetch_weighted_wager, start_date_str, None, challenge['game_identifier'])
-                logger.info(f"[SlotChallenge] Challenge {challenge['game_name']} ({challenge['game_identifier']}): Found {len(game_data)} users")
                 
                 # Check each user's highest multiplier for this specific game
+                best_multi = 0.0
+                best_user = None
                 for entry in game_data:
                     hm = entry.get("highestMultiplier")
                     if not (entry.get("uid") and entry.get("username") and hm):
@@ -377,16 +378,14 @@ class SlotChallenge(commands.Cog):
                     if min_bet is not None:
                         min_bet = float(min_bet)
                     
-                    # Log user data for verification
-                    logger.info(f"[SlotChallenge] User: {entry['username']} | Bet: ${wagered:.2f} | Payout: ${hm.get('payout', 0):.2f} | Multi: x{multiplier}")
-                    
                     # Check if this multiplier meets the challenge requirements
                     meets_multi = multiplier >= required_multi
                     # Use rounding for bet comparison to avoid floating-point precision issues
                     meets_bet = (min_bet is None or round(wagered, 2) >= round(min_bet, 2))
                     
-                    # DEBUG: Log the comparison results
-                    logger.info(f"[SlotChallenge] DEBUG - {entry['username']}: multi {multiplier} >= {required_multi}? {meets_multi} | bet ${wagered} >= ${min_bet}? {meets_bet}")
+                    if multiplier > best_multi:
+                        best_multi = multiplier
+                        best_user = entry['username']
                     
                     if meets_multi and meets_bet:
                         winners.append({
@@ -396,6 +395,9 @@ class SlotChallenge(commands.Cog):
                             "bet": wagered,
                             "payout": hm.get('payout', 0)
                         })
+                
+                outcome = f"winner: {winners[0]['username']} x{winners[0]['multiplier']}" if winners else f"no winner (best: {best_user} x{best_multi:.2f})" if best_user else "no users"
+                logger.info(f"[SlotChallenge] {challenge['game_name']}: {len(game_data)} users — {outcome}")
                         
             except Exception as e:
                 logger.error(f"[SlotChallenge] Error fetching game data for challenge {challenge['challenge_id']}: {e}")

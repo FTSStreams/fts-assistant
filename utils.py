@@ -32,7 +32,7 @@ def fetch_total_wager(start_date, end_date):
         if not isinstance(data, list):
             logger.warning(f"Unexpected total wager response format: {data}")
             return []
-        logger.info(f"Total Wager API Response: {len(data)} entries")
+        logger.debug(f"Total Wager API Response: {len(data)} entries")
         return data
     except requests.RequestException as e:
         logger.error(f"Total Wager API Request Failed: {e}")
@@ -62,7 +62,7 @@ def fetch_weighted_wager(start_date, end_date, game_identifier=None):
         if not isinstance(data, list):
             logger.warning(f"Unexpected weighted wager response format: {data}")
             return []
-        logger.info(f"Weighted Wager API Response: {len(data)} entries")
+        logger.debug(f"Weighted Wager API Response: {len(data)} entries")
         return data
     except requests.RequestException as e:
         logger.error(f"Weighted Wager API Request Failed: {e}")
