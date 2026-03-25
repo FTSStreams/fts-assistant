@@ -56,6 +56,7 @@ class RooVsFlip(commands.Cog):
                     game["position"],
                     game["game_name"],
                     game["game_identifier"],
+                    game.get("emoji", "🎮"),
                     game["req_multi"],
                 )
         self.update_embed.start()
