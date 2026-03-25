@@ -417,6 +417,17 @@ def ensure_roovsflip_tables():
                     position INTEGER PRIMARY KEY,
                     game_name TEXT NOT NULL,
                     game_identifier TEXT NOT NULL,
+                    emoji TEXT DEFAULT '🎮',
+                    req_multi FLOAT NOT NULL,
+                    added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS roovsflip_queue_draft (
+                    position INTEGER PRIMARY KEY,
+                    game_name TEXT NOT NULL,
+                    game_identifier TEXT NOT NULL,
+                    emoji TEXT DEFAULT '🎮',
                     req_multi FLOAT NOT NULL,
                     added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 );
@@ -447,7 +458,7 @@ def get_roovsflip_queue():
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT position, game_name, game_identifier, req_multi, added_at "
+                "SELECT position, game_name, game_identifier, emoji, req_multi, added_at "
                 "FROM roovsflip_queue ORDER BY position ASC;"
             )
             rows = cur.fetchall()
@@ -456,8 +467,9 @@ def get_roovsflip_queue():
                     "position": row[0],
                     "game_name": row[1],
                     "game_identifier": row[2],
-                    "req_multi": float(row[3]),
-                    "added_at": row[4],
+                    "emoji": row[3] or "🎮",
+                    "req_multi": float(row[4]),
+                    "added_at": row[5],
                 }
                 for row in rows
             ]
@@ -468,22 +480,23 @@ def get_roovsflip_queue():
         release_db_connection(conn)
 
 
-def set_roovsflip_queue_slot(position, game_name, game_identifier, req_multi):
+def set_roovsflip_queue_slot(position, game_name, game_identifier, emoji, req_multi):
     """Set or overwrite a specific queue slot."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO roovsflip_queue (position, game_name, game_identifier, req_multi, added_at)
-                VALUES (%s, %s, %s, %s, NOW())
+                INSERT INTO roovsflip_queue (position, game_name, game_identifier, emoji, req_multi, added_at)
+                VALUES (%s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (position) DO UPDATE SET
                     game_name = EXCLUDED.game_name,
                     game_identifier = EXCLUDED.game_identifier,
+                    emoji = EXCLUDED.emoji,
                     req_multi = EXCLUDED.req_multi,
                     added_at = EXCLUDED.added_at;
                 """,
-                (position, game_name, game_identifier, req_multi),
+                (position, game_name, game_identifier, emoji, req_multi),
             )
             conn.commit()
     except Exception as e:
@@ -580,5 +593,96 @@ def set_roovsflip_event_start(iso_str):
             conn.commit()
     except Exception as e:
         logger.error(f"Error setting Roo Vs Flip event start: {e}")
+    finally:
+        release_db_connection(conn)
+
+
+def get_roovsflip_draft_queue():
+    """Return all queued games for NEXT month (draft queue) ordered by position."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT position, game_name, game_identifier, emoji, req_multi, added_at "
+                "FROM roovsflip_queue_draft ORDER BY position ASC;"
+            )
+            rows = cur.fetchall()
+            return [
+                {
+                    "position": row[0],
+                    "game_name": row[1],
+                    "game_identifier": row[2],
+                    "emoji": row[3] or "🎮",
+                    "req_multi": float(row[4]),
+                    "added_at": row[5],
+                }
+                for row in rows
+            ]
+    except Exception as e:
+        logger.error(f"Error fetching Roo Vs Flip draft queue: {e}")
+        return []
+    finally:
+        release_db_connection(conn)
+
+
+def set_roovsflip_draft_queue_slot(position, game_name, game_identifier, emoji, req_multi):
+    """Set or overwrite a specific draft queue slot."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO roovsflip_queue_draft (position, game_name, game_identifier, emoji, req_multi, added_at)
+                VALUES (%s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (position) DO UPDATE SET
+                    game_name = EXCLUDED.game_name,
+                    game_identifier = EXCLUDED.game_identifier,
+                    emoji = EXCLUDED.emoji,
+                    req_multi = EXCLUDED.req_multi,
+                    added_at = EXCLUDED.added_at;
+                """,
+                (position, game_name, game_identifier, emoji, req_multi),
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error setting Roo Vs Flip draft queue slot: {e}")
+    finally:
+        release_db_connection(conn)
+
+
+def clear_roovsflip_draft_queue_slot(position=None):
+    """Remove a single draft slot (by position) or clear the entire draft queue."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            if position is not None:
+                cur.execute("DELETE FROM roovsflip_queue_draft WHERE position = %s;", (position,))
+            else:
+                cur.execute("DELETE FROM roovsflip_queue_draft;")
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error clearing Roo Vs Flip draft queue slot: {e}")
+    finally:
+        release_db_connection(conn)
+
+
+def copy_roovsflip_draft_to_active():
+    """Copy draft queue to active queue at monthly rollover, then clear draft."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # Clear active queue first
+            cur.execute("DELETE FROM roovsflip_queue;")
+            # Copy all draft slots to active
+            cur.execute(
+                """
+                INSERT INTO roovsflip_queue (position, game_name, game_identifier, emoji, req_multi, added_at)
+                SELECT position, game_name, game_identifier, emoji, req_multi, NOW() FROM roovsflip_queue_draft;
+                """
+            )
+            conn.commit()
+            logger.info("[RooVsFlip] Draft queue copied to active.")
+    except Exception as e:
+        logger.error(f"Error copying draft queue to active: {e}")
     finally:
         release_db_connection(conn)

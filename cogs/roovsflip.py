@@ -7,6 +7,10 @@ from db import (
     get_roovsflip_queue,
     set_roovsflip_queue_slot,
     clear_roovsflip_queue_slot,
+    get_roovsflip_draft_queue,
+    set_roovsflip_draft_queue_slot,
+    clear_roovsflip_draft_queue_slot,
+    copy_roovsflip_draft_to_active,
     is_roovsflip_paid,
     record_roovsflip_payout,
     get_roovsflip_event_start,
@@ -41,6 +45,19 @@ class RooVsFlip(commands.Cog):
 
     async def cog_load(self):
         ensure_roovsflip_tables()
+        # Bootstrap: If draft queue is empty but active queue has games,
+        # copy active to draft to continue the cycle.
+        active_queue = get_roovsflip_queue()
+        draft_queue = get_roovsflip_draft_queue()
+        if active_queue and not draft_queue:
+            logger.info("[RooVsFlip] Bootstrapping draft queue from active queue.")
+            for game in active_queue:
+                set_roovsflip_draft_queue_slot(
+                    game["position"],
+                    game["game_name"],
+                    game["game_identifier"],
+                    game["req_multi"],
+                )
         self.update_embed.start()
         self.monthly_payout_check.start()
         logger.info("[RooVsFlip] Cog loaded, tables ensured, tasks started.")
@@ -205,38 +222,43 @@ class RooVsFlip(commands.Cog):
             f"🎁 **Current Prize:** {prize_str}\n\n"
         )
 
+        # Rules & Disclosure
+        desc += (
+            "📜 **Roo Vs. Flip Rules & Disclosure:**\n"
+            "• Beat Flip's multipliers with a minimum bet size of $0.20 USD\n"
+            "• All challenges must be completed to win\n"
+            "• $500 prize pool will be split between all qualifying players\n\n"
+        )
+
         # Queued games
         desc += f"🎮 **Required Games ({total_games}):**\n"
         for g in queue:
             game_url = f"https://roobet.com/casino/game/{g['game_identifier']}"
+            emoji_str = g.get("emoji", "🎮")
             req_display = (
                 int(g["req_multi"])
                 if g["req_multi"] == int(g["req_multi"])
                 else g["req_multi"]
             )
             desc += (
-                f"**{g['position']}.** [{g['game_name']}]({game_url})"
+                f"**{g['position']}.** {emoji_str} [{g['game_name']}]({game_url})"
                 f" — `Req x{req_display}`\n"
             )
         desc += "\n"
 
-        # Participants
-        if not participants:
+        # Participants (only show those with at least 1 completion)
+        qualified_participants = [p for p in participants if p["completions"] >= 1]
+        if not qualified_participants:
             desc += "📊 **Participants:**\n*No activity yet — start playing!*\n"
         else:
-            shown = min(len(participants), EMBED_MAX_PARTICIPANTS)
+            shown = min(len(qualified_participants), EMBED_MAX_PARTICIPANTS)
             desc += f"📊 **Participants** (top {shown} shown):\n"
-            for i, p in enumerate(participants[:EMBED_MAX_PARTICIPANTS]):
+            for i, p in enumerate(qualified_participants[:EMBED_MAX_PARTICIPANTS]):
                 uname = p["username"]
                 display = (uname[:-3] + "\\*\\*\\*") if len(uname) > 3 else "\\*\\*\\*"
-                avg_str = (
-                    f"| `Avg x{p['avg_multi']:,.2f}`"
-                    if p["completions"] > 0
-                    else ""
-                )
                 desc += (
                     f"\n**#{i + 1} — {display}**"
-                    f" — `{p['completions']}/{total_games} Complete` {avg_str}\n"
+                    f" — `{p['completions']}/{total_games} Complete`\n"
                 )
                 row = ""
                 for g in queue:
@@ -246,17 +268,17 @@ class RooVsFlip(commands.Cog):
                     if info is None:
                         row += f"`{pos})` ⏳  "
                     elif info["met"]:
-                        row += f"`{pos})` ✔️ `x{info['multi']:,.2f}`  "
+                        row += f"`{pos})` ✅ `x{info['multi']:,.2f}`  "
                     else:
                         row += f"`{pos})` ❌ `x{info['multi']:,.2f}`  "
                 desc += row.rstrip() + "\n"
 
-            if len(participants) > EMBED_MAX_PARTICIPANTS:
-                extra = len(participants) - EMBED_MAX_PARTICIPANTS
+            if len(qualified_participants) > EMBED_MAX_PARTICIPANTS:
+                extra = len(qualified_participants) - EMBED_MAX_PARTICIPANTS
                 desc += f"\n*...and {extra} more participant(s)*\n"
 
         desc += (
-            "\n**Legend:** ✔️ requirement met"
+            "\n**Legend:** ✅ requirement met"
             " | ❌ played but below req"
             " | ⏳ no data yet"
         )
@@ -499,6 +521,10 @@ class RooVsFlip(commands.Cog):
             ping = f"<@&{ROO_VS_FLIP_PING_ROLE_ID}>" if ROO_VS_FLIP_PING_ROLE_ID else None
             await history_channel.send(content=ping, embed=result_embed)
 
+        # ── Copy draft queue to active for next month ──────────────────────────
+        copy_roovsflip_draft_to_active()
+        logger.info(f"[RooVsFlip] Draft queue copied to active queue.")
+
         # ── Reset for new month ───────────────────────────────────────────────
         set_roovsflip_event_start(new_start)
         # Setting to 0 makes get_leaderboard_message_id return 0 (falsy),
@@ -512,12 +538,13 @@ class RooVsFlip(commands.Cog):
 
     @app_commands.command(
         name="setroovsflipqueue",
-        description="Set or overwrite a Roo Vs Flip queue slot (1–5).",
+        description="⚙️ Set or overwrite the ACTIVE queue slot (1–5). Use only for initial setup—use `/queuenextmonth` after.",
     )
     @app_commands.describe(
         position="Queue slot (1–5)",
         game_name="Display name for the game",
         game_identifier="Game identifier (e.g. pragmatic:vs20olympgate)",
+        emoji="Emoji for this game (e.g. 🎰)",
         req_multi="Required multiplier to complete this game (e.g. 500)",
     )
     async def set_queue(
@@ -526,6 +553,7 @@ class RooVsFlip(commands.Cog):
         position: int,
         game_name: str,
         game_identifier: str,
+        emoji: str,
         req_multi: float,
     ):
         if interaction.user.id != BOT_OWNER_ID:
@@ -554,20 +582,20 @@ class RooVsFlip(commands.Cog):
                 )
                 return
         clean_name = game_name.replace('"', "").replace("'", "")
-        set_roovsflip_queue_slot(position, clean_name, game_identifier, req_multi)
+        set_roovsflip_queue_slot(position, clean_name, game_identifier, emoji, req_multi)
         logger.info(
-            f"[RooVsFlip] Slot {position} set: {clean_name} ({game_identifier}) "
+            f"[RooVsFlip] Slot {position} set: {emoji} {clean_name} ({game_identifier}) "
             f"req x{req_multi} by {interaction.user.id}"
         )
         await interaction.response.send_message(
-            f"✅ Slot **{position}** set to **{clean_name}** "
+            f"✅ Slot **{position}** set to **{emoji} {clean_name}** "
             f"(`{game_identifier}`) — Req: **x{req_multi}**",
             ephemeral=True,
         )
 
     @app_commands.command(
         name="roovsflipqueue",
-        description="View the current Roo Vs Flip game queue.",
+        description="View the current and next-month Roo Vs Flip game queues.",
     )
     async def view_queue(self, interaction: discord.Interaction):
         if interaction.user.id != BOT_OWNER_ID:
@@ -575,11 +603,13 @@ class RooVsFlip(commands.Cog):
                 "❌ You do not have permission to use this command.", ephemeral=True
             )
             return
-        queue = get_roovsflip_queue()
+        active_queue = get_roovsflip_queue()
+        draft_queue = get_roovsflip_draft_queue()
         event_start = get_roovsflip_event_start()
-        if not queue:
+        if not active_queue and not draft_queue:
             await interaction.response.send_message(
-                "📋 Queue is empty. Use `/setroovsflipqueue` to add games.",
+                "📋 Queues are empty. Use `/setroovsflipqueue` to bootstrap the active "
+                "queue, then `/queuenextmonth` for future months.",
                 ephemeral=True,
             )
             return
@@ -594,15 +624,37 @@ class RooVsFlip(commands.Cog):
             start_str = event_start
 
         lines = [
-            f"📋 **Roo Vs Flip Queue** — Tracking from {start_str}\n"
+            f"📋 **Roo Vs Flip Queues** — Current tracking from {start_str}\n"
         ]
-        for g in queue:
-            game_url = f"https://roobet.com/casino/game/{g['game_identifier']}"
-            lines.append(
-                f"**{g['position']}.** [{g['game_name']}]({game_url})"
-                f" — `{g['game_identifier']}` — Req: **x{g['req_multi']}**"
-            )
-        lines.append(f"\n`{len(queue)}/{MAX_QUEUE_SIZE} slots used`")
+
+        # Active (current month)
+        lines.append("**🟢 ACTIVE (This Month):**")
+        if active_queue:
+            for g in active_queue:
+                game_url = f"https://roobet.com/casino/game/{g['game_identifier']}"
+                emoji_str = g.get('emoji', '🎮')
+                lines.append(
+                    f"**{g['position']}.** {emoji_str} [{g['game_name']}]({game_url})"
+                    f" — Req: **x{g['req_multi']}**"
+                )
+            lines.append(f"`{len(active_queue)}/{MAX_QUEUE_SIZE} slots`\n")
+        else:
+            lines.append("*(empty)*\n")
+
+        # Draft (next month)
+        lines.append("**🔵 DRAFT (Next Month):**")
+        if draft_queue:
+            for g in draft_queue:
+                game_url = f"https://roobet.com/casino/game/{g['game_identifier']}"
+                emoji_str = g.get('emoji', '🎮')
+                lines.append(
+                    f"**{g['position']}.** {emoji_str} [{g['game_name']}]({game_url})"
+                    f" — Req: **x{g['req_multi']}**"
+                )
+            lines.append(f"`{len(draft_queue)}/{MAX_QUEUE_SIZE} slots`")
+        else:
+            lines.append("*(empty — edit with `/queuenextmonth`)*")
+
         await interaction.response.send_message(
             "\n".join(lines), ephemeral=True
         )
@@ -635,6 +687,191 @@ class RooVsFlip(commands.Cog):
         else:
             await interaction.response.send_message(
                 "✅ All queue slots cleared.", ephemeral=True
+            )
+
+    @app_commands.command(
+        name="queuenextmonth",
+        description="Queue games for NEXT month (draft queue). Use up to 5 slots.",
+    )
+    @app_commands.describe(
+        position="Queue slot (1–5)",
+        game_name="Display name for the game",
+        game_identifier="Game identifier (e.g. pragmatic:vs20olympgate)",
+        emoji="Emoji for this game (e.g. 🎰)",
+        req_multi="Required multiplier to complete (e.g. 100, 250.5)",
+    )
+    async def queue_next_month(
+        self,
+        interaction: discord.Interaction,
+        position: int,
+        game_name: str,
+        game_identifier: str,
+        emoji: str,
+        req_multi: float,
+    ):
+        """Queue a game for next month's Roo Vs Flip event (draft queue)."""
+        if interaction.user.id != BOT_OWNER_ID:
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
+            return
+        if not 1 <= position <= MAX_QUEUE_SIZE:
+            await interaction.response.send_message(
+                f"❌ Position must be between 1 and {MAX_QUEUE_SIZE}.", ephemeral=True
+            )
+            return
+        if req_multi <= 0:
+            await interaction.response.send_message(
+                "❌ Required multiplier must be > 0.", ephemeral=True
+            )
+            return
+        set_roovsflip_draft_queue_slot(position, game_name, game_identifier, emoji, req_multi)
+        game_url = f"https://roobet.com/casino/game/{game_identifier}"
+        await interaction.response.send_message(
+            f"✅ {emoji} [**{game_name}**]({game_url}) queued at slot **{position}** for next month (req: **x{req_multi}**).",
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="tempfetchupdate",
+        description="🔄 Fetch fresh data and update the live embed NOW (skip the 10-min cycle).",
+    )
+    async def temp_fetch_update(self, interaction: discord.Interaction):
+        """Immediately update the live embed with current data."""
+        if interaction.user.id != BOT_OWNER_ID:
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
+            return
+        await interaction.response.defer(ephemeral=True)
+        try:
+            queue = get_roovsflip_queue()
+            if not queue:
+                await interaction.followup.send(
+                    "❌ Queue is empty. Nothing to fetch.", ephemeral=True
+                )
+                return
+            event_start = get_roovsflip_event_start()
+            game_data = await self.fetch_all_game_data(queue, event_start)
+            participants = self.build_participant_list(queue, game_data)
+            embed = self.build_embed(queue, participants, event_start)
+
+            channel = (
+                self.bot.get_channel(ROO_VS_FLIP_CHANNEL_ID)
+                if ROO_VS_FLIP_CHANNEL_ID
+                else None
+            )
+            if not channel:
+                await interaction.followup.send(
+                    "❌ Roo Vs Flip channel not configured.", ephemeral=True
+                )
+                return
+
+            msg_id = get_leaderboard_message_id("roovsflip_embed_message_id")
+            if msg_id and msg_id > 0:
+                try:
+                    msg = await channel.fetch_message(msg_id)
+                    await msg.edit(embed=embed)
+                except discord.NotFound:
+                    msg = await channel.send(embed=embed)
+                    save_leaderboard_message_id(msg.id, "roovsflip_embed_message_id")
+            else:
+                msg = await channel.send(embed=embed)
+                save_leaderboard_message_id(msg.id, "roovsflip_embed_message_id")
+
+            await interaction.followup.send(
+                "✅ Embed updated with fresh data.", ephemeral=True
+            )
+        except Exception as e:
+            logger.error(f"[RooVsFlip] Error in temp_fetch_update: {e}")
+            await interaction.followup.send(
+                f"❌ Error: {str(e)[:100]}", ephemeral=True
+            )
+
+    @app_commands.command(
+        name="templogoutput",
+        description="📊 Preview what the monthly results embed would look like if the event ended NOW.",
+    )
+    async def temp_log_output(self, interaction: discord.Interaction):
+        """Build and post a preview of the monthly results to the history channel."""
+        if interaction.user.id != BOT_OWNER_ID:
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
+            return
+        await interaction.response.defer(ephemeral=True)
+        try:
+            queue = get_roovsflip_queue()
+            if not queue:
+                await interaction.followup.send(
+                    "❌ Queue is empty. Nothing to preview.", ephemeral=True
+                )
+                return
+
+            event_start = get_roovsflip_event_start()
+            now = datetime.now(dt.UTC)
+            game_data = await self.fetch_all_game_data(queue, event_start)
+            participants = self.build_participant_list(queue, game_data)
+            winners = [p for p in participants if p["is_winner"]]
+            winner_count = len(winners)
+            prize_splits = self.compute_prize_split(winner_count)
+
+            try:
+                start_ts = int(
+                    datetime.fromisoformat(
+                        event_start.replace("Z", "+00:00")
+                    ).timestamp()
+                )
+            except Exception:
+                start_ts = int(now.timestamp())
+
+            result_embed = discord.Embed(
+                title=f"🏆 Roo Vs Flip — Preview (If ended NOW)",
+                color=discord.Color.gold(),
+            )
+            desc = (
+                f"**Challenge Period:** <t:{start_ts}:F> → <t:{int(now.timestamp())}:F>\n\n"
+                f"💰 **Total Prizepool:** `$500.00 USD`\n"
+                f"👑 **Total Winners:** `{winner_count}`\n\n"
+            )
+
+            if winner_count == 0:
+                desc += (
+                    "❌ **No winners yet** — all queued games must be completed.\n"
+                    "💰 Prizepool does not carry over.\n"
+                )
+            else:
+                desc += f"🎁 **Prize per winner:** `${prize_splits[0]:,.2f} USD`\n\n"
+                desc += "🥇 **Winners:**\n"
+                for i, winner in enumerate(winners):
+                    uname = winner["username"]
+                    display = (
+                        (uname[:-3] + "\\*\\*\\*") if len(uname) > 3 else "\\*\\*\\*"
+                    )
+                    desc += f"**{i + 1}.** {display} — `${prize_splits[i]:,.2f}`\n"
+
+            result_embed.description = desc
+
+            history_channel = (
+                self.bot.get_channel(ROO_VS_FLIP_HISTORY_CHANNEL_ID)
+                if ROO_VS_FLIP_HISTORY_CHANNEL_ID
+                else None
+            )
+            if not history_channel:
+                await interaction.followup.send(
+                    "❌ History channel not configured.", ephemeral=True
+                )
+                return
+
+            await history_channel.send(f"📌 **PREVIEW** (not real payout):\n", embed=result_embed)
+            await interaction.followup.send(
+                "✅ Preview posted to history channel.", ephemeral=True
+            )
+
+        except Exception as e:
+            logger.error(f"[RooVsFlip] Error in temp_log_output: {e}")
+            await interaction.followup.send(
+                f"❌ Error: {str(e)[:100]}", ephemeral=True
             )
 
     @app_commands.command(
