@@ -33,19 +33,19 @@ class MultiLeaderboard(commands.Cog):
         return "•••"
 
     def _build_weekly_payout_embed(self, title, winners_data, week_start_ts=None, week_end_ts=None, week_key=None):
-        winners_text = ""
+        winners_text = "***Winners:***\n\n"
         for winner in winners_data:
             display_username = self._mask_public_username(winner["username"])
             medal = ["🥇", "🥈", "🥉"][winner["rank"] - 1]
             place = ["1st", "2nd", "3rd"][winner["rank"] - 1]
             winners_text += (
                 f"{medal} **{place} Place:** @{display_username} - **x{winner['multiplier']:,.2f} multiplier**\n"
-                f"   🎰 Game: {winner['game_name']}\n"
-                f"   💰 Bet: ${winner['wagered']:,.2f} | Payout: ${winner['payout']:,.2f}\n"
-                f"   💸 Prize: ${winner['prize']:.0f}\n\n"
+                f"   🎰 **Game:** {winner['game_name']}\n"
+                f"   💰 **Bet:** ${winner['wagered']:,.2f} | **Payout:** ${winner['payout']:,.2f}\n"
+                f"   💸 **Prize:** ${winner['prize']:.0f}\n\n"
             )
 
-        if not winners_text:
+        if winners_text == "***Winners:***\n\n":
             winners_text = "No multiplier data found for this week.\n\n"
 
         if week_start_ts and week_end_ts:
@@ -569,176 +569,6 @@ class MultiLeaderboard(commands.Cog):
             import traceback
             logger.error(f"[MultiLeaderboard] Traceback: {traceback.format_exc()}")
             return False
-
-    @app_commands.command(name="testmultihistory", description="Simulate current weekly multiplier leaderboard and payout timing (admin only)")
-    @app_commands.default_permissions(administrator=True)
-    async def test_multi_history(self, interaction: discord.Interaction):
-        """Test command to show current weekly leaderboard state and payout timing"""
-        await interaction.response.defer()
-        
-        try:
-            start_date, end_date = get_current_week_range()
-            week_key = f"{start_date[:10]}"
-            
-            # Fetch current weekly data
-            logger.info(f"[TestMultiHistory] Fetching weekly data: {start_date} to {end_date}")
-            weekly_weighted_data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date)
-            
-            # Filter and sort by highest multiplier
-            multi_data = [entry for entry in weekly_weighted_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
-            multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
-            
-            # Parse dates safely (handle microseconds)
-            try:
-                start_timestamp = int(datetime.fromisoformat(start_date.replace('Z', '+00:00')).timestamp())
-            except:
-                start_timestamp = int(datetime.strptime(start_date[:19] + '+00:00', '%Y-%m-%dT%H:%M:%S%z').timestamp())
-            
-            try:
-                end_timestamp = int(datetime.fromisoformat(end_date.replace('Z', '+00:00')).timestamp())
-            except:
-                end_timestamp = int(datetime.strptime(end_date[:19] + '+00:00', '%Y-%m-%dT%H:%M:%S%z').timestamp())
-
-            summary_winners = []
-            for i, entry in enumerate(multi_data[:3]):
-                summary_winners.append({
-                    "rank": i + 1,
-                    "username": entry.get("username", "Unknown"),
-                    "multiplier": entry["highestMultiplier"].get("multiplier", 0),
-                    "game_name": entry["highestMultiplier"].get("gameTitle", "Unknown"),
-                    "wagered": entry["highestMultiplier"].get("wagered", 0),
-                    "payout": entry["highestMultiplier"].get("payout", 0),
-                    "prize": PRIZE_DISTRIBUTION[i],
-                })
-
-            embed = self._build_weekly_payout_embed(
-                "🧪 Weekly Multiplier Leaderboard Simulation 🧪",
-                summary_winners,
-                week_start_ts=start_timestamp,
-                week_end_ts=end_timestamp,
-                week_key=week_key,
-            )
-            
-            await interaction.followup.send(embed=embed)
-            logger.info(f"[TestMultiHistory] Simulation command executed by {interaction.user}")
-            
-        except Exception as e:
-            logger.error(f"[TestMultiHistory] Error in simulation command: {e}")
-            await interaction.followup.send(f"❌ Error running simulation: {str(e)}", ephemeral=True)
-
-    @app_commands.command(name="payoutmultilb", description="Test weekly payout with temporary amounts (admin only)")
-    @app_commands.default_permissions(administrator=True)
-    async def test_payout_multilb(self, interaction: discord.Interaction):
-        """Test command to simulate and execute weekly payout with test amounts ($3, $2, $1)"""
-        await interaction.response.defer()
-        
-        test_prizes = [3, 2, 1]  # Test amounts instead of $20, $15, $5
-        
-        try:
-            logger.info(f"[TestPayoutMultiLB] Starting test payout by {interaction.user}")
-            
-            # Get current week range
-            start_date, end_date = get_current_week_range()
-            week_key = f"{start_date[:10]}"
-            now = datetime.now(dt.UTC)
-            
-            # Fetch weekly data and get top 3
-            logger.info(f"[TestPayoutMultiLB] Fetching weekly data for test payout: {start_date} to {end_date}")
-            weekly_weighted_data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date)
-            
-            # Filter and sort by highest multiplier
-            multi_data = [entry for entry in weekly_weighted_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
-            multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
-            
-            # Process top 3 winners with test amounts
-            winners_processed = 0
-            winners_data = []
-            
-            for i in range(min(3, len(multi_data))):
-                entry = multi_data[i]
-                user_id = entry.get("uid")
-                username = entry.get("username", "Unknown")
-                multiplier = entry["highestMultiplier"].get("multiplier", 0)
-                game_name = entry["highestMultiplier"].get("gameTitle", "Unknown")
-                prize_amount = test_prizes[i]  # Use test amounts
-                
-                if not user_id or not username:
-                    continue
-                
-                # Send the tip
-                logger.info(f"[TestPayoutMultiLB] Sending test prize: ${prize_amount} to {username} (Rank #{i+1})")
-                tip_response = await send_tip(
-                    user_id=os.getenv("ROOBET_USER_ID"),
-                    to_username=username,
-                    to_user_id=user_id,
-                    amount=prize_amount
-                )
-                
-                if tip_response.get("success"):
-                    # Store winner data for logging
-                    winners_data.append({
-                        "rank": i + 1,
-                        "username": username,
-                        "multiplier": multiplier,
-                        "game_name": game_name,
-                        "wagered": entry["highestMultiplier"].get("wagered", 0),
-                        "payout": entry["highestMultiplier"].get("payout", 0),
-                        "prize": prize_amount
-                    })
-                    
-                    winners_processed += 1
-                    logger.info(f"[TestPayoutMultiLB] Successfully sent test tip ${prize_amount} to {username} for Rank #{i+1}")
-                else:
-                    logger.error(f"[TestPayoutMultiLB] Failed to tip {username}: {tip_response.get('message')}")
-                
-                # 30 second delay between tips
-                await asyncio.sleep(30)
-            
-            # Send summary to logs channel
-            if winners_processed > 0:
-                logs_channel_id = int(os.getenv("WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID", "0"))
-                if logs_channel_id:
-                    logs_channel = self.bot.get_channel(logs_channel_id)
-                    if logs_channel:
-                        summary_winners = []
-                        for winner in winners_data:
-                            summary_winners.append(winner)
-                        
-                        # Create the embed with the EXACT SAME format as real payout
-                        # Convert week_key (YYYY-MM-DD) to timestamp for start of week
-                        try:
-                            week_start_dt = datetime.fromisoformat(week_key + "T00:00:00+00:00")
-                            week_start_ts = int(week_start_dt.timestamp())
-                            # Week ends on Sunday, so add 6 days
-                            week_end_dt = week_start_dt + dt.timedelta(days=6)
-                            week_end_dt = week_end_dt.replace(hour=23, minute=59, second=59)
-                            week_end_ts = int(week_end_dt.timestamp())
-                        except:
-                            week_start_ts = None
-                            week_end_ts = None
-                        
-                        embed = self._build_weekly_payout_embed(
-                            "🏆 Weekly Multiplier Leaderboard Payouts",
-                            summary_winners,
-                            week_start_ts=week_start_ts,
-                            week_end_ts=week_end_ts,
-                            week_key=week_key,
-                        )
-                        
-                        # Ping the notification role if configured
-                        ping_role_id = os.getenv("WEEKLY_MULTIPLIER_PING_ROLE_ID")
-                        content = f"<@&{ping_role_id}>" if ping_role_id else None
-                        await logs_channel.send(content=content, embed=embed)
-                        logger.info(f"[TestPayoutMultiLB] Test payout summary posted to logs channel")
-            
-            # Send confirmation to user
-            confirmation = f"✅ Test payout completed! {winners_processed} winners processed with test amounts.\n"
-            confirmation += f"Prizes: 1st: $3, 2nd: $2, 3rd: $1"
-            await interaction.followup.send(confirmation, ephemeral=True)
-            
-        except Exception as e:
-            logger.error(f"[TestPayoutMultiLB] Error in test payout: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error running test payout: {str(e)}", ephemeral=True)
 
     @weekly_payout_check.before_loop
     async def before_weekly_payout_check(self):

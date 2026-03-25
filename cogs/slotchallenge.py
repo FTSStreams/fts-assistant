@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from utils import send_tip, get_current_month_range, fetch_user_game_stats
+from utils import send_tip
 from db import (
     get_all_active_slot_challenges, add_active_slot_challenge, remove_active_slot_challenge, log_slot_challenge,
     get_leaderboard_message_id, save_leaderboard_message_id, save_tip_log
@@ -17,8 +17,11 @@ GUILD_ID = int(os.getenv("GUILD_ID"))
 CHALLENGE_CHANNEL_ID = int(os.getenv("CHALLENGE_CHANNEL_ID"))
 HISTORY_CHANNEL_ID = 1387301442598998016  # Consolidated history channel for all events
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID"))
+ACTIVE_CHALLENGES_CHANNEL_ID = 1385820512529158226
 
 class SlotChallenge(commands.Cog):
+    challenge = app_commands.Group(name="challenge", description="Slot challenge management commands")
+
     def __init__(self, bot):
         self.bot = bot
         self.check_challenge.start()
@@ -26,10 +29,6 @@ class SlotChallenge(commands.Cog):
         self.payout_queue = asyncio.Queue()
         self.process_payout_queue_task = asyncio.create_task(self.process_payout_queue())
         # History now uses individual posts instead of large embed updates
-    
-    def get_data_manager(self):
-        """Helper to get DataManager cog"""
-        return self.bot.get_cog('DataManager')
 
     async def process_payout_queue(self):
         while True:
@@ -48,23 +47,13 @@ class SlotChallenge(commands.Cog):
                 else:
                     winner_display_name = "***"
                 
-                # Create new detailed completion embed with single-line format
+                # Create payout embed in the current event-log style.
                 embed = discord.Embed(
-                    title="🏆 Slot Challenge Complete!",
+                    title="🏆 Slot Challenge Payout",
                     color=discord.Color.green()
                 )
                 
-                # Build description with single-line format
-                description = f"**Game:** {challenge['game_name']}\n"
-                description += f"**Required Multiplier:** x{int(challenge['required_multi'])}\n"
-                description += f"**Prize:** ${challenge.get('prize', 0):.2f}\n"
-                if challenge.get('min_bet'):
-                    description += f"**Minimum Bet:** ${challenge['min_bet']:.2f}\n"
-                description += f"\n"
-                description += f"🥇 **Winner:** {winner_display_name}\n"
-                description += f"✅ **Multiplier Achieved:** x{winner.get('multiplier', 0):.2f}\n"
-                description += f"💰 **Bet → Payout:** ${winner.get('bet', 0):.2f} → ${winner.get('payout', 0):.2f}\n"
-                description += f"💸 **Prize Sent:** ${challenge.get('prize', 0):.2f}\n\n"
+                description = ""
                 
                 # Add timestamps for challenge duration
                 try:
@@ -72,13 +61,29 @@ class SlotChallenge(commands.Cog):
                     end_dt = datetime.now(timezone.utc)
                     start_ts = int(start_dt.timestamp())
                     end_ts = int(end_dt.timestamp())
-                    description += f"**Challenge Duration:** <t:{start_ts}:F> → <t:{end_ts}:F>\n"
+                    description += f"**Challenge Duration:** <t:{start_ts}:F> → <t:{end_ts}:F>\n\n"
                 except Exception:
-                    description += f"**Challenge Duration:** Started {challenge['start_time']}\n"
-                
-                description += f"**Challenge ID:** #{challenge['challenge_id']}"
+                    description += f"**Challenge Duration:** Started {challenge['start_time']}\n\n"
+
+                description += "***Challenge Details:***\n\n"
+                description += f"🎰 **Game:** {challenge['game_name']}\n"
+                description += f"📈 **Multi Required:** x{int(challenge['required_multi'])}\n"
+                description += f"💰 **Prize:** ${challenge.get('prize', 0):.2f} USD\n"
+                if challenge.get('min_bet'):
+                    description += f"🪙 **Minimum Bet:** ${challenge['min_bet']:.2f}\n"
+                description += f"🧾 **Challenge ID:** #{challenge['challenge_id']}\n\n"
+
+                description += "***Winner:***\n\n"
+                description += f"🆔 **ID:** {winner_display_name}\n"
+                description += f"✅ **Multiplier Achieved:** x{winner.get('multiplier', 0):.2f}\n"
+                description += f"💰 **Bet:** ${winner.get('bet', 0):.2f} | **Payout:** ${winner.get('payout', 0):.2f}\n"
+                description += f"💸 **Prize Sent:** ${challenge.get('prize', 0):.2f}\n\n"
+                description += (
+                    f"Track Current Active Challenges -> <#{ACTIVE_CHALLENGES_CHANNEL_ID}>"
+                )
                 
                 embed.description = description
+                embed.set_footer(text="AutoTip Engine Live • Payout Sent Successfully")
                 
                 # Send with role ping
                 if history_channel:
@@ -137,7 +142,7 @@ class SlotChallenge(commands.Cog):
             await asyncio.sleep(30)
             self.payout_queue.task_done()
 
-    @app_commands.command(name="setchallenge", description="Set a slot challenge for a specific game and multiplier.")
+    @challenge.command(name="create", description="Set a slot challenge for a specific game and multiplier.")
     @app_commands.describe(game_identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)", game_name="Game name for display", required_multi="Required multiplier (e.g. 100)", prize="Prize amount in USD", emoji="Optional emoji for this challenge", min_bet="Minimum bet size in USD (optional)")
     async def set_challenge(self, interaction: discord.Interaction, game_identifier: str, game_name: str, required_multi: float, prize: float, emoji: str = None, min_bet: float = None):
         if interaction.user.id != BOT_OWNER_ID:
@@ -268,7 +273,7 @@ class SlotChallenge(commands.Cog):
             except discord.errors.Forbidden:
                 logger.error("Bot lacks permission to send messages in challenge channel.")
 
-    @app_commands.command(name="cancelchallenge", description="Cancel a specific slot challenge by its ID.")
+    @challenge.command(name="remove", description="Cancel a specific slot challenge by its ID.")
     @app_commands.describe(challenge_id="The ID of the challenge to cancel.")
     async def cancel_challenge(self, interaction: discord.Interaction, challenge_id: int):
         if interaction.user.id != BOT_OWNER_ID:
@@ -424,37 +429,6 @@ class SlotChallenge(commands.Cog):
         logger.info("[SlotChallenge] Updating challenge embed after check cycle")
         await self.update_challenges_embed()
 
-    def get_all_known_users(self, game_identifier, start_date):
-        """
-        Retrieve all users who wagered on a specific game since the challenge start date.
-        Returns a list of dicts: [{"uid": ..., "username": ...}, ...]
-        """
-        # Get cached data from DataManager
-        data_manager = self.get_data_manager()
-        if not data_manager:
-            return []
-            
-        cached_data = data_manager.get_cached_data()
-        if not cached_data:
-            return []
-            
-        weighted_wager_data = cached_data.get('weighted_wager', [])
-        users = []
-        seen = set()
-        
-        for entry in weighted_wager_data:
-            # Check if user has highestMultiplier for this game
-            hm = entry.get("highestMultiplier")
-            if (
-                entry.get("uid") and entry.get("username") and hm and
-                hm.get("gameId") == game_identifier and hm.get("wagered", 0) > 0
-            ):
-                key = (entry["uid"], entry["username"])
-                if key not in seen:
-                    users.append({"uid": entry["uid"], "username": entry["username"]})
-                    seen.add(key)
-        return users
-
     @check_challenge.before_loop
     async def before_challenge_loop(self):
         await self.bot.wait_until_ready()
@@ -468,39 +442,7 @@ class SlotChallenge(commands.Cog):
     async def before_ensure_challenge_embed(self):
         await self.bot.wait_until_ready()
 
-    @app_commands.command(name="gamestats", description="Get a player's wager stats for a specific game.")
-    @app_commands.describe(identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)", username="Username to search (case-sensitive, must match exactly)")
-    async def gamestats(self, interaction: discord.Interaction, identifier: str, username: str = None):
-        await interaction.response.defer(thinking=True)
-        start_date, _ = get_current_month_range()
-        user_list = await asyncio.to_thread(self.get_all_known_users, identifier, start_date)
-        results = []
-        for user in user_list:
-            if username and user['username'] != username:
-                continue
-            stats = await asyncio.to_thread(fetch_user_game_stats, user['uid'], identifier, start_date)
-            if stats:
-                results.append({
-                    "username": user['username'],
-                    "multiplier": stats.get('weightedWagered', 0),
-                    "bet": stats.get('wagered', 0),
-                    "payout": None
-                })
-        if not results:
-            await interaction.followup.send(f"No results found for game identifier `{identifier}`{f' and username `{username}`' if username else ''}.", ephemeral=True)
-            return
-        results.sort(key=lambda x: x["multiplier"], reverse=True)
-        if username:
-            r = results[0]
-            desc = f"**Wager Stats for `{username}` on `{identifier}` this month:**\n\n"
-            desc += f"`x{r['multiplier']}` | Bet: `${r['bet']}`\n"
-        else:
-            desc = f"**Top Wager Stats for `{identifier}` this month:**\n\n"
-            for i, r in enumerate(results[:10], 1):
-                desc += f"**#{i} {r['username']}** — `x{r['multiplier']}` | Bet: `${r['bet']}`\n"
-        await interaction.followup.send(desc, ephemeral=True)
-
-    @app_commands.command(name="challenge_results", description="Show top wager stats for each challenge since it started.")
+    @challenge.command(name="results", description="Show top wager stats for each challenge since it started.")
     async def challenge_results(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
         from db import get_all_active_slot_challenges, get_db_connection, release_db_connection
@@ -592,108 +534,6 @@ class SlotChallenge(commands.Cog):
             # Send remaining chunks
             for chunk in chunks[1:]:
                 await interaction.followup.send(chunk, ephemeral=True)
-
-    # Removed large embed history update - now using individual posts for each event
-
-    # Large embed history system removed - using individual posts for better scalability
-
-    # Manual refresh command removed - individual posts don't need refreshing
-
-    @app_commands.command(name="backfill_challenge_history", description="ONE-TIME: Post all completed challenges as individual embeds (REMOVE AFTER USE)")
-    async def backfill_challenge_history(self, interaction: discord.Interaction):
-        if interaction.user.id != BOT_OWNER_ID:
-            await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
-            return
-        
-        await interaction.response.defer(thinking=True)
-        
-        from db import get_all_completed_slot_challenges
-        challenges = get_all_completed_slot_challenges()
-        
-        if not challenges:
-            await interaction.followup.send("No completed challenges found in database.", ephemeral=True)
-            return
-        
-        # Sort by challenge start time (oldest first)
-        challenges.sort(key=lambda x: x.get('challenge_start', '1970-01-01'))
-        
-        history_channel = self.bot.get_channel(HISTORY_CHANNEL_ID)
-        if not history_channel:
-            await interaction.followup.send("History channel not found.", ephemeral=True)
-            return
-        
-        posted_count = 0
-        for challenge in challenges:
-            try:
-                # Create completion embed in same format as new system
-                embed = discord.Embed(
-                    title="🏆 Slot Challenge Complete!",
-                    color=discord.Color.green()
-                )
-                
-                # Winner info (censor username)
-                winner_name = challenge.get('winner_username', 'Unknown')
-                if len(winner_name) > 3:
-                    winner_display = winner_name[:-3] + "***"
-                else:
-                    winner_display = "***"
-                
-                # Build single-line description
-                description = f"**Game:** {challenge.get('game', 'Unknown')}\n"
-                required_multi = challenge.get('required_multiplier', 0)
-                description += f"**Required Multiplier:** x{int(required_multi)}\n"
-                description += f"**Prize:** ${challenge.get('prize', 0):.2f}\n\n"
-                description += f"🥇 **Winner:** {winner_display}\n"
-                description += f"✅ **Multiplier Achieved:** x{challenge.get('multiplier', 0):.2f}\n"
-                bet_amount = challenge.get('bet', 0)
-                payout_amount = challenge.get('payout', 0)
-                description += f"💰 **Bet → Payout:** ${bet_amount:.2f} → ${payout_amount:.2f}\n"
-                description += f"💸 **Prize Sent:** ${challenge.get('prize', 0):.2f}\n\n"
-                
-                # Timestamps for challenge duration
-                try:
-                    import dateutil.parser
-                    start_dt = challenge['challenge_start']
-                    if isinstance(start_dt, str):
-                        start_dt = dateutil.parser.isoparse(start_dt)
-                    
-                    # Use completion time if available, otherwise estimate
-                    completion_time = challenge.get('completion_time')
-                    if completion_time:
-                        if isinstance(completion_time, str):
-                            end_dt = dateutil.parser.isoparse(completion_time)
-                        else:
-                            end_dt = completion_time
-                    else:
-                        # Estimate completion time as start + 1 hour if not available
-                        import datetime as dt
-                        end_dt = start_dt + dt.timedelta(hours=1)
-                    
-                    start_ts = int(start_dt.timestamp())
-                    end_ts = int(end_dt.timestamp())
-                    description += f"**Challenge Duration:** <t:{start_ts}:F> → <t:{end_ts}:F>\n"
-                except Exception as e:
-                    description += f"**Challenge Duration:** Started {challenge.get('challenge_start', 'Unknown')}\n"
-                
-                description += f"**Challenge ID:** #{challenge.get('challenge_id', 'Unknown')}"
-                
-                embed.description = description
-                
-                # Post with role ping
-                ping_role_id = os.getenv("SLOT_CHALLENGE_PING_ROLE_ID")
-                content = f"<@&{ping_role_id}>" if ping_role_id else None
-                await history_channel.send(content=content, embed=embed)
-                
-                posted_count += 1
-                
-                # Small delay to prevent rate limiting
-                await asyncio.sleep(2)
-                
-            except Exception as e:
-                logger.error(f"Error posting challenge {challenge.get('challenge_id', 'Unknown')}: {e}")
-                continue
-        
-        await interaction.followup.send(f"✅ Successfully posted {posted_count} completed challenges to history channel. **REMEMBER TO REMOVE THIS COMMAND AFTER USE!**", ephemeral=True)
 
     def cog_unload(self):
         self.check_challenge.cancel()
