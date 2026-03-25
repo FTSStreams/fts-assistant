@@ -444,6 +444,14 @@ def ensure_roovsflip_tables():
                     UNIQUE(year, month, winner_uid)
                 );
             """)
+            cur.execute(
+                "ALTER TABLE roovsflip_queue "
+                "ADD COLUMN IF NOT EXISTS emoji TEXT DEFAULT '🎮';"
+            )
+            cur.execute(
+                "ALTER TABLE roovsflip_queue_draft "
+                "ADD COLUMN IF NOT EXISTS emoji TEXT DEFAULT '🎮';"
+            )
             conn.commit()
             logger.info("[RooVsFlip] Tables ensured.")
     except Exception as e:

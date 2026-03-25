@@ -538,7 +538,7 @@ class RooVsFlip(commands.Cog):
 
     @app_commands.command(
         name="setroovsflipqueue",
-        description="⚙️ Set or overwrite the ACTIVE queue slot (1–5). Use only for initial setup—use `/queuenextmonth` after.",
+        description="Set or overwrite the active Roo Vs Flip queue slot.",
     )
     @app_commands.describe(
         position="Queue slot (1–5)",
@@ -595,7 +595,7 @@ class RooVsFlip(commands.Cog):
 
     @app_commands.command(
         name="roovsflipqueue",
-        description="View the current and next-month Roo Vs Flip game queues.",
+        description="View the active and next-month Roo Vs Flip queues.",
     )
     async def view_queue(self, interaction: discord.Interaction):
         if interaction.user.id != BOT_OWNER_ID:
@@ -661,7 +661,7 @@ class RooVsFlip(commands.Cog):
 
     @app_commands.command(
         name="clearroovsflipqueue",
-        description="Remove a slot from the Roo Vs Flip queue, or clear all slots.",
+        description="Remove one active queue slot, or clear the active queue.",
     )
     @app_commands.describe(
         position="Slot to remove (1–5). Omit to clear ALL slots."
@@ -691,7 +691,7 @@ class RooVsFlip(commands.Cog):
 
     @app_commands.command(
         name="queuenextmonth",
-        description="Queue games for NEXT month (draft queue). Use up to 5 slots.",
+        description="Queue a game into the next month's Roo Vs Flip draft.",
     )
     @app_commands.describe(
         position="Queue slot (1–5)",
@@ -734,7 +734,7 @@ class RooVsFlip(commands.Cog):
 
     @app_commands.command(
         name="tempfetchupdate",
-        description="🔄 Fetch fresh data and update the live embed NOW (skip the 10-min cycle).",
+        description="Fetch fresh Roo Vs Flip data and update the live embed now.",
     )
     async def temp_fetch_update(self, interaction: discord.Interaction):
         """Immediately update the live embed with current data."""
@@ -790,7 +790,7 @@ class RooVsFlip(commands.Cog):
 
     @app_commands.command(
         name="templogoutput",
-        description="📊 Preview what the monthly results embed would look like if the event ended NOW.",
+        description="Preview the results embed as if Roo Vs Flip ended right now.",
     )
     async def temp_log_output(self, interaction: discord.Interaction):
         """Build and post a preview of the monthly results to the history channel."""
