@@ -234,9 +234,9 @@ class RooVsFlip(commands.Cog):
         winner_count = len(winners)
         prize_splits = self.compute_prize_split(winner_count)
         prize_str = (
-            f"`${prize_splits[0]:,.2f} each`"
+            f"${prize_splits[0]:,.2f} each"
             if winner_count > 0
-            else "`N/A`"
+            else "N/A"
         )
 
         desc = (
@@ -244,17 +244,18 @@ class RooVsFlip(commands.Cog):
             f"From: <t:{start_ts}:F>\n"
             f"To: <t:{end_ts}:F>\n\n"
             f"⏰ **Last Updated:** <t:{now_ts}:R>\n\n"
-            f"💰 **Total Prizepool:** `${PRIZE_POOL:,.2f} USD`\n"
-            f"👑 **Current Winners:** `{winner_count}`\n"
+            f"💰 **Total Prize Pool:** ${PRIZE_POOL:,.2f} USD\n"
+            f"👑 **Current Winners:** {winner_count}\n"
             f"🎁 **Current Prize:** {prize_str}\n\n"
+            "💵 **All amounts displayed are in USD.**\n\n"
         )
 
         # Rules & Disclosure
         desc += (
-            "📜 **Roo Vs. Flip Rules & Disclosure:**\n"
+            "📜 **Rules & Disclosure:**\n"
             "• Beat Flip's multipliers with a minimum bet size of $0.20 USD\n"
-            f"• ${PRIZE_POOL:,.2f} prize pool will be split between all qualifying players\n"
-            "• ALL challenges must be completed to win\n\n"
+            f"• ${PRIZE_POOL:,.2f} prize pool is split between all qualifying players\n"
+            "• All challenges must be completed to win\n\n"
         )
 
         # Queued games
@@ -262,14 +263,9 @@ class RooVsFlip(commands.Cog):
         for g in queue:
             game_url = f"https://roobet.com/casino/game/{g['game_identifier']}"
             emoji_str = g.get("emoji", "🎮")
-            req_display = (
-                int(g["req_multi"])
-                if g["req_multi"] == int(g["req_multi"])
-                else g["req_multi"]
-            )
             desc += (
                 f"**{g['position']}.** {emoji_str} [{g['game_name']}]({game_url})"
-                f" — `Req x{req_display}`\n"
+                f" — Req x{g['req_multi']:,.2f}\n"
             )
         desc += "\n"
 
@@ -307,7 +303,7 @@ class RooVsFlip(commands.Cog):
 
         desc += (
             "\n**Legend:** ✅ requirement met"
-            " | ❌ played but below req"
+            " | ❌ played but below requirement"
             " | ⏳ no data yet"
         )
 

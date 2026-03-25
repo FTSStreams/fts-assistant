@@ -115,7 +115,7 @@ class MultiLeaderboard(commands.Cog):
         embed = discord.Embed(
             title="🏆 **Weekly Top Multipliers Leaderboard** 🏆",
             description=(
-                f"**Weekly Competition Period:**\n"
+                f"🗓️ **Competition Period:**\n"
                 f"From: <t:{int(datetime.fromisoformat(start_date.replace('Z', '+00:00')).timestamp())}:F>\n"
                 f"To: <t:{int(datetime.fromisoformat(end_date.replace('Z', '+00:00')).timestamp())}:F>\n\n"
                 f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"
@@ -155,16 +155,16 @@ class MultiLeaderboard(commands.Cog):
             else:
                 game_display = game
             embed.add_field(
-                name=f"**#{i + 1} - {username}**",
+                name=f"**#{i + 1} — {username}**",
                 value=(
-                    f"💥 **Highest Multiplier:** `x{multiplier:,.2f}`\n"
-                    f"🎮 **Game:** {game_display}\n"
-                    f"💰 **Payout:** `${payout:,.2f}` (`${wagered:,.2f}` Base Bet)\n"
-                    f"🎁 **Prize:** `${prize} USD`"
+                    f"💥 Highest Multiplier: x{multiplier:,.2f}\n"
+                    f"🎮 Game: {game_display}\n"
+                    f"💰 Payout: ${payout:,.2f} (${wagered:,.2f} Base Bet)\n"
+                    f"🎁 Prize: ${prize:.2f} USD"
                 ),
                 inline=False
             )
-        embed.set_footer(text="Our automated reward distribution system tips winners every Friday at 12:15 AM UTC.")
+        embed.set_footer(text="Automated reward distribution tips winners every Friday at 12:15 AM UTC.")
         
         # Prepare JSON data for export (weekly format)
         leaderboard_json = {

@@ -172,27 +172,27 @@ class Leaderboard(commands.Cog):
                     rank_emoji = current_rank["emoji"]
                     rank_name = current_rank["tier"]
                     leaderboard_lines.append(
-                        f"**#{i + 1} - {rank_emoji} {username} - {rank_name}**\n"
-                        f"✨ **Weighted Wagered:** `${weighted_wagered:,.2f}`\n"
-                        f"💰 **Total Wagered:** `${total_wagered:,.2f}`\n"
-                        f"💸 **Milestone Tips Earned ({current_year}-{current_month:02d}):** `${monthly_tips:.2f}`\n"
-                        f"🎁 **Prize:** `${prize} USD`\n"
+                        f"**#{i + 1} — {rank_emoji} {username} — {rank_name}**\n"
+                        f"✨ Weighted Wagered: ${weighted_wagered:,.2f}\n"
+                        f"💰 Total Wagered: ${total_wagered:,.2f}\n"
+                        f"💸 Milestone Tips Earned ({current_year}-{current_month:02d}): ${monthly_tips:.2f}\n"
+                        f"🎁 Prize: ${prize:.2f} USD\n"
                     )
                 else:
                     leaderboard_lines.append(
-                        f"**#{i + 1} - 🎰 {username} - No Rank Yet**\n"
-                        f"✨ **Weighted Wagered:** `${weighted_wagered:,.2f}`\n"
-                        f"💰 **Total Wagered:** `${total_wagered:,.2f}`\n"
-                        f"💸 **Milestone Tips Earned ({current_year}-{current_month:02d}):** `$0.00`\n"
-                        f"🎁 **Prize:** `${prize} USD`\n"
+                        f"**#{i + 1} — 🎰 {username} — No Rank Yet**\n"
+                        f"✨ Weighted Wagered: ${weighted_wagered:,.2f}\n"
+                        f"💰 Total Wagered: ${total_wagered:,.2f}\n"
+                        f"💸 Milestone Tips Earned ({current_year}-{current_month:02d}): $0.00\n"
+                        f"🎁 Prize: ${prize:.2f} USD\n"
                     )
             else:
                 leaderboard_lines.append(
-                    f"**#{i + 1} - N/A**\n"
-                    f"✨ **Weighted Wagered:** `$0.00`\n"
-                    f"💰 **Total Wagered:** `$0.00`\n"
-                    f"💸 **Milestone Tips Earned ({current_year}-{current_month:02d}):** `$0.00`\n"
-                    f"🎁 **Prize:** `${PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0} USD`\n"
+                    f"**#{i + 1} — N/A**\n"
+                    f"✨ Weighted Wagered: $0.00\n"
+                    f"💰 Total Wagered: $0.00\n"
+                    f"💸 Milestone Tips Earned ({current_year}-{current_month:02d}): $0.00\n"
+                    f"🎁 Prize: ${PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0:.2f} USD\n"
                 )
         leaderboard_block = '\n'.join(leaderboard_lines)
         embed = discord.Embed(
@@ -202,7 +202,7 @@ class Leaderboard(commands.Cog):
                 f"From: <t:{start_unix}:F>\n"
                 f"To: <t:{end_unix}:F>\n\n"
                 f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"
-                "📜 **Leaderboard Rules & Disclosure**:\n"
+                "📜 **Rules & Disclosure:**\n"
                 "• Games with an RTP of **97% or less** contribute **100%** to your weighted wager.\n"
                 "• Games with an RTP **above 97%** contribute **50%** to your weighted wager.\n"
                 "• Games with an RTP **98% and above** contribute **10%** to your weighted wager.\n"
