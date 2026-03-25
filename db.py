@@ -403,3 +403,182 @@ def backfill_monthly_totals_for_date(year, month, total_wager, weighted_wager):
         return False
     finally:
         release_db_connection(conn)
+
+
+# ─── Roo Vs Flip ──────────────────────────────────────────────────────────────
+
+def ensure_roovsflip_tables():
+    """Create Roo Vs Flip tables if they don't exist."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS roovsflip_queue (
+                    position INTEGER PRIMARY KEY,
+                    game_name TEXT NOT NULL,
+                    game_identifier TEXT NOT NULL,
+                    req_multi FLOAT NOT NULL,
+                    added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS roovsflip_payouts (
+                    id SERIAL PRIMARY KEY,
+                    year INTEGER NOT NULL,
+                    month INTEGER NOT NULL,
+                    winner_uid TEXT NOT NULL,
+                    winner_username TEXT NOT NULL,
+                    prize_amount FLOAT NOT NULL,
+                    paid_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    UNIQUE(year, month, winner_uid)
+                );
+            """)
+            conn.commit()
+            logger.info("[RooVsFlip] Tables ensured.")
+    except Exception as e:
+        logger.error(f"Error ensuring Roo Vs Flip tables: {e}")
+    finally:
+        release_db_connection(conn)
+
+
+def get_roovsflip_queue():
+    """Return all queued games ordered by position."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT position, game_name, game_identifier, req_multi, added_at "
+                "FROM roovsflip_queue ORDER BY position ASC;"
+            )
+            rows = cur.fetchall()
+            return [
+                {
+                    "position": row[0],
+                    "game_name": row[1],
+                    "game_identifier": row[2],
+                    "req_multi": float(row[3]),
+                    "added_at": row[4],
+                }
+                for row in rows
+            ]
+    except Exception as e:
+        logger.error(f"Error fetching Roo Vs Flip queue: {e}")
+        return []
+    finally:
+        release_db_connection(conn)
+
+
+def set_roovsflip_queue_slot(position, game_name, game_identifier, req_multi):
+    """Set or overwrite a specific queue slot."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO roovsflip_queue (position, game_name, game_identifier, req_multi, added_at)
+                VALUES (%s, %s, %s, %s, NOW())
+                ON CONFLICT (position) DO UPDATE SET
+                    game_name = EXCLUDED.game_name,
+                    game_identifier = EXCLUDED.game_identifier,
+                    req_multi = EXCLUDED.req_multi,
+                    added_at = EXCLUDED.added_at;
+                """,
+                (position, game_name, game_identifier, req_multi),
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error setting Roo Vs Flip queue slot: {e}")
+    finally:
+        release_db_connection(conn)
+
+
+def clear_roovsflip_queue_slot(position=None):
+    """Remove a single slot (by position) or clear the entire queue."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            if position is not None:
+                cur.execute("DELETE FROM roovsflip_queue WHERE position = %s;", (position,))
+            else:
+                cur.execute("DELETE FROM roovsflip_queue;")
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error clearing Roo Vs Flip queue slot: {e}")
+    finally:
+        release_db_connection(conn)
+
+
+def is_roovsflip_paid(year, month):
+    """Return True if any payout record exists for the given year/month."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM roovsflip_payouts WHERE year = %s AND month = %s;",
+                (year, month),
+            )
+            result = cur.fetchone()
+            return (result[0] > 0) if result else False
+    except Exception as e:
+        logger.error(f"Error checking Roo Vs Flip payout: {e}")
+        return False
+    finally:
+        release_db_connection(conn)
+
+
+def record_roovsflip_payout(year, month, winner_uid, winner_username, prize_amount):
+    """Record a single winner payout (or a sentinel 'NO_WINNERS' row)."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO roovsflip_payouts (year, month, winner_uid, winner_username, prize_amount)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (year, month, winner_uid) DO NOTHING;
+                """,
+                (year, month, winner_uid, winner_username, prize_amount),
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error recording Roo Vs Flip payout: {e}")
+    finally:
+        release_db_connection(conn)
+
+
+def get_roovsflip_event_start():
+    """
+    Return the ISO timestamp of when the current event started.
+    Defaults to the 1st of the current UTC month if no value is stored.
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value FROM settings WHERE key = 'roovsflip_event_start';")
+            row = cur.fetchone()
+            if row and row[0]:
+                return row[0]
+    except Exception as e:
+        logger.error(f"Error getting Roo Vs Flip event start: {e}")
+    finally:
+        release_db_connection(conn)
+    # Default: midnight on 1st of current UTC month
+    now = datetime.now(dt.UTC)
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+
+def set_roovsflip_event_start(iso_str):
+    """Persist a new event start timestamp to the settings table."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO settings (key, value) VALUES ('roovsflip_event_start', %s) "
+                "ON CONFLICT (key) DO UPDATE SET value = %s;",
+                (iso_str, iso_str),
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error setting Roo Vs Flip event start: {e}")
+    finally:
+        release_db_connection(conn)
