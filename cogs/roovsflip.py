@@ -482,26 +482,37 @@ class RooVsFlip(commands.Cog):
             title=f"🏆 Roo Vs Flip — {payout_year}/{payout_month:02d} Final Results",
             color=discord.Color.gold(),
         )
-        desc = (
-            f"**Challenge Period:** <t:{start_ts}:F> → <t:{int(now.timestamp())}:F>\n\n"
-            f"💰 **Total Prizepool:** `${PRIZE_POOL:,.2f} USD`\n"
-            f"👑 **Total Winners:** `{winner_count}`\n\n"
+        desc = f"**Challenge Period:** <t:{start_ts}:F> → <t:{int(now.timestamp())}:F>\n\n"
+
+        desc += "🎮 **Challenge Games:**\n\n"
+        for g in queue:
+            req_display = (
+                int(g["req_multi"])
+                if g["req_multi"] == int(g["req_multi"])
+                else g["req_multi"]
+            )
+            desc += f"{g['game_name']} — Req x{req_display}\n"
+
+        desc += (
+            f"\n💰 **Total Prizepool:** `${PRIZE_POOL:,.2f} USD`\n"
+            f"👑 **Total Winners:** `{winner_count}`\n"
         )
 
         if winner_count == 0:
             desc += (
+                "\n"
                 "❌ **No winners this month** — all queued games must be completed.\n"
                 "💰 Prizepool does not carry over.\n"
             )
         else:
-            desc += f"🎁 **Prize per winner:** `${prize_splits[0]:,.2f} USD`\n\n"
+            desc += f"\n🎁 **Prize per winner:** `${prize_splits[0]:,.2f} USD`\n\n"
             desc += "🥇 **Winners:**\n"
             for i, winner in enumerate(winners):
                 uname = winner["username"]
                 display = (
                     (uname[:-3] + "\\*\\*\\*") if len(uname) > 3 else "\\*\\*\\*"
                 )
-                desc += f"**{i + 1}.** {display} — `${prize_splits[i]:,.2f}`\n"
+                desc += f"{display} — `${prize_splits[i]:,.2f}`\n"
 
         result_embed.description = desc
 
@@ -908,26 +919,37 @@ class RooVsFlip(commands.Cog):
                 title=f"🏆 Roo Vs Flip — Preview (If ended NOW)",
                 color=discord.Color.gold(),
             )
-            desc = (
-                f"**Challenge Period:** <t:{start_ts}:F> → <t:{int(now.timestamp())}:F>\n\n"
-                f"💰 **Total Prizepool:** `${PRIZE_POOL:,.2f} USD`\n"
-                f"👑 **Total Winners:** `{winner_count}`\n\n"
+            desc = f"**Challenge Period:** <t:{start_ts}:F> → <t:{int(now.timestamp())}:F>\n\n"
+
+            desc += "🎮 **Challenge Games:**\n\n"
+            for g in queue:
+                req_display = (
+                    int(g["req_multi"])
+                    if g["req_multi"] == int(g["req_multi"])
+                    else g["req_multi"]
+                )
+                desc += f"{g['game_name']} — Req x{req_display}\n"
+
+            desc += (
+                f"\n💰 **Total Prizepool:** `${PRIZE_POOL:,.2f} USD`\n"
+                f"👑 **Total Winners:** `{winner_count}`\n"
             )
 
             if winner_count == 0:
                 desc += (
+                    "\n"
                     "❌ **No winners yet** — all queued games must be completed.\n"
                     "💰 Prizepool does not carry over.\n"
                 )
             else:
-                desc += f"🎁 **Prize per winner:** `${prize_splits[0]:,.2f} USD`\n\n"
+                desc += f"\n🎁 **Prize per winner:** `${prize_splits[0]:,.2f} USD`\n\n"
                 desc += "🥇 **Winners:**\n"
                 for i, winner in enumerate(winners):
                     uname = winner["username"]
                     display = (
                         (uname[:-3] + "\\*\\*\\*") if len(uname) > 3 else "\\*\\*\\*"
                     )
-                    desc += f"**{i + 1}.** {display} — `${prize_splits[i]:,.2f}`\n"
+                    desc += f"{display} — `${prize_splits[i]:,.2f}`\n"
 
             result_embed.description = desc
 

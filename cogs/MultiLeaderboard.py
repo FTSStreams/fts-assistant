@@ -440,9 +440,10 @@ class MultiLeaderboard(commands.Cog):
                             place = ["1st", "2nd", "3rd"][i]
                             
                             winners_text += (
-                                f"{medal} **{place} Place:** @{display_username} - **x{multiplier:,.2f} multiplier** → **${prize:.2f}**\n"
-                                f"   🎮 Game: {game_name}\n"
-                                f"   💰 Bet: ${wagered:,.2f} | Payout: ${payout:,.2f}\n\n"
+                                f"{medal} **{place} Place:** @{display_username} - **x{multiplier:,.2f} multiplier**\n"
+                                f"   🎰 Game: {game_name}\n"
+                                f"   💰 Bet: ${wagered:,.2f} | Payout: ${payout:,.2f}\n"
+                                f"   💸 Prize: ${prize:.0f}\n\n"
                             )
                         
                         # Create the embed with the detailed format
@@ -459,9 +460,17 @@ class MultiLeaderboard(commands.Cog):
                             week_end_ts = None
                         
                         if week_start_ts and week_end_ts:
-                            description = f"**Week Period:** <t:{week_start_ts}:F> → <t:{week_end_ts}:F>\n\n{winners_text}*Payouts completed successfully via Roobet affiliate system*"
+                            description = (
+                                f"**Week Period:** <t:{week_start_ts}:F> → <t:{week_end_ts}:F>\n\n"
+                                f"{winners_text}"
+                                f"Track this week's multiplier leaderboard -> <#1352322188102991932>"
+                            )
                         else:
-                            description = f"**Week of {week_key}**\n\n{winners_text}*Payouts completed successfully via Roobet affiliate system*"
+                            description = (
+                                f"**Week of {week_key}**\n\n"
+                                f"{winners_text}"
+                                f"Track this week's multiplier leaderboard -> <#1352322188102991932>"
+                            )
                         
                         embed = discord.Embed(
                             title="🏆 Weekly Multiplier Leaderboard Payouts",
@@ -469,7 +478,7 @@ class MultiLeaderboard(commands.Cog):
                             color=discord.Color.green()
                         )
                         
-                        embed.set_footer(text=f"Next weekly competition starts Friday 12:15 AM UTC")
+                        embed.set_footer(text="AutoTip Engine Live • Payouts Sent Successfully")
                         
                         # Ping the notification role if configured
                         ping_role_id = os.getenv("WEEKLY_MULTIPLIER_PING_ROLE_ID")
@@ -617,12 +626,13 @@ class MultiLeaderboard(commands.Cog):
                     place = ["1st", "2nd", "3rd"][i]
                     
                     winners_preview += (
-                        f"{medal} **{place} Place:** @{display_username} - **x{multiplier:,.2f} multiplier** → **${prize:.2f}**\n"
-                        f"   🎮 Game: {game}\n"
-                        f"   💰 Bet: ${wagered:,.2f} | Payout: ${payout:,.2f}\n\n"
+                        f"{medal} **{place} Place:** @{display_username} - **x{multiplier:,.2f} multiplier**\n"
+                        f"   🎰 Game: {game}\n"
+                        f"   💰 Bet: ${wagered:,.2f} | Payout: ${payout:,.2f}\n"
+                        f"   💸 Prize: ${prize:.0f}\n\n"
                     )
-                
-                winners_preview += "*Payouts completed successfully via Roobet affiliate system*"
+
+                winners_preview += "Track this week's multiplier leaderboard -> <#1352322188102991932>"
                 
                 embed.add_field(
                     name="📋 **Exact Log Preview (What Will Be Posted)**",
@@ -775,9 +785,10 @@ class MultiLeaderboard(commands.Cog):
                             place = ["1st", "2nd", "3rd"][rank - 1]
                             
                             winners_text += (
-                                f"{medal} **{place} Place:** @{display_username} - **x{multiplier:,.2f} multiplier** → **${prize:.2f}**\n"
-                                f"   🎮 Game: {game_name}\n"
-                                f"   💰 Bet: ${wagered:,.2f} | Payout: ${payout:,.2f}\n\n"
+                                f"{medal} **{place} Place:** @{display_username} - **x{multiplier:,.2f} multiplier**\n"
+                                f"   🎰 Game: {game_name}\n"
+                                f"   💰 Bet: ${wagered:,.2f} | Payout: ${payout:,.2f}\n"
+                                f"   💸 Prize: ${prize:.0f}\n\n"
                             )
                         
                         # Create the embed with the EXACT SAME format as real payout
@@ -794,9 +805,17 @@ class MultiLeaderboard(commands.Cog):
                             week_end_ts = None
                         
                         if week_start_ts and week_end_ts:
-                            description = f"**Week Period:** <t:{week_start_ts}:F> → <t:{week_end_ts}:F>\n\n{winners_text}*Payouts completed successfully via Roobet affiliate system*"
+                            description = (
+                                f"**Week Period:** <t:{week_start_ts}:F> → <t:{week_end_ts}:F>\n\n"
+                                f"{winners_text}"
+                                f"Track this week's multiplier leaderboard -> <#1352322188102991932>"
+                            )
                         else:
-                            description = f"**Week of {week_key}**\n\n{winners_text}*Payouts completed successfully via Roobet affiliate system*"
+                            description = (
+                                f"**Week of {week_key}**\n\n"
+                                f"{winners_text}"
+                                f"Track this week's multiplier leaderboard -> <#1352322188102991932>"
+                            )
                         
                         embed = discord.Embed(
                             title="🏆 Weekly Multiplier Leaderboard Payouts",
@@ -804,7 +823,7 @@ class MultiLeaderboard(commands.Cog):
                             color=discord.Color.green()
                         )
                         
-                        embed.set_footer(text=f"Next weekly competition starts Friday 12:15 AM UTC")
+                        embed.set_footer(text="AutoTip Engine Live • Payouts Sent Successfully")
                         
                         # Ping the notification role if configured
                         ping_role_id = os.getenv("WEEKLY_MULTIPLIER_PING_ROLE_ID")
