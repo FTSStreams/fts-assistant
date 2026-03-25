@@ -531,18 +531,44 @@ def clear_roovsflip_queue_slot(position=None):
 
 
 def is_roovsflip_paid(year, month):
-    """Return True if any payout record exists for the given year/month."""
+    """Return True only when the month has been fully finalized."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT COUNT(*) FROM roovsflip_payouts WHERE year = %s AND month = %s;",
+                """
+                SELECT COUNT(*)
+                FROM roovsflip_payouts
+                WHERE year = %s AND month = %s AND winner_uid = 'PAID_COMPLETE';
+                """,
                 (year, month),
             )
             result = cur.fetchone()
             return (result[0] > 0) if result else False
     except Exception as e:
         logger.error(f"Error checking Roo Vs Flip payout: {e}")
+        return False
+    finally:
+        release_db_connection(conn)
+
+
+def is_roovsflip_winner_paid(year, month, winner_uid):
+    """Return True if this winner already has a payout row for the month."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM roovsflip_payouts
+                WHERE year = %s AND month = %s AND winner_uid = %s;
+                """,
+                (year, month, winner_uid),
+            )
+            result = cur.fetchone()
+            return (result[0] > 0) if result else False
+    except Exception as e:
+        logger.error(f"Error checking Roo Vs Flip winner payout: {e}")
         return False
     finally:
         release_db_connection(conn)

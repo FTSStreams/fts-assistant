@@ -12,6 +12,7 @@ from db import (
     clear_roovsflip_draft_queue_slot,
     copy_roovsflip_draft_to_active,
     is_roovsflip_paid,
+    is_roovsflip_winner_paid,
     record_roovsflip_payout,
     get_roovsflip_event_start,
     set_roovsflip_event_start,
@@ -62,6 +63,7 @@ class RooVsFlip(commands.Cog):
                     game.get("emoji", "🎮"),
                     game["req_multi"],
                 )
+            await self.recover_missed_payout_on_startup()
         self.update_embed.start()
         self.monthly_payout_check.start()
         logger.info("[RooVsFlip] Cog loaded, tables ensured, tasks started.")
@@ -69,6 +71,27 @@ class RooVsFlip(commands.Cog):
     def cog_unload(self):
         self.update_embed.cancel()
         self.monthly_payout_check.cancel()
+
+    async def recover_missed_payout_on_startup(self):
+        """Self-heal: if previous month is not finalized, run payout once at startup."""
+        now = datetime.now(dt.UTC)
+        if now.month == 1:
+            payout_year, payout_month = now.year - 1, 12
+        else:
+            payout_year, payout_month = now.year, now.month - 1
+
+        month_key = f"{payout_year}-{payout_month:02d}"
+        if is_roovsflip_paid(payout_year, payout_month):
+            logger.info(f"[RooVsFlip] Startup check: {month_key} already finalized.")
+            self.last_payout_month = month_key
+            return
+
+        logger.warning(
+            f"[RooVsFlip] Startup self-heal: month {month_key} not finalized, running payout."
+        )
+        await self.run_monthly_payout(payout_year, payout_month, automated=True)
+        if is_roovsflip_paid(payout_year, payout_month):
+            self.last_payout_month = month_key
 
     # ─── Prize helpers ────────────────────────────────────────────────────────
 
@@ -426,6 +449,9 @@ class RooVsFlip(commands.Cog):
             record_roovsflip_payout(
                 payout_year, payout_month, "NO_GAMES", "NO_GAMES", 0.0
             )
+            record_roovsflip_payout(
+                payout_year, payout_month, "PAID_COMPLETE", "PAID_COMPLETE", 0.0
+            )
             set_roovsflip_event_start(new_start)
             return
 
@@ -479,8 +505,17 @@ class RooVsFlip(commands.Cog):
         result_embed.description = desc
 
         # ── Send tips ─────────────────────────────────────────────────────────
+        failed_winners = []
         for i, winner in enumerate(winners):
             prize = prize_splits[i]
+
+            if is_roovsflip_winner_paid(payout_year, payout_month, winner["uid"]):
+                logger.info(
+                    f"[RooVsFlip] Winner {winner['username']} already recorded for "
+                    f"{payout_year}-{payout_month:02d}, skipping re-tip."
+                )
+                continue
+
             try:
                 tip_response = await send_tip(
                     user_id=os.getenv("ROOBET_USER_ID"),
@@ -500,26 +535,50 @@ class RooVsFlip(commands.Cog):
                         month=payout_month,
                         year=payout_year,
                     )
+                    record_roovsflip_payout(
+                        payout_year, payout_month,
+                        winner["uid"], winner["username"], prize,
+                    )
                 else:
                     logger.error(
                         f"[RooVsFlip] Tip failed for {winner['username']}: "
                         f"{tip_response.get('message')}"
                     )
+                    failed_winners.append(winner["username"])
             except Exception as e:
                 logger.error(
                     f"[RooVsFlip] Exception tipping {winner['username']}: {e}"
                 )
-            # Record regardless of tip success to prevent duplicate attempts
-            record_roovsflip_payout(
-                payout_year, payout_month,
-                winner["uid"], winner["username"], prize,
-            )
+                failed_winners.append(winner["username"])
             await asyncio.sleep(PAYOUT_DELAY_SECONDS)
 
         # If no winners, still mark month as processed
         if winner_count == 0:
             record_roovsflip_payout(
                 payout_year, payout_month, "NO_WINNERS", "NO_WINNERS", 0.0
+            )
+            record_roovsflip_payout(
+                payout_year, payout_month, "PAID_COMPLETE", "PAID_COMPLETE", 0.0
+            )
+        else:
+            unpaid_winners = [
+                w["username"]
+                for w in winners
+                if not is_roovsflip_winner_paid(payout_year, payout_month, w["uid"])
+            ]
+            if unpaid_winners:
+                logger.error(
+                    "[RooVsFlip] Month not finalized; unpaid winners remain: "
+                    + ", ".join(unpaid_winners)
+                )
+                if history_channel:
+                    await history_channel.send(
+                        f"⚠️ Roo Vs Flip payout for **{payout_year}-{payout_month:02d}** "
+                        f"is incomplete. Unpaid winners: **{len(unpaid_winners)}**."
+                    )
+                return
+            record_roovsflip_payout(
+                payout_year, payout_month, "PAID_COMPLETE", "PAID_COMPLETE", 0.0
             )
 
         # ── Post results to history channel ───────────────────────────────────
