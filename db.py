@@ -520,6 +520,7 @@ def clear_roovsflip_queue_slot(position=None):
         with conn.cursor() as cur:
             if position is not None:
                 cur.execute("DELETE FROM roovsflip_queue WHERE position = %s;", (position,))
+                cur.execute("UPDATE roovsflip_queue SET position = position - 1 WHERE position > %s;", (position,))
             else:
                 cur.execute("DELETE FROM roovsflip_queue;")
             conn.commit()
@@ -665,6 +666,7 @@ def clear_roovsflip_draft_queue_slot(position=None):
         with conn.cursor() as cur:
             if position is not None:
                 cur.execute("DELETE FROM roovsflip_queue_draft WHERE position = %s;", (position,))
+                cur.execute("UPDATE roovsflip_queue_draft SET position = position - 1 WHERE position > %s;", (position,))
             else:
                 cur.execute("DELETE FROM roovsflip_queue_draft;")
             conn.commit()

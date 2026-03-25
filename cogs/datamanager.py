@@ -207,8 +207,8 @@ class DataManager(commands.Cog):
             main_leaderboard_json = self.generate_main_leaderboard_json()
             logger.info("[DataManager] Main leaderboard JSON generated")
             
-            # Generate multiplier leaderboard JSON
-            multi_leaderboard_json = self.generate_multiplier_leaderboard_json()
+            # Generate multiplier leaderboard JSON (uses blocking HTTP call, run in thread)
+            multi_leaderboard_json = await asyncio.to_thread(self.generate_multiplier_leaderboard_json)
             logger.info("[DataManager] Multiplier leaderboard JSON generated")
             
             # Generate slot challenges JSON
@@ -223,8 +223,8 @@ class DataManager(commands.Cog):
             challenge_history_json = self.generate_challenge_history_json()
             logger.info("[DataManager] Challenge history JSON generated")
             
-            # Generate all wager data JSON (since Jan 1, 2025)
-            all_wager_data_json = self.generate_all_wager_data_json()
+            # Generate all wager data JSON (since Jan 1, 2025) (uses blocking HTTP calls, run in thread)
+            all_wager_data_json = await asyncio.to_thread(self.generate_all_wager_data_json)
             logger.info("[DataManager] All wager data JSON generated")
             
             # Upload all files to GitHub
