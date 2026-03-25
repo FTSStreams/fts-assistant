@@ -488,6 +488,35 @@ def get_roovsflip_queue():
         release_db_connection(conn)
 
 
+def _normalize_roovsflip_positions(table_name):
+    """Reindex queue positions to be contiguous starting from 1."""
+    if table_name not in ("roovsflip_queue", "roovsflip_queue_draft"):
+        raise ValueError("Invalid Roo Vs Flip table name")
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # Shift away from the PK range first to avoid transient conflicts.
+            cur.execute(f"UPDATE {table_name} SET position = position + 1000;")
+            cur.execute(
+                f"""
+                WITH ordered AS (
+                    SELECT position, ROW_NUMBER() OVER (ORDER BY position ASC, added_at ASC) AS new_position
+                    FROM {table_name}
+                )
+                UPDATE {table_name} t
+                SET position = ordered.new_position
+                FROM ordered
+                WHERE t.position = ordered.position;
+                """
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error normalizing Roo Vs Flip positions for {table_name}: {e}")
+    finally:
+        release_db_connection(conn)
+
+
 def set_roovsflip_queue_slot(position, game_name, game_identifier, emoji, req_multi):
     """Set or overwrite a specific queue slot."""
     conn = get_db_connection()
@@ -511,6 +540,7 @@ def set_roovsflip_queue_slot(position, game_name, game_identifier, emoji, req_mu
         logger.error(f"Error setting Roo Vs Flip queue slot: {e}")
     finally:
         release_db_connection(conn)
+    _normalize_roovsflip_positions("roovsflip_queue")
 
 
 def clear_roovsflip_queue_slot(position=None):
@@ -528,6 +558,7 @@ def clear_roovsflip_queue_slot(position=None):
         logger.error(f"Error clearing Roo Vs Flip queue slot: {e}")
     finally:
         release_db_connection(conn)
+    _normalize_roovsflip_positions("roovsflip_queue")
 
 
 def is_roovsflip_paid(year, month):
@@ -683,6 +714,7 @@ def set_roovsflip_draft_queue_slot(position, game_name, game_identifier, emoji, 
         logger.error(f"Error setting Roo Vs Flip draft queue slot: {e}")
     finally:
         release_db_connection(conn)
+    _normalize_roovsflip_positions("roovsflip_queue_draft")
 
 
 def clear_roovsflip_draft_queue_slot(position=None):
@@ -700,6 +732,7 @@ def clear_roovsflip_draft_queue_slot(position=None):
         logger.error(f"Error clearing Roo Vs Flip draft queue slot: {e}")
     finally:
         release_db_connection(conn)
+    _normalize_roovsflip_positions("roovsflip_queue_draft")
 
 
 def copy_roovsflip_draft_to_active():
@@ -722,3 +755,4 @@ def copy_roovsflip_draft_to_active():
         logger.error(f"Error copying draft queue to active: {e}")
     finally:
         release_db_connection(conn)
+    _normalize_roovsflip_positions("roovsflip_queue")

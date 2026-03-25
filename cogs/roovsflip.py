@@ -97,7 +97,7 @@ class RooVsFlip(commands.Cog):
 
     def compute_prize_split(self, winner_count):
         """
-        Cent-safe $500 split.  Returns a list of floats, one per winner.
+        Cent-safe prize split. Returns a list of floats, one per winner.
         The first N winners receive one extra cent when the total doesn't divide evenly.
         """
         if winner_count == 0:
@@ -236,7 +236,7 @@ class RooVsFlip(commands.Cog):
         prize_str = (
             f"`${prize_splits[0]:,.2f} each`"
             if winner_count > 0
-            else "`Pending`"
+            else "`N/A`"
         )
 
         desc = (
@@ -244,7 +244,7 @@ class RooVsFlip(commands.Cog):
             f"From: <t:{start_ts}:F>\n"
             f"To: <t:{end_ts}:F>\n\n"
             f"⏰ **Last Updated:** <t:{now_ts}:R>\n\n"
-            f"💰 **Total Prizepool:** `$500.00 USD`\n"
+            f"💰 **Total Prizepool:** `${PRIZE_POOL:,.2f} USD`\n"
             f"👑 **Current Winners:** `{winner_count}`\n"
             f"🎁 **Current Prize:** {prize_str}\n\n"
         )
@@ -253,8 +253,8 @@ class RooVsFlip(commands.Cog):
         desc += (
             "📜 **Roo Vs. Flip Rules & Disclosure:**\n"
             "• Beat Flip's multipliers with a minimum bet size of $0.20 USD\n"
-            "• All challenges must be completed to win\n"
-            "• $500 prize pool will be split between all qualifying players\n\n"
+            f"• ${PRIZE_POOL:,.2f} prize pool will be split between all qualifying players\n"
+            "• ALL challenges must be completed to win\n\n"
         )
 
         # Queued games
@@ -283,9 +283,10 @@ class RooVsFlip(commands.Cog):
             for i, p in enumerate(qualified_participants[:EMBED_MAX_PARTICIPANTS]):
                 uname = p["username"]
                 display = (uname[:-3] + "\\*\\*\\*") if len(uname) > 3 else "\\*\\*\\*"
+                completion_badge = " 🏆" if p["completions"] == total_games else ""
                 desc += (
                     f"\n**#{i + 1} — {display}**"
-                    f" — `{p['completions']}/{total_games} Complete`\n"
+                    f" — `{p['completions']}/{total_games} Complete`{completion_badge}\n"
                 )
                 row = ""
                 for g in queue:
@@ -419,7 +420,7 @@ class RooVsFlip(commands.Cog):
         """
         1. Fetch final API data using stored event_start.
         2. Identify full winners.
-        3. Split $500 and send tips.
+        3. Split prize pool and send tips.
         4. Post results embed to history channel.
         5. Record all payouts in DB.
         6. Reset event_start to 1st of new month.
@@ -483,7 +484,7 @@ class RooVsFlip(commands.Cog):
         )
         desc = (
             f"**Challenge Period:** <t:{start_ts}:F> → <t:{int(now.timestamp())}:F>\n\n"
-            f"💰 **Total Prizepool:** `$500.00 USD`\n"
+            f"💰 **Total Prizepool:** `${PRIZE_POOL:,.2f} USD`\n"
             f"👑 **Total Winners:** `{winner_count}`\n\n"
         )
 
@@ -909,7 +910,7 @@ class RooVsFlip(commands.Cog):
             )
             desc = (
                 f"**Challenge Period:** <t:{start_ts}:F> → <t:{int(now.timestamp())}:F>\n\n"
-                f"💰 **Total Prizepool:** `$500.00 USD`\n"
+                f"💰 **Total Prizepool:** `${PRIZE_POOL:,.2f} USD`\n"
                 f"👑 **Total Winners:** `{winner_count}`\n\n"
             )
 
