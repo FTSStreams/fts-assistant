@@ -10,6 +10,7 @@ import datetime as dt
 import asyncio
 
 logger = logging.getLogger(__name__)
+MILESTONE_PRIZES_CHANNEL_ID = 1362517492651790416
 
 # Environment variable validation with proper error handling
 try:
@@ -106,25 +107,25 @@ class Milestones(commands.Cog):
                     save_tip(user_id, milestone["tier"], month, year)
                     save_tip_log(user_id, username, milestone["tip"], "milestone", month, year)
                     logger.info(f"[Milestones] Successfully saved tip for {username} - {milestone['tier']} in database (month={month}, year={year})")
-                    # Censor username for public display and escape asterisks to prevent Discord markdown issues
+                    # Censor username for public display using bullet characters for consistency.
                     display_username = username
                     if len(username) > 3:
-                        display_username = username[:-3] + "\\*\\*\\*"
+                        display_username = username[:-3] + "•••"
                     else:
-                        display_username = "\\*\\*\\*"
+                        display_username = "•••"
                     
                     embed = discord.Embed(
                         title=f"{milestone['emoji']} {milestone['tier']} Wager Milestone Achieved! {milestone['emoji']}",
                         description=(
-                            f"🎉 **{display_username}** has conquered the **{milestone['tier']} Milestone**!\n"
-                            f"✨ **Weighted Wagered**: ${milestone['threshold']:,.2f}\n"
-                            f"💸 **Tip Received**: **${milestone['tip']:.2f} USD**\n"
-                            f"Keep rocking the slots! 🚀"
+                            f"🆔 **ID:** {display_username}\n"
+                            f"✨ **Weighted Wager:** ${milestone['threshold']:,.2f}\n"
+                            f"💸 **Tip Received:** ${milestone['tip']:.2f} USD\n"
+                            f"See Milestone Prizes -> <#{MILESTONE_PRIZES_CHANNEL_ID}>"
                         ),
                         color=milestone["color"]
                     )
                     embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
-                    embed.set_footer(text=f"Tipped on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
+                    embed.set_footer(text="AutoTip Engine Live • Payout Sent Successfully")
                     await channel.send(embed=embed)
                 else:
                     logger.error(f"Failed to send milestone tip to {username}: {tip_response.get('message')}")

@@ -129,11 +129,11 @@ class MultiLeaderboard(commands.Cog):
             if i < len(multi_data):
                 entry = multi_data[i]
                 username = entry.get("username", "Unknown")
-                # Censor username and escape asterisks to prevent Discord markdown issues
+                # Censor username using bullet characters for consistency.
                 if len(username) > 3:
-                    username = username[:-3] + "\\*\\*\\*"
+                    username = username[:-3] + "•••"
                 else:
-                    username = "\\*\\*\\*"
+                    username = "•••"
                 multiplier = entry["highestMultiplier"].get("multiplier", 0)
                 game = entry["highestMultiplier"].get("gameTitle", "Unknown")
                 game_identifier = entry["highestMultiplier"].get("gameIdentifier", None)

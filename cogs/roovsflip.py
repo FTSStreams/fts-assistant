@@ -282,7 +282,7 @@ class RooVsFlip(commands.Cog):
             desc += f"📊 **Participants** (top {shown} shown):\n"
             for i, p in enumerate(qualified_participants[:EMBED_MAX_PARTICIPANTS]):
                 uname = p["username"]
-                display = (uname[:-3] + "\\*\\*\\*") if len(uname) > 3 else "\\*\\*\\*"
+                display = (uname[:-3] + "•••") if len(uname) > 3 else "•••"
                 completion_badge = " 🏆" if p["completions"] == total_games else ""
                 desc += (
                     f"\n**#{i + 1} — {display}**"
@@ -479,23 +479,23 @@ class RooVsFlip(commands.Cog):
             start_ts = int(now.timestamp())
 
         result_embed = discord.Embed(
-            title=f"🏆 Roo Vs Flip — {payout_year}/{payout_month:02d} Final Results",
+            title="🏆 Roo Vs Flip Payouts",
             color=discord.Color.gold(),
         )
         desc = f"**Challenge Period:** <t:{start_ts}:F> → <t:{int(now.timestamp())}:F>\n\n"
 
-        desc += "🎮 **Challenge Games:**\n\n"
-        for g in queue:
+        desc += "***Challenge Games:***\n\n"
+        for idx, g in enumerate(queue, start=1):
             req_display = (
                 int(g["req_multi"])
                 if g["req_multi"] == int(g["req_multi"])
                 else g["req_multi"]
             )
-            desc += f"{g['game_name']} — Req x{req_display}\n"
+            desc += f"**{idx}.** {g['game_name']} — Req x{req_display}\n"
 
         desc += (
-            f"\n💰 **Total Prizepool:** `${PRIZE_POOL:,.2f} USD`\n"
-            f"👑 **Total Winners:** `{winner_count}`\n"
+            f"\n💰 **Total Prizepool:** ${PRIZE_POOL:,.2f} USD\n"
+            f"👑 **Total Winners:** {winner_count}\n"
         )
 
         if winner_count == 0:
@@ -505,16 +505,15 @@ class RooVsFlip(commands.Cog):
                 "💰 Prizepool does not carry over.\n"
             )
         else:
-            desc += f"\n🎁 **Prize per winner:** `${prize_splits[0]:,.2f} USD`\n\n"
-            desc += "🥇 **Winners:**\n"
+            desc += f"\n🎁 **Prize per winner:** ${prize_splits[0]:,.2f} USD\n\n"
+            desc += "***Winners:***\n\n"
             for i, winner in enumerate(winners):
                 uname = winner["username"]
-                display = (
-                    (uname[:-3] + "\\*\\*\\*") if len(uname) > 3 else "\\*\\*\\*"
-                )
-                desc += f"{display} — `${prize_splits[i]:,.2f}`\n"
+                display = (uname[:-3] + "•••") if len(uname) > 3 else "•••"
+                desc += f"👑 {display} — ${prize_splits[i]:,.2f}\n"
 
         result_embed.description = desc
+        result_embed.set_footer(text="AutoTip Engine Live • Payouts Sent Successfully")
 
         # ── Send tips ─────────────────────────────────────────────────────────
         failed_winners = []
@@ -916,23 +915,23 @@ class RooVsFlip(commands.Cog):
                 start_ts = int(now.timestamp())
 
             result_embed = discord.Embed(
-                title=f"🏆 Roo Vs Flip — Preview (If ended NOW)",
+                title="🧪 Roo Vs Flip Payout Preview (If ended NOW)",
                 color=discord.Color.gold(),
             )
             desc = f"**Challenge Period:** <t:{start_ts}:F> → <t:{int(now.timestamp())}:F>\n\n"
 
-            desc += "🎮 **Challenge Games:**\n\n"
-            for g in queue:
+            desc += "***Challenge Games:***\n\n"
+            for idx, g in enumerate(queue, start=1):
                 req_display = (
                     int(g["req_multi"])
                     if g["req_multi"] == int(g["req_multi"])
                     else g["req_multi"]
                 )
-                desc += f"{g['game_name']} — Req x{req_display}\n"
+                desc += f"**{idx}.** {g['game_name']} — Req x{req_display}\n"
 
             desc += (
-                f"\n💰 **Total Prizepool:** `${PRIZE_POOL:,.2f} USD`\n"
-                f"👑 **Total Winners:** `{winner_count}`\n"
+                f"\n💰 **Total Prizepool:** ${PRIZE_POOL:,.2f} USD\n"
+                f"👑 **Total Winners:** {winner_count}\n"
             )
 
             if winner_count == 0:
@@ -942,16 +941,15 @@ class RooVsFlip(commands.Cog):
                     "💰 Prizepool does not carry over.\n"
                 )
             else:
-                desc += f"\n🎁 **Prize per winner:** `${prize_splits[0]:,.2f} USD`\n\n"
-                desc += "🥇 **Winners:**\n"
+                desc += f"\n🎁 **Prize per winner:** ${prize_splits[0]:,.2f} USD\n\n"
+                desc += "***Winners:***\n\n"
                 for i, winner in enumerate(winners):
                     uname = winner["username"]
-                    display = (
-                        (uname[:-3] + "\\*\\*\\*") if len(uname) > 3 else "\\*\\*\\*"
-                    )
-                    desc += f"{display} — `${prize_splits[i]:,.2f}`\n"
+                    display = (uname[:-3] + "•••") if len(uname) > 3 else "•••"
+                    desc += f"👑 {display} — ${prize_splits[i]:,.2f}\n"
 
             result_embed.description = desc
+            result_embed.set_footer(text="AutoTip Engine Live • Preview Only (No Payout Sent)")
 
             history_channel = (
                 self.bot.get_channel(ROO_VS_FLIP_HISTORY_CHANNEL_ID)

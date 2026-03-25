@@ -43,9 +43,9 @@ class SlotChallenge(commands.Cog):
                 # Censor usernames for public display
                 winner_display_name = winner['username']
                 if len(winner_display_name) > 3:
-                    winner_display_name = winner_display_name[:-3] + "***"
+                    winner_display_name = winner_display_name[:-3] + "•••"
                 else:
-                    winner_display_name = "***"
+                    winner_display_name = "•••"
                 
                 # Create payout embed in the current event-log style.
                 embed = discord.Embed(
