@@ -221,9 +221,10 @@ class SlotChallenge(commands.Cog):
         # Build a styled description for all challenges
         now_ts = int(datetime.now(dt.UTC).timestamp())
         desc = f"⏰ **Last Updated:** <t:{now_ts}:R>\n\n"
-        desc += "First to hit the required multiplier wins the prize.\n"
-        desc += "All prizes are paid automatically by our secure system.\n"
-        desc += f"See <#{HISTORY_CHANNEL_ID}> for event logs.\n\n"
+        desc += "📜 **Rules & Disclosure:**\n"
+        desc += "• First to hit the required multiplier wins the prize.\n"
+        desc += "• All prizes are paid automatically by our secure system.\n"
+        desc += f"• See <#{HISTORY_CHANNEL_ID}> for event logs.\n\n"
         desc += "💵 **All amounts displayed are in USD.**\n\n"
         for challenge in active:
             try:
@@ -235,18 +236,18 @@ class SlotChallenge(commands.Cog):
             except Exception:
                 start_str = str(challenge['start_time'])
             emoji = challenge.get('emoji') or '🎰'
-            min_bet_str = f"  |  Min Bet: ${float(challenge['min_bet']):,.2f}" if challenge.get('min_bet') else ""
-            # Make the game name a hyperlink (no quotes)
-            game_url = f"https://roobet.com/casino/game/{challenge['game_identifier']}"
-            game_name_link = f"[{challenge['game_name']}]({game_url})"
-            desc += f"**#{challenge['challenge_id']} | {emoji} {game_name_link}**\n"
-            desc += f"Multiplier: x{float(challenge['required_multi']):,.2f}  |  Prize: ${float(challenge['prize']):,.2f}{min_bet_str}\n"
-            desc += f"Start: {start_str}\n\n"
+            desc += f"**#{challenge['challenge_id']} — {emoji} `{challenge['game_name']}`**\n"
+            desc += f"🎯 **Multiplier:** `x{float(challenge['required_multi']):,.2f}`\n"
+            desc += f"🎁 **Prize:** `${float(challenge['prize']):,.2f}`\n"
+            if challenge.get('min_bet'):
+                desc += f"💵 **Min Bet:** `${float(challenge['min_bet']):,.2f}`\n"
+            desc += f"🕒 **Start:** {start_str}\n\n"
         embed = discord.Embed(
             title="🎰 **Active Slot Challenges** 🎰",
             description=desc,
             color=discord.Color.gold()
         )
+        embed.set_footer(text="AutoTip Engine • Auto-pays ~15 minutes after challenge completion.")
         
         # Use consistent message ID tracking like leaderboards
         message_id = get_leaderboard_message_id(key="active_challenges_message_id")

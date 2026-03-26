@@ -150,7 +150,12 @@ class Leaderboard(commands.Cog):
         current_year = now.year
         
         leaderboard_lines = []
+        position_markers = [
+            "🥇", "🥈", "🥉", ":four:", ":five:",
+            ":six:", ":seven:", ":eight:", ":nine:", ":one::zero:",
+        ]
         for i in range(10):
+            position_marker = position_markers[i] if i < len(position_markers) else f"#{i + 1}"
             if i < len(weighted_wager_data):
                 entry = weighted_wager_data[i]
                 username = entry.get("username", "Unknown")
@@ -172,29 +177,29 @@ class Leaderboard(commands.Cog):
                     rank_emoji = current_rank["emoji"]
                     rank_name = current_rank["tier"]
                     leaderboard_lines.append(
-                        f"**#{i + 1} — {rank_emoji} {username} — {rank_name}**\n"
-                        f"✨ Weighted Wagered: ${weighted_wagered:,.2f}\n"
-                        f"💰 Total Wagered: ${total_wagered:,.2f}\n"
-                        f"💸 Milestone Tips Earned ({current_year}-{current_month:02d}): ${monthly_tips:.2f}\n"
-                        f"🎁 Prize: ${prize:.2f} USD\n"
+                        f"{position_marker} — ***__{username}__*** — **Milestone Rank:** {rank_name} {rank_emoji}\n"
+                        f"⚖️ **Weighted Wagered:** `${weighted_wagered:,.2f}`\n"
+                        f"💰 **Total Wagered:** `${total_wagered:,.2f}`\n"
+                        f"💸 **Milestone Tips Earned ({current_year}-{current_month:02d}):** `${monthly_tips:.2f}`\n"
+                        f"🎁 **Prize:** `${prize:.2f}`"
                     )
                 else:
                     leaderboard_lines.append(
-                        f"**#{i + 1} — 🎰 {username} — No Rank Yet**\n"
-                        f"✨ Weighted Wagered: ${weighted_wagered:,.2f}\n"
-                        f"💰 Total Wagered: ${total_wagered:,.2f}\n"
-                        f"💸 Milestone Tips Earned ({current_year}-{current_month:02d}): $0.00\n"
-                        f"🎁 Prize: ${prize:.2f} USD\n"
+                        f"{position_marker} — ***__{username}__*** — **Milestone Rank:** No Rank Yet\n"
+                        f"⚖️ **Weighted Wagered:** `${weighted_wagered:,.2f}`\n"
+                        f"💰 **Total Wagered:** `${total_wagered:,.2f}`\n"
+                        f"💸 **Milestone Tips Earned ({current_year}-{current_month:02d}):** `$0.00`\n"
+                        f"🎁 **Prize:** `${prize:.2f}`"
                     )
             else:
                 leaderboard_lines.append(
-                    f"**#{i + 1} — N/A**\n"
-                    f"✨ Weighted Wagered: $0.00\n"
-                    f"💰 Total Wagered: $0.00\n"
-                    f"💸 Milestone Tips Earned ({current_year}-{current_month:02d}): $0.00\n"
-                    f"🎁 Prize: ${PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0:.2f} USD\n"
+                    f"{position_marker} — ***__N/A__*** — **Milestone Rank:** N/A\n"
+                    f"⚖️ **Weighted Wagered:** `$0.00`\n"
+                    f"💰 **Total Wagered:** `$0.00`\n"
+                    f"💸 **Milestone Tips Earned ({current_year}-{current_month:02d}):** `$0.00`\n"
+                    f"🎁 **Prize:** `${PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0:.2f}`"
                 )
-        leaderboard_block = '\n'.join(leaderboard_lines)
+        leaderboard_block = '\n\n'.join(leaderboard_lines)
         embed = discord.Embed(
             title="🏆 **$1,500 USD Roobet Monthly Leaderboard** 🏆",
             description=(
@@ -289,7 +294,7 @@ class Leaderboard(commands.Cog):
                     ),
                     color=discord.Color.blue()
                 )
-                embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
+                embed.set_footer(text="AutoTip Engine • Auto-pays during stream on the 1st of each month.")
                 await channel.send(embed=embed)
                 await channel.send(f"🎉 Thanks to @everyone who helped reach ${threshold:,.0f} wager this month. Your support is truly appreciated! 🚀")
         except Exception as e:

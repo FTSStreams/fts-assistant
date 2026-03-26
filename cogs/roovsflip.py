@@ -344,7 +344,7 @@ class RooVsFlip(commands.Cog):
             color=discord.Color.gold(),
         )
         embed.set_footer(
-            text="Prize pool auto-pays at midnight UTC on the 1st of each month."
+            text="AutoTip Engine • Auto-pays at midnight UTC on the 1st of each month."
         )
         return embed
 

@@ -99,19 +99,6 @@ class MultiLeaderboard(commands.Cog):
         # Filter and sort by highestMultiplier
         multi_data = [entry for entry in weekly_weighted_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
         multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
-        # Calculate next payout/reset timestamp (Friday 00:15 UTC)
-        now = datetime.now(dt.UTC)
-        days_until_friday = (4 - now.weekday()) % 7  # Friday is weekday 4
-        if days_until_friday == 0 and now.hour == 0 and now.minute < 15:
-            # It's Friday and payout/reset is still upcoming in a few minutes
-            next_friday = now.replace(hour=0, minute=15, second=0, microsecond=0)
-        else:
-            # Otherwise, show the next weekly Friday 00:15 UTC reset
-            if days_until_friday == 0:
-                days_until_friday = 7
-            next_friday = now + dt.timedelta(days=days_until_friday)
-            next_friday = next_friday.replace(hour=0, minute=15, second=0, microsecond=0)
-        
         embed = discord.Embed(
             title="🏆 **Weekly Top Multipliers Leaderboard** 🏆",
             description=(
@@ -120,11 +107,11 @@ class MultiLeaderboard(commands.Cog):
                 f"To: <t:{int(datetime.fromisoformat(end_date.replace('Z', '+00:00')).timestamp())}:F>\n\n"
                 f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"
                 "This leaderboard ranks users by their highest single multiplier hit this week.\n"
-                f"**Resets:** <t:{int(next_friday.timestamp())}:F>\n\n"
                 "💵 **All amounts displayed are in USD.**\n\n"
             ),
             color=discord.Color.purple()
         )
+        position_markers = ["🥇", "🥈", "🥉"]
         for i in range(3):  # Only top 3 for weekly competition
             if i < len(multi_data):
                 entry = multi_data[i]
@@ -148,23 +135,18 @@ class MultiLeaderboard(commands.Cog):
                 wagered = 0
                 payout = 0
                 prize = PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0
-            # Hyperlink the game if identifier exists
-            if game_identifier:
-                game_url = f"https://roobet.com/casino/game/{game_identifier}"
-                game_display = f"[{game}]({game_url})"
-            else:
-                game_display = game
+            position_marker = position_markers[i] if i < len(position_markers) else f"#{i + 1}"
             embed.add_field(
-                name=f"**#{i + 1} — {username}**",
+                name=f"{position_marker} — ***__{username}__***",
                 value=(
-                    f"💥 Highest Multiplier: x{multiplier:,.2f}\n"
-                    f"🎮 Game: {game_display}\n"
-                    f"💰 Payout: ${payout:,.2f} (${wagered:,.2f} Base Bet)\n"
-                    f"🎁 Prize: ${prize:.2f} USD"
+                    f"💥 **Highest Multiplier:** `x{multiplier:,.2f}`\n"
+                    f"🎰 **Game:** `{game}`\n"
+                    f"💰 **Payout:** `${payout:,.2f}` (`${wagered:,.2f}` Base Bet)\n"
+                    f"🎁 **Prize:** `${prize:.2f}`"
                 ),
                 inline=False
             )
-        embed.set_footer(text="Automated reward distribution tips winners every Friday at 12:15 AM UTC.")
+        embed.set_footer(text="AutoTip Engine • Auto-pays at midnight UTC every Friday.")
         
         # Prepare JSON data for export (weekly format)
         leaderboard_json = {
