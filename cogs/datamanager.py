@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 from utils import fetch_total_wager, fetch_weighted_wager, get_current_month_range, fetch_user_game_stats, get_month_range, generate_backfill_months, get_current_week_range
-from db import get_all_active_slot_challenges, get_all_completed_slot_challenges, get_db_connection, release_db_connection, save_monthly_totals, backfill_monthly_totals_for_date
+from db import get_all_active_slot_challenges, get_all_completed_slot_challenges, get_db_connection, release_db_connection, save_monthly_totals, backfill_monthly_totals_for_date, get_roovsflip_queue, get_roovsflip_draft_queue, get_roovsflip_event_start
 import os
 import logging
 from datetime import datetime
@@ -227,6 +227,10 @@ class DataManager(commands.Cog):
             all_wager_data_json = await asyncio.to_thread(self.generate_all_wager_data_json)
             logger.info("[DataManager] All wager data JSON generated")
             
+            # Generate RVF data JSON (uses async API calls per game)
+            rvf_json = await self.generate_rvf_json()
+            logger.info("[DataManager] RVF data JSON generated")
+            
             # Upload all files to GitHub
             files_to_upload = [
                 ("latestLBResults.json", main_leaderboard_json),
@@ -234,7 +238,8 @@ class DataManager(commands.Cog):
                 ("ActiveSlotChallenges.json", challenges_json),
                 ("allTimeTips.json", all_time_tips_json),
                 ("challengeHistory.json", challenge_history_json),
-                ("allWagerData.json", all_wager_data_json)
+                ("allWagerData.json", all_wager_data_json),
+                ("rvfData.json", rvf_json)
             ]
             
             logger.info(f"[DataManager] Uploading {len(files_to_upload)} files to GitHub...")
@@ -599,6 +604,187 @@ class DataManager(commands.Cog):
         
         return history_json
     
+    async def generate_rvf_json(self):
+        """Generate Roo Vs Flip data JSON including live participants and payout history"""
+        queue = get_roovsflip_queue()
+        draft_queue = get_roovsflip_draft_queue()
+        event_start_str = get_roovsflip_event_start()
+
+        # Replicate RooVsFlip.compute_period_end logic
+        def _compute_period_end(start_str):
+            try:
+                start = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+            except Exception:
+                start = datetime.now(dt.UTC)
+            months_ahead = 2 if start.day > 1 else 1
+            target_month = start.month + months_ahead
+            target_year = start.year + (target_month - 1) // 12
+            target_month = ((target_month - 1) % 12) + 1
+            return datetime(target_year, target_month, 1, tzinfo=dt.UTC)
+
+        period_end = _compute_period_end(event_start_str)
+
+        try:
+            event_start_dt = datetime.fromisoformat(event_start_str.replace("Z", "+00:00"))
+            event_start_ts = int(event_start_dt.timestamp())
+        except Exception:
+            event_start_ts = int(datetime.now(dt.UTC).timestamp())
+
+        period_end_ts = int(period_end.timestamp())
+
+        # Fetch per-game participant data from the affiliate API
+        game_data = {}
+        for game in queue:
+            gid = game["game_identifier"]
+            try:
+                data = await asyncio.to_thread(fetch_weighted_wager, event_start_str, None, gid)
+                game_data[gid] = data if isinstance(data, list) else []
+            except Exception as e:
+                logger.error(f"[DataManager] RVF API error for {gid}: {e}")
+                game_data[gid] = []
+            await asyncio.sleep(1)
+
+        # Build participant list (mirrors RooVsFlip.build_participant_list)
+        player_map = {}
+        for game in queue:
+            gid = game["game_identifier"]
+            req = float(game["req_multi"])
+            for entry in game_data.get(gid, []):
+                uid = entry.get("uid")
+                username = entry.get("username")
+                hm = entry.get("highestMultiplier")
+                if not (uid and username and hm):
+                    continue
+                if hm.get("gameId") != gid:
+                    continue
+                multi = float(hm.get("multiplier", 0))
+                if uid not in player_map:
+                    player_map[uid] = {"username": username, "games": {}}
+                player_map[uid]["games"][gid] = {"multi": multi, "met": multi >= req}
+
+        total_games = len(queue)
+        participants = []
+        for uid, pdata in player_map.items():
+            games = pdata["games"]
+            completions = sum(
+                1 for g in queue
+                if games.get(g["game_identifier"], {}).get("met", False)
+            )
+            completed_multis = [
+                games[g["game_identifier"]]["multi"]
+                for g in queue
+                if g["game_identifier"] in games and games[g["game_identifier"]]["met"]
+            ]
+            avg_multi = sum(completed_multis) / len(completed_multis) if completed_multis else 0.0
+            max_multi = max(completed_multis) if completed_multis else 0.0
+            participants.append({
+                "uid": uid,
+                "username": pdata["username"],
+                "completions": completions,
+                "total_games": total_games,
+                "avg_multi": avg_multi,
+                "max_multi": max_multi,
+                "is_winner": completions == total_games,
+                "games": {
+                    gid: {"multi": info["multi"], "met": info["met"]}
+                    for gid, info in games.items()
+                },
+            })
+
+        participants.sort(key=lambda x: (-x["completions"], -x["avg_multi"], -x["max_multi"]))
+
+        # Prize split
+        PRIZE_POOL = 10.0
+        winners = [p for p in participants if p["is_winner"]]
+        winner_count = len(winners)
+        if winner_count > 0:
+            total_cents = round(PRIZE_POOL * 100)
+            base_cents = total_cents // winner_count
+            remainder = total_cents - base_cents * winner_count
+            prizes = [base_cents / 100.0] * winner_count
+            for i in range(remainder):
+                prizes[i] = (base_cents + 1) / 100.0
+            prize_per_winner = prizes[0]
+        else:
+            prize_per_winner = 0.0
+
+        # Fetch payout history from DB
+        conn = get_db_connection()
+        payout_history = []
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT year, month, winner_uid, winner_username, prize_amount, paid_at
+                    FROM roovsflip_payouts
+                    WHERE winner_uid NOT IN ('PAID_COMPLETE', 'NO_WINNERS', 'NO_GAMES')
+                    ORDER BY year DESC, month DESC, prize_amount DESC;
+                """)
+                rows = cur.fetchall()
+
+            periods = {}
+            for year, month, uid, username, prize, paid_at in rows:
+                key = f"{year}-{month:02d}"
+                if key not in periods:
+                    periods[key] = {"year": year, "month": month, "period_key": key, "winners": [], "total_paid": 0.0}
+                periods[key]["winners"].append({
+                    "username": username,
+                    "uid": uid,
+                    "prize": float(prize),
+                    "paid_at": paid_at.isoformat() if paid_at else None,
+                })
+                periods[key]["total_paid"] += float(prize)
+
+            payout_history = sorted(periods.values(), key=lambda x: (x["year"], x["month"]), reverse=True)
+            for p in payout_history:
+                p["winner_count"] = len(p["winners"])
+        except Exception as e:
+            logger.error(f"[DataManager] Error fetching RVF payout history: {e}")
+        finally:
+            release_db_connection(conn)
+
+        return {
+            "data_type": "roo_vs_flip",
+            "last_updated": datetime.now(dt.UTC).isoformat(),
+            "last_updated_timestamp": int(datetime.now(dt.UTC).timestamp()),
+            "current_period": {
+                "event_start": event_start_str,
+                "event_start_timestamp": event_start_ts,
+                "period_end": period_end.isoformat(),
+                "period_end_timestamp": period_end_ts,
+                "prize_pool": PRIZE_POOL,
+            },
+            "active_queue": [
+                {
+                    "position": g["position"],
+                    "game_name": g["game_name"],
+                    "game_identifier": g["game_identifier"],
+                    "emoji": g.get("emoji", "🎮"),
+                    "req_multi": g["req_multi"],
+                    "game_url": f"https://roobet.com/casino/game/{g['game_identifier']}",
+                }
+                for g in queue
+            ],
+            "draft_queue": [
+                {
+                    "position": g["position"],
+                    "game_name": g["game_name"],
+                    "game_identifier": g["game_identifier"],
+                    "emoji": g.get("emoji", "🎮"),
+                    "req_multi": g["req_multi"],
+                    "game_url": f"https://roobet.com/casino/game/{g['game_identifier']}",
+                }
+                for g in draft_queue
+            ],
+            "summary": {
+                "total_participants": len(participants),
+                "current_winners": winner_count,
+                "prize_per_winner": prize_per_winner,
+                "total_games_required": total_games,
+            },
+            "participants": participants,
+            "payout_history": payout_history,
+        }
+
     def generate_all_wager_data_json(self):
         """Generate comprehensive wager data JSON with both lifetime (since Jan 1, 2025) and current month data"""
         try:
