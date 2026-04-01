@@ -694,7 +694,7 @@ class DataManager(commands.Cog):
         participants.sort(key=lambda x: (-x["completions"], -x["avg_multi"], -x["max_multi"]))
 
         # Prize split
-        PRIZE_POOL = 10.0
+        PRIZE_POOL = 250.0
         winners = [p for p in participants if p["is_winner"]]
         winner_count = len(winners)
         if winner_count > 0:

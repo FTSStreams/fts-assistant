@@ -628,7 +628,7 @@ def record_roovsflip_payout(year, month, winner_uid, winner_username, prize_amou
 def get_roovsflip_event_start():
     """
     Return the ISO timestamp of when the current event started.
-    Defaults to the 1st of the current UTC month if no value is stored.
+    If no value is stored, initialize it to the 1st of the current UTC month.
     """
     conn = get_db_connection()
     try:
@@ -641,9 +641,16 @@ def get_roovsflip_event_start():
         logger.error(f"Error getting Roo Vs Flip event start: {e}")
     finally:
         release_db_connection(conn)
-    # Default: midnight on 1st of current UTC month
+
+    # Missing setting: initialize once so future month-boundary checks are stable.
     now = datetime.now(dt.UTC)
-    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    default_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    logger.warning(
+        "[RooVsFlip] Missing roovsflip_event_start in settings; "
+        f"initializing to {default_start}."
+    )
+    set_roovsflip_event_start(default_start)
+    return default_start
 
 
 def set_roovsflip_event_start(iso_str):

@@ -34,7 +34,7 @@ ROO_VS_FLIP_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_CHANNEL_ID", "0"))
 ROO_VS_FLIP_HISTORY_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_HISTORY_CHANNEL_ID", "0"))
 ROO_VS_FLIP_PING_ROLE_ID = os.getenv("ROO_VS_FLIP_PING_ROLE_ID")
 
-PRIZE_POOL = 10.00
+PRIZE_POOL = 250.00
 MAX_QUEUE_SIZE = 5
 EMBED_MAX_PARTICIPANTS = 15  # Keep description under Discord's 4096-char limit
 PAYOUT_DELAY_SECONDS = 30
@@ -63,7 +63,7 @@ class RooVsFlip(commands.Cog):
                     game.get("emoji", "🎮"),
                     game["req_multi"],
                 )
-            await self.recover_missed_payout_on_startup()
+        await self.recover_missed_payout_on_startup()
         self.update_embed.start()
         self.monthly_payout_check.start()
         logger.info("[RooVsFlip] Cog loaded, tables ensured, tasks started.")
@@ -237,6 +237,20 @@ class RooVsFlip(commands.Cog):
         )
         return participants
 
+    @staticmethod
+    def format_winner_game_multis(winner, queue):
+        """Format one winner's per-game multipliers for payout/preview embeds."""
+        parts = []
+        for game in queue:
+            gid = game["game_identifier"]
+            emoji_str = game.get("emoji", "🎮")
+            info = winner.get("games", {}).get(gid)
+            if info and isinstance(info.get("multi"), (int, float)):
+                parts.append(f"{emoji_str} x{float(info['multi']):,.2f}")
+            else:
+                parts.append(f"{emoji_str} n/a")
+        return " | ".join(parts)
+
     # ─── Embed builder ────────────────────────────────────────────────────────
 
     def build_embed(self, queue, participants, event_start_str):
@@ -271,22 +285,18 @@ class RooVsFlip(commands.Cog):
             f"From: <t:{start_ts}:F>\n"
             f"To: <t:{end_ts}:F>\n\n"
             f"⏰ **Last Updated:** <t:{now_ts}:R>\n\n"
+            "📜 **Rules & Disclosure:**\n"
+            "• Beat Flip's multipliers with a minimum bet size of $0.20 USD\n"
+            f"• ${PRIZE_POOL:,.2f} prize pool is split between all qualifying players\n"
+            "• All challenges must be completed to win\n\n"
             f"💰 **Total Prize Pool:** ${PRIZE_POOL:,.2f} USD\n"
             f"👑 **Current Winners:** {winner_count}\n"
             f"🎁 **Current Prize:** {prize_str}\n\n"
             "💵 **All amounts displayed are in USD.**\n\n"
         )
 
-        # Rules & Disclosure
-        desc += (
-            "📜 **Rules & Disclosure:**\n"
-            "• Beat Flip's multipliers with a minimum bet size of $0.20 USD\n"
-            f"• ${PRIZE_POOL:,.2f} prize pool is split between all qualifying players\n"
-            "• All challenges must be completed to win\n\n"
-        )
-
         # Queued games
-        desc += f"🎮 **Required Games ({total_games}):**\n"
+        desc += f"🎰 **Required Games ({total_games}):**\n"
         for g in queue:
             game_url = f"https://roobet.com/casino/game/{g['game_identifier']}"
             emoji_str = g.get("emoji", "🎮")
@@ -344,7 +354,7 @@ class RooVsFlip(commands.Cog):
             color=discord.Color.gold(),
         )
         embed.set_footer(
-            text="AutoTip Engine • Auto-pays at midnight UTC on the 1st of each month."
+            text="AutoTip Engine • Auto-pays automatically once the period ends."
         )
         return embed
 
@@ -401,26 +411,22 @@ class RooVsFlip(commands.Cog):
     @tasks.loop(minutes=5)
     async def monthly_payout_check(self):
         """
-        Fire at UTC midnight on the 1st of each month (00:00–00:04 window).
-        Pays out the previous month's event and resets for the new month.
+        Check for an overdue period every 5 minutes.
+        Pays out the finished event once and resets for the new month.
         """
         try:
             now = datetime.now(dt.UTC)
-            if not (now.day == 1 and now.hour == 0 and 0 <= now.minute <= 4):
-                return
 
-            # Only proceed if the current period has actually ended
+            # Only proceed if the current period has actually ended.
             event_start = get_roovsflip_event_start()
             if not event_start:
                 return
+
             period_end = self.compute_period_end(event_start)
             if now < period_end:
-                logger.info(
-                    f"[RooVsFlip] Payout window: period not over yet (ends <t:{int(period_end.timestamp())}:F>), skipping."
-                )
                 return
 
-            # Determine which month just ended (the month before period_end)
+            # Determine which month just ended (the month before period_end).
             if period_end.month == 1:
                 payout_year, payout_month = period_end.year - 1, 12
             else:
@@ -525,7 +531,8 @@ class RooVsFlip(commands.Cog):
                 if g["req_multi"] == int(g["req_multi"])
                 else g["req_multi"]
             )
-            desc += f"**{idx}.** {g['game_name']} — Req x{req_display}\n"
+            emoji_str = g.get("emoji", "🎮")
+            desc += f"**{idx}.** {emoji_str} {g['game_name']} — Req x{req_display}\n"
 
         desc += (
             f"\n💰 **Total Prizepool:** ${PRIZE_POOL:,.2f} USD\n"
@@ -545,6 +552,7 @@ class RooVsFlip(commands.Cog):
                 uname = winner["username"]
                 display = (uname[:-3] + "•••") if len(uname) > 3 else "•••"
                 desc += f"👑 {display} — ${prize_splits[i]:,.2f}\n"
+                desc += f"   {self.format_winner_game_multis(winner, queue)}\n"
 
         result_embed.description = desc
         result_embed.set_footer(text="AutoTip Engine Live • Payouts Sent Successfully")
@@ -961,7 +969,8 @@ class RooVsFlip(commands.Cog):
                     if g["req_multi"] == int(g["req_multi"])
                     else g["req_multi"]
                 )
-                desc += f"**{idx}.** {g['game_name']} — Req x{req_display}\n"
+                emoji_str = g.get("emoji", "🎮")
+                desc += f"**{idx}.** {emoji_str} {g['game_name']} — Req x{req_display}\n"
 
             desc += (
                 f"\n💰 **Total Prizepool:** ${PRIZE_POOL:,.2f} USD\n"
@@ -981,6 +990,7 @@ class RooVsFlip(commands.Cog):
                     uname = winner["username"]
                     display = (uname[:-3] + "•••") if len(uname) > 3 else "•••"
                     desc += f"👑 {display} — ${prize_splits[i]:,.2f}\n"
+                    desc += f"   {self.format_winner_game_multis(winner, queue)}\n"
 
             result_embed.description = desc
             result_embed.set_footer(text="AutoTip Engine Live • Preview Only (No Payout Sent)")
