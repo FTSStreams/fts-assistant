@@ -321,18 +321,20 @@ class RooVsFlip(commands.Cog):
                     f"\n**#{i + 1} — {display}**"
                     f" — `{p['completions']}/{total_games} Complete`{completion_badge}\n"
                 )
-                row = ""
+                row_parts = []
                 for g in queue:
                     gid = g["game_identifier"]
                     info = p["games"].get(gid)
-                    pos = g["position"]
+                    emoji_str = g.get("emoji", "🎮")
                     if info is None:
-                        row += f"`{pos})` ⏳  "
+                        row_parts.append(f"{emoji_str} ⏳")
                     elif info["met"]:
-                        row += f"`{pos})` ✅ `x{info['multi']:,.2f}`  "
+                        row_parts.append(f"{emoji_str} `x{info['multi']:,.2f}` ✅")
                     else:
-                        row += f"`{pos})` ❌ `x{info['multi']:,.2f}`  "
-                desc += row.rstrip() + "\n"
+                        row_parts.append(f"{emoji_str} `x{info['multi']:,.2f}` ❌")
+                desc += " | ".join(row_parts) + "\n"
+                if i < shown - 1:
+                    desc += "──────────────\n"
 
             if len(qualified_participants) > EMBED_MAX_PARTICIPANTS:
                 extra = len(qualified_participants) - EMBED_MAX_PARTICIPANTS
