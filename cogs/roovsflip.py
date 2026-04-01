@@ -36,7 +36,7 @@ ROO_VS_FLIP_PING_ROLE_ID = os.getenv("ROO_VS_FLIP_PING_ROLE_ID")
 
 PRIZE_POOL = 250.00
 MAX_QUEUE_SIZE = 5
-EMBED_MAX_PARTICIPANTS = 15  # Keep description under Discord's 4096-char limit
+EMBED_MAX_PARTICIPANTS = 8  # Keep description under Discord's 4096-char limit
 PAYOUT_DELAY_SECONDS = 30
 
 
@@ -321,18 +321,21 @@ class RooVsFlip(commands.Cog):
                     f"\n**#{i + 1} — {display}**"
                     f" — `{p['completions']}/{total_games} Complete`{completion_badge}\n"
                 )
-                row_parts = []
                 for g in queue:
                     gid = g["game_identifier"]
                     info = p["games"].get(gid)
                     emoji_str = g.get("emoji", "🎮")
+                    req_display = f"{float(g['req_multi']):,.2f}".rstrip("0").rstrip(".")
                     if info is None:
-                        row_parts.append(f"{emoji_str} ⏳")
+                        desc += f"{emoji_str} -- / {req_display}x ⏳\n"
                     elif info["met"]:
-                        row_parts.append(f"{emoji_str} `x{info['multi']:,.2f}` ✅")
+                        desc += (
+                            f"{emoji_str} {info['multi']:,.2f}x / {req_display}x ✅\n"
+                        )
                     else:
-                        row_parts.append(f"{emoji_str} `x{info['multi']:,.2f}` ❌")
-                desc += " | ".join(row_parts) + "\n"
+                        desc += (
+                            f"{emoji_str} {info['multi']:,.2f}x / {req_display}x ❌\n"
+                        )
                 if i < shown - 1:
                     desc += "──────────────\n"
 
