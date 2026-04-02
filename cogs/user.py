@@ -22,6 +22,15 @@ TIP_TYPE_DISPLAY_ORDER = [
     "manual",
 ]
 
+TIP_TYPE_DISPLAY_NAMES = {
+    "monthly_leaderboard": "Monthly Leaderboard",
+    "milestone": "Milestones",
+    "weekly_multiplier": "Weekly Multi Leaderboard",
+    "slot_challenge": "Slot Challenges",
+    "roo_vs_flip": "Roo vs Flip",
+    "manual": "Manual",
+}
+
 class User(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -531,14 +540,16 @@ class User(commands.Cog):
 
                     for tip_type in TIP_TYPE_DISPLAY_ORDER:
                         window_amount = by_type_stats.get(tip_type, {}).get(window_key, 0.0)
-                        lines.append(f"{tip_type}: ${window_amount:,.2f}")
+                        display_name = TIP_TYPE_DISPLAY_NAMES.get(tip_type, tip_type.replace("_", " ").title())
+                        lines.append(f"• **{display_name}:** `${window_amount:,.2f}`")
 
                     remaining_types = sorted(
                         [tip_type for tip_type in by_type_stats.keys() if tip_type not in TIP_TYPE_DISPLAY_ORDER]
                     )
                     for tip_type in remaining_types:
                         window_amount = by_type_stats.get(tip_type, {}).get(window_key, 0.0)
-                        lines.append(f"{tip_type}: ${window_amount:,.2f}")
+                        display_name = TIP_TYPE_DISPLAY_NAMES.get(tip_type, tip_type.replace("_", " ").title())
+                        lines.append(f"• **{display_name}:** `${window_amount:,.2f}`")
 
                     return "\n".join(lines)
 
