@@ -308,6 +308,8 @@ class MultiLeaderboard(commands.Cog):
                             prize_amount DECIMAL(10,2) NOT NULL,
                             multiplier DECIMAL(10,2) NOT NULL,
                             game_name VARCHAR(255),
+                            wagered DECIMAL(10,2) DEFAULT 0,
+                            payout DECIMAL(10,2) DEFAULT 0,
                             paid_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                             UNIQUE(week_start, rank)
                         );
@@ -320,6 +322,13 @@ class MultiLeaderboard(commands.Cog):
                     except Exception as alter_error:
                         # Column might already be VARCHAR, that's fine
                         logger.debug(f"[MultiLeaderboard] user_id column alter (may already be correct): {alter_error}")
+
+                    # Ensure wager/payout columns exist for accurate summary embeds.
+                    try:
+                        cur.execute("ALTER TABLE weekly_multiplier_payouts ADD COLUMN IF NOT EXISTS wagered DECIMAL(10,2) DEFAULT 0;")
+                        cur.execute("ALTER TABLE weekly_multiplier_payouts ADD COLUMN IF NOT EXISTS payout DECIMAL(10,2) DEFAULT 0;")
+                    except Exception as column_error:
+                        logger.debug(f"[MultiLeaderboard] wager/payout column ensure (may already be correct): {column_error}")
                     
                     conn.commit()
                     logger.info("[MultiLeaderboard] ✅ Ensured weekly_multiplier_payouts table exists with correct schema")
@@ -351,21 +360,21 @@ class MultiLeaderboard(commands.Cog):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT rank, username, multiplier, game_name, prize_amount
+                        SELECT rank, username, multiplier, game_name, prize_amount, wagered, payout
                         FROM weekly_multiplier_payouts
                         WHERE week_start = %s AND rank > 0
                         ORDER BY rank ASC;
                         """,
                         (week_key,)
                     )
-                    for rank, username, multiplier, game_name, prize_amount in cur.fetchall():
+                    for rank, username, multiplier, game_name, prize_amount, wagered, payout in cur.fetchall():
                         paid_rows_by_rank[int(rank)] = {
                             "rank": int(rank),
                             "username": username,
                             "multiplier": float(multiplier),
                             "game_name": game_name,
-                            "wagered": 0.0,
-                            "payout": 0.0,
+                            "wagered": float(wagered or 0),
+                            "payout": float(payout or 0),
                             "prize": float(prize_amount),
                         }
             except Exception as e:
@@ -393,6 +402,8 @@ class MultiLeaderboard(commands.Cog):
                 username = entry.get("username", "Unknown")
                 multiplier = entry["highestMultiplier"].get("multiplier", 0)
                 game_name = entry["highestMultiplier"].get("gameTitle", "Unknown")
+                wagered = entry["highestMultiplier"].get("wagered", 0)
+                payout = entry["highestMultiplier"].get("payout", 0)
                 prize_amount = PRIZE_DISTRIBUTION[i]
                 
                 if not user_id or not username:
@@ -418,10 +429,10 @@ class MultiLeaderboard(commands.Cog):
                         with conn.cursor() as cur:
                             cur.execute("""
                                 INSERT INTO weekly_multiplier_payouts 
-                                (week_start, rank, user_id, username, prize_amount, multiplier, game_name)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                                (week_start, rank, user_id, username, prize_amount, multiplier, game_name, wagered, payout)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 ON CONFLICT (week_start, rank) DO NOTHING
-                            """, (week_key, rank, user_id, username, prize_amount, multiplier, game_name))
+                            """, (week_key, rank, user_id, username, prize_amount, multiplier, game_name, wagered, payout))
                             conn.commit()
                             logger.info(f"[MultiLeaderboard] 💾 Recorded payout in database for {username}")
                     except Exception as db_error:
@@ -456,21 +467,21 @@ class MultiLeaderboard(commands.Cog):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT rank, username, multiplier, game_name, prize_amount
+                        SELECT rank, username, multiplier, game_name, prize_amount, wagered, payout
                         FROM weekly_multiplier_payouts
                         WHERE week_start = %s AND rank > 0
                         ORDER BY rank ASC;
                         """,
                         (week_key,)
                     )
-                    for rank, username, multiplier, game_name, prize_amount in cur.fetchall():
+                    for rank, username, multiplier, game_name, prize_amount, wagered, payout in cur.fetchall():
                         paid_rows_by_rank[int(rank)] = {
                             "rank": int(rank),
                             "username": username,
                             "multiplier": float(multiplier),
                             "game_name": game_name,
-                            "wagered": 0.0,
-                            "payout": 0.0,
+                            "wagered": float(wagered or 0),
+                            "payout": float(payout or 0),
                             "prize": float(prize_amount),
                         }
             except Exception as e:

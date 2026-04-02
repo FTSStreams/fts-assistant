@@ -1,17 +1,19 @@
 import discord
 from discord.ext import commands, tasks
-from utils import get_current_month_range
-from db import get_leaderboard_message_id, save_leaderboard_message_id, save_announced_goals, load_announced_goals, load_sent_tips
+from utils import get_current_month_range, get_month_range, fetch_total_wager, fetch_weighted_wager
+from db import get_leaderboard_message_id, save_leaderboard_message_id, save_announced_goals, load_announced_goals, load_sent_tips, get_setting_value, save_setting_value
 import os
 import logging
 from datetime import datetime
 import datetime as dt
 import asyncio
+import calendar
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
 LEADERBOARD_CHANNEL_ID = int(os.getenv("LEADERBOARD_CHANNEL_ID"))
 MONTHLY_GOAL_CHANNEL_ID = 1036310766300700752
+WAGER_LEADERBOARD_LOGS_CHANNEL_ID = int(os.getenv("WAGER_LEADERBOARD_LOGS_CHANNEL_ID", "0"))
 PRIZE_DISTRIBUTION = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
 GOAL_THRESHOLDS = [
     25000, 50000, 75000, 100000, 125000, 150000, 175000, 200000, 225000, 250000, 275000, 300000, 325000, 350000, 375000, 400000, 425000, 450000, 475000, 500000
@@ -65,6 +67,105 @@ class Leaderboard(commands.Cog):
     def get_data_manager(self):
         """Get the DataManager cog"""
         return self.bot.get_cog('DataManager')
+
+    def _mask_public_username(self, username):
+        if len(username) > 3:
+            return username[:3] + "•••"
+        return "•••"
+
+    def _build_monthly_winner_embed(self, winners_data, period_start_unix, period_end_unix, month_label):
+        winners_lines = []
+        medals = ["🥇", "🥈", "🥉", ":four:", ":five:", ":six:", ":seven:", ":eight:", ":nine:", ":one::zero:"]
+
+        for winner in winners_data:
+            medal = medals[winner["rank"] - 1] if winner["rank"] <= len(medals) else f"#{winner['rank']}"
+            winners_lines.append(
+                f"{medal} **#{winner['rank']}** @{self._mask_public_username(winner['username'])}\n"
+                f"⚖️ **Weighted:** ${winner['weighted_wagered']:,.2f} | 💰 **Total:** ${winner['total_wagered']:,.2f}\n"
+                f"🎁 **Prize:** ${winner['prize']:,.2f}"
+            )
+
+        description = (
+            f"**Leaderboard Period:** <t:{period_start_unix}:F> → <t:{period_end_unix}:F>\n"
+            f"**Month Closed:** {month_label}\n\n"
+            "**Winners:**\n\n"
+            + "\n\n".join(winners_lines)
+        )
+
+        embed = discord.Embed(
+            title="🏆 Monthly Wager Leaderboard Results",
+            description=description,
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text="AutoTip Engine • Monthly results snapshot")
+        return embed
+
+    async def maybe_post_monthly_winner_logs(self):
+        """Post previous month's top 10 leaderboard winners once per month."""
+        if not WAGER_LEADERBOARD_LOGS_CHANNEL_ID:
+            return
+
+        logs_channel = self.bot.get_channel(WAGER_LEADERBOARD_LOGS_CHANNEL_ID)
+        if not logs_channel:
+            logger.warning(f"[Leaderboard] Wager logs channel {WAGER_LEADERBOARD_LOGS_CHANNEL_ID} not found")
+            return
+
+        now = datetime.now(dt.UTC)
+        prev_month_anchor = now.replace(day=1) - dt.timedelta(days=1)
+        target_year = prev_month_anchor.year
+        target_month = prev_month_anchor.month
+        target_key = f"{target_year}-{target_month:02d}"
+
+        last_posted = get_setting_value("wager_lb_last_logged_month", default="")
+        if last_posted == target_key:
+            return
+
+        start_date, end_date = get_month_range(target_year, target_month)
+        logger.info(f"[Leaderboard] Building monthly winner logs for {target_key}: {start_date} -> {end_date}")
+
+        try:
+            total_wager_data = await asyncio.to_thread(fetch_total_wager, start_date, end_date)
+            weighted_wager_data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date)
+        except Exception as e:
+            logger.error(f"[Leaderboard] Failed to fetch monthly winner log data for {target_key}: {e}")
+            return
+
+        if not weighted_wager_data:
+            logger.warning(f"[Leaderboard] No weighted data for {target_key}, skipping logs post")
+            return
+
+        total_wager_dict = {entry.get("uid"): entry.get("wagered", 0) for entry in total_wager_data}
+        weighted_wager_data.sort(
+            key=lambda x: x.get("weightedWagered", 0) if isinstance(x.get("weightedWagered"), (int, float)) and x.get("weightedWagered") >= 0 else 0,
+            reverse=True
+        )
+
+        winners_data = []
+        for i in range(min(10, len(weighted_wager_data))):
+            entry = weighted_wager_data[i]
+            uid = entry.get("uid")
+            winners_data.append({
+                "rank": i + 1,
+                "username": entry.get("username", "Unknown"),
+                "weighted_wagered": entry.get("weightedWagered", 0) if isinstance(entry.get("weightedWagered"), (int, float)) else 0,
+                "total_wagered": total_wager_dict.get(uid, 0) if uid in total_wager_dict else 0,
+                "prize": PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0,
+            })
+
+        period_start_unix = int(datetime.fromisoformat(start_date.replace("Z", "+00:00")).timestamp())
+        period_end_unix = int(datetime.fromisoformat(end_date.replace("Z", "+00:00")).timestamp())
+        month_label = f"{calendar.month_name[target_month]} {target_year}"
+
+        embed = self._build_monthly_winner_embed(
+            winners_data,
+            period_start_unix=period_start_unix,
+            period_end_unix=period_end_unix,
+            month_label=month_label,
+        )
+
+        await logs_channel.send(embed=embed)
+        save_setting_value("wager_lb_last_logged_month", target_key)
+        logger.info(f"[Leaderboard] Posted monthly winner logs for {target_key} to channel {WAGER_LEADERBOARD_LOGS_CHANNEL_ID}")
     
     def get_milestone_info(self, weighted_wagered):
         """Get milestone rank info for a given weighted wager amount"""
@@ -114,6 +215,9 @@ class Leaderboard(commands.Cog):
         if not channel:
             logger.error("Leaderboard channel not found.")
             return
+
+        # Post closed-month winner summary once per month to logs channel.
+        await self.maybe_post_monthly_winner_logs()
         
         # Get data from centralized data manager
         data_manager = self.get_data_manager()

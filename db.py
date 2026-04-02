@@ -58,6 +58,37 @@ def get_leaderboard_message_id(key="leaderboard_message_id"):
     finally:
         release_db_connection(conn)
 
+def save_setting_value(key, value):
+    """Save a generic string setting value."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = %s;",
+                (key, str(value), str(value))
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error saving setting '{key}': {e}")
+    finally:
+        release_db_connection(conn)
+
+def get_setting_value(key, default=None):
+    """Load a generic string setting value."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value FROM settings WHERE key = %s;", (key,))
+            result = cur.fetchone()
+            if result and result[0] is not None:
+                return result[0]
+            return default
+    except Exception as e:
+        logger.error(f"Error loading setting '{key}': {e}")
+        return default
+    finally:
+        release_db_connection(conn)
+
 def save_tip_log(user_id, username, amount, tip_type, month=None, year=None):
     conn = get_db_connection()
     try:

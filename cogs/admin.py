@@ -43,5 +43,25 @@ class Admin(commands.Cog):
             f"Bot Status:\n- Database: {db_status}", ephemeral=True
         )
 
+    @app_commands.command(name="backfillmonths", description="Backfill missing monthly totals (admin only, one-time use)")
+    @app_commands.default_permissions(administrator=True)
+    async def backfill_months(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        data_manager = self.bot.get_cog('DataManager')
+        if not data_manager:
+            await interaction.followup.send("❌ DataManager is not available.", ephemeral=True)
+            return
+
+        try:
+            await data_manager.backfill_historical_data()
+            await interaction.followup.send(
+                "✅ Monthly backfill finished. Missing months from Jan 2025 to current month were backfilled.",
+                ephemeral=True,
+            )
+        except Exception as e:
+            logger.error(f"Failed to backfill monthly totals: {e}")
+            await interaction.followup.send(f"❌ Backfill failed: {e}", ephemeral=True)
+
 async def setup(bot):
     await bot.add_cog(Admin(bot))
