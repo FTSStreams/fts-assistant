@@ -100,25 +100,23 @@ class Leaderboard(commands.Cog):
         embed.set_footer(text="AutoTip Engine • Monthly results snapshot")
         return embed
 
-    async def maybe_post_monthly_winner_logs(self):
-        """Post previous month's top 10 leaderboard winners once per month."""
+    async def post_monthly_winner_logs_for_month(self, target_year, target_month, force=False):
+        """Post a specific month's winner logs to the configured logs channel."""
         if not WAGER_LEADERBOARD_LOGS_CHANNEL_ID:
-            return
+            logger.warning("[Leaderboard] WAGER_LEADERBOARD_LOGS_CHANNEL_ID not configured")
+            return False
 
         logs_channel = self.bot.get_channel(WAGER_LEADERBOARD_LOGS_CHANNEL_ID)
         if not logs_channel:
             logger.warning(f"[Leaderboard] Wager logs channel {WAGER_LEADERBOARD_LOGS_CHANNEL_ID} not found")
-            return
+            return False
 
-        now = datetime.now(dt.UTC)
-        prev_month_anchor = now.replace(day=1) - dt.timedelta(days=1)
-        target_year = prev_month_anchor.year
-        target_month = prev_month_anchor.month
         target_key = f"{target_year}-{target_month:02d}"
 
-        last_posted = get_setting_value("wager_lb_last_logged_month", default="")
-        if last_posted == target_key:
-            return
+        if not force:
+            last_posted = get_setting_value("wager_lb_last_logged_month", default="")
+            if last_posted == target_key:
+                return False
 
         start_date, end_date = get_month_range(target_year, target_month)
         logger.info(f"[Leaderboard] Building monthly winner logs for {target_key}: {start_date} -> {end_date}")
@@ -128,11 +126,11 @@ class Leaderboard(commands.Cog):
             weighted_wager_data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date)
         except Exception as e:
             logger.error(f"[Leaderboard] Failed to fetch monthly winner log data for {target_key}: {e}")
-            return
+            return False
 
         if not weighted_wager_data:
             logger.warning(f"[Leaderboard] No weighted data for {target_key}, skipping logs post")
-            return
+            return False
 
         total_wager_dict = {entry.get("uid"): entry.get("wagered", 0) for entry in total_wager_data}
         weighted_wager_data.sort(
@@ -166,6 +164,15 @@ class Leaderboard(commands.Cog):
         await logs_channel.send(embed=embed)
         save_setting_value("wager_lb_last_logged_month", target_key)
         logger.info(f"[Leaderboard] Posted monthly winner logs for {target_key} to channel {WAGER_LEADERBOARD_LOGS_CHANNEL_ID}")
+        return True
+
+    async def maybe_post_monthly_winner_logs(self):
+        """Post previous month's top 10 leaderboard winners once per month."""
+        now = datetime.now(dt.UTC)
+        prev_month_anchor = now.replace(day=1) - dt.timedelta(days=1)
+        target_year = prev_month_anchor.year
+        target_month = prev_month_anchor.month
+        await self.post_monthly_winner_logs_for_month(target_year, target_month, force=False)
     
     def get_milestone_info(self, weighted_wagered):
         """Get milestone rank info for a given weighted wager amount"""
