@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from db import get_db_connection, release_db_connection
+from db import get_db_connection, release_db_connection, get_setting_value, save_setting_value
 import logging
 import os
 from datetime import datetime
@@ -141,6 +141,64 @@ class Admin(commands.Cog):
         )
         if failed:
             summary += f"\n⚠️ Failed months: {', '.join(failed[:10])}"
+
+        await interaction.followup.send(summary, ephemeral=True)
+
+    @app_commands.command(name="seedhistoricmonthlylogs", description="One-time post: Jan 2025 to Mar 2026 monthly winner logs (admin only)")
+    @app_commands.default_permissions(administrator=True)
+    async def seed_historic_monthly_logs(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        completion_key = "historical_monthly_logs_seeded_2025_01_to_2026_03"
+        already_seeded = get_setting_value(completion_key, default="false")
+        if str(already_seeded).lower() == "true":
+            await interaction.followup.send(
+                "ℹ️ Historical monthly logs seed already completed once. No action taken.",
+                ephemeral=True,
+            )
+            return
+
+        leaderboard = self.bot.get_cog('Leaderboard')
+        if not leaderboard:
+            await interaction.followup.send("❌ Leaderboard cog is not available.", ephemeral=True)
+            return
+
+        start_year, start_month = 2025, 1
+        end_year, end_month = 2026, 3
+
+        posted = 0
+        failed = []
+
+        y = start_year
+        m = start_month
+        while (y, m) <= (end_year, end_month):
+            try:
+                success = await leaderboard.post_monthly_winner_logs_for_month(y, m, force=True)
+                if success:
+                    posted += 1
+            except Exception as e:
+                logger.error(f"Failed posting seeded monthly log for {y}-{m:02d}: {e}")
+                failed.append(f"{y}-{m:02d}")
+
+            m += 1
+            if m > 12:
+                m = 1
+                y += 1
+
+            await asyncio.sleep(1)
+
+        if not failed:
+            save_setting_value(completion_key, "true")
+
+        summary = (
+            f"✅ Historical monthly logs seed completed.\n"
+            f"Posted embeds: {posted}\n"
+            f"Range: {start_year}-{start_month:02d} to {end_year}-{end_month:02d}"
+        )
+        if failed:
+            summary += f"\n⚠️ Failed months: {', '.join(failed[:10])}"
+        else:
+            summary += "\n🔒 One-time seed lock has been set."
 
         await interaction.followup.send(summary, ephemeral=True)
 
