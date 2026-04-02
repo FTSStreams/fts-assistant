@@ -302,7 +302,7 @@ class DataManager(commands.Cog):
         multi_data = [entry for entry in weekly_weighted_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
         multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
         
-        PRIZE_DISTRIBUTION = [20, 15, 5]  # Weekly prizes
+        PRIZE_DISTRIBUTION = [25, 15, 10]  # Weekly prizes
         
         leaderboard_json = {
             "leaderboard_type": "weekly_multiplier",

@@ -14,7 +14,7 @@ GUILD_ID = int(os.getenv("GUILD_ID"))
 MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID"))  # No default, must be set in env
 if not MULTI_LEADERBOARD_CHANNEL_ID:
     raise RuntimeError("MULTI_LEADERBOARD_CHANNEL_ID environment variable must be set!")
-PRIZE_DISTRIBUTION = [20, 10, 5]  # Weekly prizes: $20, $10, $5
+PRIZE_DISTRIBUTION = [25, 15, 10]  # Weekly prizes: $25, $15, $10
 
 class MultiLeaderboard(commands.Cog):
     def __init__(self, bot):
