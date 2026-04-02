@@ -35,7 +35,9 @@ class User(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.last_monthtomonth_autopost_slot = None
+        self.last_tipstats_autopost_slot = None
         self.auto_post_monthtomonth.start()
+        self.auto_post_tipstats.start()
     
     def get_data_manager(self):
         """Helper to get DataManager cog"""
@@ -274,6 +276,142 @@ class User(commands.Cog):
     async def before_auto_post_monthtomonth(self):
         await self.bot.wait_until_ready()
 
+    @tasks.loop(minutes=1)
+    async def auto_post_tipstats(self):
+        if not MONTHTOMONTH_AUTOPOST_CHANNEL_ID:
+            return
+
+        now = datetime.now(dt.UTC)
+        if now.minute != 1 or now.hour not in (0, 6, 12, 18):
+            return
+
+        slot_key = now.strftime("%Y-%m-%d-%H")
+        if self.last_tipstats_autopost_slot == slot_key:
+            return
+
+        channel = self.bot.get_channel(MONTHTOMONTH_AUTOPOST_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(MONTHTOMONTH_AUTOPOST_CHANNEL_ID)
+            except Exception as e:
+                logger.error(f"[tipstats] Auto-post channel fetch failed: {e}")
+                return
+
+        try:
+            summary_embed, by_type_embed = await self._generate_tipstats_embeds()
+            await channel.send(embeds=[summary_embed, by_type_embed])
+            self.last_tipstats_autopost_slot = slot_key
+            logger.info(f"[tipstats] Auto-posted tip stats for UTC slot {slot_key}")
+        except Exception as e:
+            logger.error(f"[tipstats] Auto-post failed: {e}")
+
+    @auto_post_tipstats.before_loop
+    async def before_auto_post_tipstats(self):
+        await self.bot.wait_until_ready()
+
+    async def _generate_tipstats_embeds(self):
+        """Build and return (summary_embed, by_type_embed) from the manualtips table."""
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                now = datetime.now(dt.UTC)
+                last_24h = now - dt.timedelta(hours=24)
+                last_7d = now - dt.timedelta(days=7)
+                last_30d = now - dt.timedelta(days=30)
+                current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                since_jan1 = datetime(2025, 1, 1, tzinfo=dt.UTC)
+                cur.execute("""
+                    SELECT 
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_24h,
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_7d,
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_30d,
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS current_month,
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS since_jan1
+                    FROM manualtips;
+                """, (last_24h, last_7d, last_30d, current_month_start, since_jan1))
+                result = cur.fetchone()
+
+                cur.execute("""
+                    SELECT
+                        tip_type,
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_24h,
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_7d,
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_30d,
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS current_month,
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS lifetime
+                    FROM manualtips
+                    GROUP BY tip_type;
+                """, (last_24h, last_7d, last_30d, current_month_start, since_jan1))
+                by_type_rows = cur.fetchall()
+
+                by_type_stats = {}
+                for row in by_type_rows:
+                    tip_type = row[0] or "unknown"
+                    by_type_stats[tip_type] = {
+                        "last_24h": float(row[1]),
+                        "last_7d": float(row[2]),
+                        "last_30d": float(row[3]),
+                        "current_month": float(row[4]),
+                        "lifetime": float(row[5]),
+                    }
+
+                def format_by_type(window_key):
+                    lines = []
+                    for tip_type in TIP_TYPE_DISPLAY_ORDER:
+                        window_amount = by_type_stats.get(tip_type, {}).get(window_key, 0.0)
+                        display_name = TIP_TYPE_DISPLAY_NAMES.get(tip_type, tip_type.replace("_", " ").title())
+                        lines.append(f"• **{display_name}:** `${window_amount:,.2f}`")
+                    remaining_types = sorted(
+                        [tip_type for tip_type in by_type_stats.keys() if tip_type not in TIP_TYPE_DISPLAY_ORDER]
+                    )
+                    for tip_type in remaining_types:
+                        window_amount = by_type_stats.get(tip_type, {}).get(window_key, 0.0)
+                        display_name = TIP_TYPE_DISPLAY_NAMES.get(tip_type, tip_type.replace("_", " ").title())
+                        lines.append(f"• **{display_name}:** `${window_amount:,.2f}`")
+                    return "\n".join(lines)
+
+                stats = {
+                    "last_24h": float(result[0]),
+                    "last_7d": float(result[1]),
+                    "last_30d": float(result[2]),
+                    "current_month": float(result[3]),
+                    "since_jan1": float(result[4]) + 11295.53,
+                    "legacy_adjustment": 11295.53,
+                }
+
+            summary_embed = discord.Embed(
+                title="📊 Tip Statistics",
+                description=(
+                    f"**Past 24 Hours**: ${stats['last_24h']:.2f} USD\n"
+                    f"**Past 7 Days**: ${stats['last_7d']:.2f} USD\n"
+                    f"**Past 30 Days**: ${stats['last_30d']:.2f} USD\n"
+                    f"**Current Month**: ${stats['current_month']:.2f} USD\n"
+                    f"**Lifetime (Since Jan. 1st 2025)**: ${stats['since_jan1']:.2f} USD"
+                ),
+                color=discord.Color.blue()
+            )
+            summary_embed.add_field(
+                name="Lifetime Adjustment",
+                value=f"Legacy baseline included: ${stats['legacy_adjustment']:.2f}",
+                inline=False,
+            )
+            summary_embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
+
+            by_type_embed = discord.Embed(
+                title="📊 Tip Statistics by Type",
+                color=discord.Color.blurple(),
+            )
+            by_type_embed.add_field(name="By Type • Past 24 Hours", value=format_by_type("last_24h"), inline=False)
+            by_type_embed.add_field(name="By Type • Past 7 Days", value=format_by_type("last_7d"), inline=False)
+            by_type_embed.add_field(name="By Type • Past 30 Days", value=format_by_type("last_30d"), inline=False)
+            by_type_embed.add_field(name="By Type • Current Month", value=format_by_type("current_month"), inline=False)
+            by_type_embed.add_field(name="By Type • Lifetime", value=format_by_type("lifetime"), inline=False)
+            by_type_embed.set_footer(text="Type totals come from stored tip_type values in manualtips")
+
+            return summary_embed, by_type_embed
+        finally:
+            release_db_connection(conn)
+
     async def _send_logged_tip(self, interaction: discord.Interaction, username: str, amount: float, tip_type: str, success_title: str):
         if amount <= 0:
             await interaction.response.send_message("❌ Tip amount must be greater than 0.", ephemeral=True)
@@ -491,127 +629,8 @@ class User(commands.Cog):
     @app_commands.default_permissions(administrator=True)
     async def tipstats(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        conn = get_db_connection()
         try:
-            with conn.cursor() as cur:
-                now = datetime.now(dt.UTC)
-                last_24h = now - dt.timedelta(hours=24)
-                last_7d = now - dt.timedelta(days=7)
-                last_30d = now - dt.timedelta(days=30)
-                current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-                since_jan1 = datetime(2025, 1, 1, tzinfo=dt.UTC)
-                cur.execute("""
-                    SELECT 
-                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_24h,
-                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_7d,
-                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_30d,
-                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS current_month,
-                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS since_jan1
-                    FROM manualtips;
-                """, (last_24h, last_7d, last_30d, current_month_start, since_jan1))
-                result = cur.fetchone()
-
-                cur.execute("""
-                    SELECT
-                        tip_type,
-                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_24h,
-                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_7d,
-                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_30d,
-                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS current_month,
-                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS lifetime
-                    FROM manualtips
-                    GROUP BY tip_type;
-                """, (last_24h, last_7d, last_30d, current_month_start, since_jan1))
-                by_type_rows = cur.fetchall()
-
-                by_type_stats = {}
-                for row in by_type_rows:
-                    tip_type = row[0] or "unknown"
-                    by_type_stats[tip_type] = {
-                        "last_24h": float(row[1]),
-                        "last_7d": float(row[2]),
-                        "last_30d": float(row[3]),
-                        "current_month": float(row[4]),
-                        "lifetime": float(row[5]),
-                    }
-
-                def format_by_type(window_key):
-                    lines = []
-
-                    for tip_type in TIP_TYPE_DISPLAY_ORDER:
-                        window_amount = by_type_stats.get(tip_type, {}).get(window_key, 0.0)
-                        display_name = TIP_TYPE_DISPLAY_NAMES.get(tip_type, tip_type.replace("_", " ").title())
-                        lines.append(f"• **{display_name}:** `${window_amount:,.2f}`")
-
-                    remaining_types = sorted(
-                        [tip_type for tip_type in by_type_stats.keys() if tip_type not in TIP_TYPE_DISPLAY_ORDER]
-                    )
-                    for tip_type in remaining_types:
-                        window_amount = by_type_stats.get(tip_type, {}).get(window_key, 0.0)
-                        display_name = TIP_TYPE_DISPLAY_NAMES.get(tip_type, tip_type.replace("_", " ").title())
-                        lines.append(f"• **{display_name}:** `${window_amount:,.2f}`")
-
-                    return "\n".join(lines)
-
-                stats = {
-                    "last_24h": float(result[0]),
-                    "last_7d": float(result[1]),
-                    "last_30d": float(result[2]),
-                    "current_month": float(result[3]),
-                    # Updated hardcoded base to match your account's actual total
-                    "since_jan1": float(result[4]) + 11295.53,
-                    "legacy_adjustment": 11295.53,
-                }
-
-            summary_embed = discord.Embed(
-                title="📊 Tip Statistics",
-                description=(
-                    f"**Past 24 Hours**: ${stats['last_24h']:.2f} USD\n"
-                    f"**Past 7 Days**: ${stats['last_7d']:.2f} USD\n"
-                    f"**Past 30 Days**: ${stats['last_30d']:.2f} USD\n"
-                    f"**Current Month**: ${stats['current_month']:.2f} USD\n"
-                    f"**Lifetime (Since Jan. 1st 2025)**: ${stats['since_jan1']:.2f} USD"
-                ),
-                color=discord.Color.blue()
-            )
-            summary_embed.add_field(
-                name="Lifetime Adjustment",
-                value=f"Legacy baseline included: ${stats['legacy_adjustment']:.2f}",
-                inline=False,
-            )
-            summary_embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
-
-            by_type_embed = discord.Embed(
-                title="📊 Tip Statistics by Type",
-                color=discord.Color.blurple(),
-            )
-            by_type_embed.add_field(
-                name="By Type • Past 24 Hours",
-                value=format_by_type("last_24h"),
-                inline=False,
-            )
-            by_type_embed.add_field(
-                name="By Type • Past 7 Days",
-                value=format_by_type("last_7d"),
-                inline=False,
-            )
-            by_type_embed.add_field(
-                name="By Type • Past 30 Days",
-                value=format_by_type("last_30d"),
-                inline=False,
-            )
-            by_type_embed.add_field(
-                name="By Type • Current Month",
-                value=format_by_type("current_month"),
-                inline=False,
-            )
-            by_type_embed.add_field(
-                name="By Type • Lifetime",
-                value=format_by_type("lifetime"),
-                inline=False,
-            )
-            by_type_embed.set_footer(text="Type totals come from stored tip_type values in manualtips")
-
+            summary_embed, by_type_embed = await self._generate_tipstats_embeds()
             await interaction.followup.send(embeds=[summary_embed, by_type_embed])
         except Exception as e:
             await interaction.followup.send(f"❌ Error retrieving tip stats: {str(e)}", ephemeral=True)
@@ -688,6 +707,7 @@ class User(commands.Cog):
 
     def cog_unload(self):
         self.auto_post_monthtomonth.cancel()
+        self.auto_post_tipstats.cancel()
 
 async def setup(bot):
     await bot.add_cog(User(bot))
