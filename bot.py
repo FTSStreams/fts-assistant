@@ -39,13 +39,10 @@ async def on_ready():
     logger.info(f"{bot.user.name} is now online and ready!")
     guild_id = int(os.getenv("GUILD_ID"))
     guild = discord.Object(id=guild_id)
-    # Copy all global commands to the guild and sync for instant update
+    # Guild-only sync for proprietary single-server deployment.
     bot.tree.copy_global_to(guild=guild)
     await bot.tree.sync(guild=guild)
-    logger.info(f"Guild slash commands copied and synced for guild {guild_id}.")
-    await bot.tree.sync()
-    await bot.tree.sync(guild=guild)
-    logger.info(f"Commands re-registered and synced for guild {guild_id} and globally.")
+    logger.info(f"Guild-only slash commands synced for guild {guild_id}.")
 
 async def load_cogs():
     for cog in COGS:
