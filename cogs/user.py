@@ -13,6 +13,14 @@ import re
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
 MONTHTOMONTH_AUTOPOST_CHANNEL_ID = int(os.getenv("MONTHTOMONTH_AUTOPOST_CHANNEL_ID", "0"))
+TIP_TYPE_DISPLAY_ORDER = [
+    "monthly_leaderboard",
+    "milestone",
+    "weekly_multiplier",
+    "slot_challenge",
+    "roo_vs_flip",
+    "manual",
+]
 
 class User(commands.Cog):
     def __init__(self, bot):
@@ -481,35 +489,119 @@ class User(commands.Cog):
                 last_24h = now - dt.timedelta(hours=24)
                 last_7d = now - dt.timedelta(days=7)
                 last_30d = now - dt.timedelta(days=30)
+                current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
                 since_jan1 = datetime(2025, 1, 1, tzinfo=dt.UTC)
                 cur.execute("""
                     SELECT 
                         COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_24h,
                         COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_7d,
                         COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_30d,
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS current_month,
                         COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS since_jan1
                     FROM manualtips;
-                """, (last_24h, last_7d, last_30d, since_jan1))
+                """, (last_24h, last_7d, last_30d, current_month_start, since_jan1))
                 result = cur.fetchone()
+
+                cur.execute("""
+                    SELECT
+                        tip_type,
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_24h,
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_7d,
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS last_30d,
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS current_month,
+                        COALESCE(SUM(CASE WHEN tipped_at >= %s THEN amount ELSE 0 END), 0) AS lifetime
+                    FROM manualtips
+                    GROUP BY tip_type;
+                """, (last_24h, last_7d, last_30d, current_month_start, since_jan1))
+                by_type_rows = cur.fetchall()
+
+                by_type_stats = {}
+                for row in by_type_rows:
+                    tip_type = row[0] or "unknown"
+                    by_type_stats[tip_type] = {
+                        "last_24h": float(row[1]),
+                        "last_7d": float(row[2]),
+                        "last_30d": float(row[3]),
+                        "current_month": float(row[4]),
+                        "lifetime": float(row[5]),
+                    }
+
+                def format_by_type(window_key):
+                    lines = []
+
+                    for tip_type in TIP_TYPE_DISPLAY_ORDER:
+                        window_amount = by_type_stats.get(tip_type, {}).get(window_key, 0.0)
+                        lines.append(f"{tip_type}: ${window_amount:,.2f}")
+
+                    remaining_types = sorted(
+                        [tip_type for tip_type in by_type_stats.keys() if tip_type not in TIP_TYPE_DISPLAY_ORDER]
+                    )
+                    for tip_type in remaining_types:
+                        window_amount = by_type_stats.get(tip_type, {}).get(window_key, 0.0)
+                        lines.append(f"{tip_type}: ${window_amount:,.2f}")
+
+                    return "\n".join(lines)
+
                 stats = {
                     "last_24h": float(result[0]),
                     "last_7d": float(result[1]),
                     "last_30d": float(result[2]),
+                    "current_month": float(result[3]),
                     # Updated hardcoded base to match your account's actual total
-                    "since_jan1": float(result[3]) + 11295.53
+                    "since_jan1": float(result[4]) + 11295.53,
+                    "legacy_adjustment": 11295.53,
                 }
-            embed = discord.Embed(
+
+            summary_embed = discord.Embed(
                 title="📊 Tip Statistics",
                 description=(
                     f"**Past 24 Hours**: ${stats['last_24h']:.2f} USD\n"
                     f"**Past 7 Days**: ${stats['last_7d']:.2f} USD\n"
                     f"**Past 30 Days**: ${stats['last_30d']:.2f} USD\n"
+                    f"**Current Month**: ${stats['current_month']:.2f} USD\n"
                     f"**Lifetime (Since Jan. 1st 2025)**: ${stats['since_jan1']:.2f} USD"
                 ),
                 color=discord.Color.blue()
             )
-            embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
-            await interaction.followup.send(embed=embed)
+            summary_embed.add_field(
+                name="Lifetime Adjustment",
+                value=f"Legacy baseline included: ${stats['legacy_adjustment']:.2f}",
+                inline=False,
+            )
+            summary_embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
+
+            by_type_embed = discord.Embed(
+                title="📊 Tip Statistics by Type",
+                color=discord.Color.blurple(),
+            )
+            by_type_embed.add_field(
+                name="By Type • Past 24 Hours",
+                value=format_by_type("last_24h"),
+                inline=False,
+            )
+            by_type_embed.add_field(
+                name="By Type • Past 7 Days",
+                value=format_by_type("last_7d"),
+                inline=False,
+            )
+            by_type_embed.add_field(
+                name="By Type • Past 30 Days",
+                value=format_by_type("last_30d"),
+                inline=False,
+            )
+            by_type_embed.add_field(
+                name="By Type • Current Month",
+                value=format_by_type("current_month"),
+                inline=False,
+            )
+            by_type_embed.add_field(
+                name="By Type • Lifetime",
+                value=format_by_type("lifetime"),
+                inline=False,
+            )
+            by_type_embed.set_footer(text="Type totals come from stored tip_type values in manualtips")
+
+            await interaction.followup.send(embeds=[summary_embed, by_type_embed])
         except Exception as e:
             await interaction.followup.send(f"❌ Error retrieving tip stats: {str(e)}", ephemeral=True)
             logger.error(f"Error in /tipstats: {str(e)}")
