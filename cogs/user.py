@@ -588,6 +588,110 @@ class User(commands.Cog):
         embed.set_footer(text=f"🕒 Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
         await interaction.followup.send(embed=embed)
 
+    @app_commands.command(name="checkwager", description="Check a player's current-month wager for a specific game identifier")
+    @app_commands.describe(
+        username="Roobet username to check",
+        game_identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)",
+    )
+    async def checkwager(self, interaction: discord.Interaction, username: str, game_identifier: str):
+        await interaction.response.defer(ephemeral=True)
+
+        # Basic input validation
+        if not re.match(r'^[a-zA-Z0-9_]+$', username):
+            await interaction.followup.send("❌ Username can only contain letters, numbers, and underscores.", ephemeral=True)
+            return
+
+        game_identifier = game_identifier.strip()
+        if not game_identifier or len(game_identifier) > 120:
+            await interaction.followup.send("❌ Invalid game identifier.", ephemeral=True)
+            return
+
+        data_manager = self.get_data_manager()
+        if not data_manager:
+            await interaction.followup.send("❌ Data service unavailable. Please try again later.", ephemeral=True)
+            return
+
+        cached_data = data_manager.get_cached_data()
+        if not cached_data:
+            await interaction.followup.send("❌ No data available. Please try again later.", ephemeral=True)
+            return
+
+        weighted_wager_data = cached_data.get('weighted_wager', [])
+        username_lower = username.lower()
+
+        target_uid = None
+        canonical_username = username
+        for entry in weighted_wager_data:
+            entry_username = entry.get("username", "").lower()
+            if entry_username == username_lower:
+                target_uid = entry.get("uid")
+                canonical_username = entry.get("username", username)
+                break
+
+        if not target_uid:
+            await interaction.followup.send(
+                f"❌ No user found with username '{username}' in current month data.",
+                ephemeral=True,
+            )
+            return
+
+        from utils import fetch_weighted_wager
+
+        start_date, end_date = get_current_month_range()
+
+        try:
+            game_data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date, game_identifier)
+        except Exception as e:
+            logger.error(f"Error fetching /checkwager data for {canonical_username} ({game_identifier}): {e}")
+            await interaction.followup.send("❌ Failed to fetch wager data. Please try again later.", ephemeral=True)
+            return
+
+        target_entry = None
+        for entry in game_data:
+            if entry.get("uid") == target_uid:
+                target_entry = entry
+                break
+
+        # Fallback to username match in case UID is absent in response payload
+        if target_entry is None:
+            for entry in game_data:
+                if entry.get("username", "").lower() == username_lower:
+                    target_entry = entry
+                    break
+
+        total_wager = 0.0
+        weighted_wager = 0.0
+        highest_multi = None
+
+        if target_entry:
+            raw_total = target_entry.get("wagered", 0)
+            raw_weighted = target_entry.get("weightedWagered", 0)
+            total_wager = raw_total if isinstance(raw_total, (int, float)) else 0.0
+            weighted_wager = raw_weighted if isinstance(raw_weighted, (int, float)) else 0.0
+
+            hm = target_entry.get("highestMultiplier")
+            if isinstance(hm, dict):
+                multiplier = hm.get("multiplier")
+                if isinstance(multiplier, (int, float)):
+                    highest_multi = float(multiplier)
+
+        embed = discord.Embed(
+            title="🎮 Game Wager Check",
+            description=(
+                f"**User:** {canonical_username}\n"
+                f"**Game:** {game_identifier}\n"
+                f"**Window:** Current month (UTC)"
+            ),
+            color=discord.Color.blurple(),
+        )
+        embed.add_field(name="Total Wager", value=f"${total_wager:,.2f} USD", inline=True)
+        embed.add_field(name="Weighted Wager", value=f"${weighted_wager:,.2f} USD", inline=True)
+        if highest_multi is not None:
+            embed.add_field(name="Highest Multi", value=f"x{highest_multi:,.2f}", inline=True)
+        embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
     @app_commands.command(name="monthlygoal", description="Display total wager and weighted wager for the current month")
     async def monthlygoal(self, interaction: discord.Interaction):
         await interaction.response.defer()
