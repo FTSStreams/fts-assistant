@@ -13,6 +13,12 @@ import re
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
 MONTHTOMONTH_AUTOPOST_CHANNEL_ID = int(os.getenv("MONTHTOMONTH_AUTOPOST_CHANNEL_ID", "0"))
+_eu_degens_role_id_raw = os.getenv("EU_DEGENS_ROLE_ID")
+try:
+    EU_DEGENS_ROLE_ID = int(_eu_degens_role_id_raw) if _eu_degens_role_id_raw else None
+except ValueError:
+    logger.warning("Invalid EU_DEGENS_ROLE_ID in environment; /eudeg command will be disabled.")
+    EU_DEGENS_ROLE_ID = None
 TIP_TYPE_DISPLAY_ORDER = [
     "monthly_leaderboard",
     "milestone",
@@ -704,6 +710,62 @@ class User(commands.Cog):
         )
         embed.set_footer(text=f"Generated on {now.strftime('%Y-%m-%d %H:%M:%S')} GMT")
         await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="eudeg", description="Grant the EU DEGENS role to a member (EU DEGENS only)")
+    @app_commands.describe(member="Discord member to grant the EU DEGENS role")
+    async def eudeg(self, interaction: discord.Interaction, member: discord.Member):
+        if EU_DEGENS_ROLE_ID is None:
+            await interaction.response.send_message(
+                "❌ Command not configured. Set `EU_DEGENS_ROLE_ID` in environment variables.",
+                ephemeral=True,
+            )
+            return
+
+        if not interaction.guild:
+            await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+            return
+
+        caller = interaction.user
+        if not isinstance(caller, discord.Member):
+            await interaction.response.send_message("❌ Could not verify your server roles.", ephemeral=True)
+            return
+
+        if EU_DEGENS_ROLE_ID not in [role.id for role in caller.roles]:
+            await interaction.response.send_message("❌ Only members with the EU DEGENS role can use this command.", ephemeral=True)
+            return
+
+        role = interaction.guild.get_role(EU_DEGENS_ROLE_ID)
+        if role is None:
+            await interaction.response.send_message(
+                "❌ EU DEGENS role not found in this server. Check `EU_DEGENS_ROLE_ID`.",
+                ephemeral=True,
+            )
+            return
+
+        if role in member.roles:
+            await interaction.response.send_message(
+                f"ℹ️ {member.mention} already has the {role.mention} role.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            await member.add_roles(role, reason=f"Assigned by {caller} via /eudeg")
+            await interaction.response.send_message(
+                f"✅ Added {role.mention} to {member.mention}.",
+                allowed_mentions=discord.AllowedMentions(users=True, roles=False),
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ I don't have permission to assign that role (check Manage Roles and role hierarchy).",
+                ephemeral=True,
+            )
+        except discord.HTTPException as e:
+            logger.error(f"Error assigning EU DEGENS role: {e}")
+            await interaction.response.send_message(
+                "❌ Failed to assign role due to a Discord API error.",
+                ephemeral=True,
+            )
 
     def cog_unload(self):
         self.auto_post_monthtomonth.cancel()
