@@ -218,6 +218,10 @@ class DataManager(commands.Cog):
             # Generate all-time tips JSON
             all_time_tips_json = self.generate_all_time_tips_json()
             logger.info("[DataManager] All-time tips JSON generated")
+
+            # Generate raw tip logs JSON (one entry per tip)
+            tip_logs_json = self.generate_tip_logs_json()
+            logger.info("[DataManager] Tip logs JSON generated")
             
             # Generate challenge history JSON
             challenge_history_json = self.generate_challenge_history_json()
@@ -237,6 +241,7 @@ class DataManager(commands.Cog):
                 ("LatestMultiLBResults.json", multi_leaderboard_json),
                 ("ActiveSlotChallenges.json", challenges_json),
                 ("allTimeTips.json", all_time_tips_json),
+                ("tipLogs.json", tip_logs_json),
                 ("challengeHistory.json", challenge_history_json),
                 ("allWagerData.json", all_wager_data_json),
                 ("rvfData.json", rvf_json)
@@ -532,6 +537,79 @@ class DataManager(commands.Cog):
             })
         
         return tips_json
+
+    def generate_tip_logs_json(self):
+        """Generate raw tip log JSON with one record per tip event from manualtips."""
+        conn = get_db_connection()
+        tip_rows = []
+        used_fallback_query = False
+
+        try:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute(
+                        """
+                        SELECT
+                            user_id,
+                            username,
+                            amount,
+                            tip_type,
+                            month,
+                            year,
+                            tipped_at
+                        FROM manualtips
+                        ORDER BY tipped_at DESC NULLS LAST;
+                        """
+                    )
+                    tip_rows = cur.fetchall()
+                except Exception:
+                    used_fallback_query = True
+                    cur.execute(
+                        """
+                        SELECT
+                            user_id,
+                            username,
+                            amount,
+                            tip_type,
+                            month,
+                            year
+                        FROM manualtips
+                        ORDER BY year DESC NULLS LAST, month DESC NULLS LAST;
+                        """
+                    )
+                    base_rows = cur.fetchall()
+                    tip_rows = [(*row, None) for row in base_rows]
+        except Exception as e:
+            logger.error(f"Error querying raw tip logs: {e}")
+            return {"error": "Failed to generate tip logs"}
+        finally:
+            release_db_connection(conn)
+
+        now = datetime.now(dt.UTC)
+        tip_logs_json = {
+            "data_type": "tip_logs",
+            "last_updated": now.isoformat(),
+            "last_updated_timestamp": int(now.timestamp()),
+            "total_tips": len(tip_rows),
+            "source_table": "manualtips",
+            "used_fallback_query": used_fallback_query,
+            "tips": []
+        }
+
+        for row in tip_rows:
+            user_id, username, amount, tip_type, month, year, tipped_at = row
+            tip_logs_json["tips"].append({
+                "user_id": user_id,
+                "username": username,
+                "amount": float(amount) if amount is not None else 0.0,
+                "tip_type": tip_type,
+                "month": month,
+                "year": year,
+                "period_key": f"{year}-{month:02d}" if isinstance(year, int) and isinstance(month, int) else None,
+                "tipped_at": tipped_at.isoformat() if tipped_at else None
+            })
+
+        return tip_logs_json
     
     def generate_challenge_history_json(self):
         """Generate challenge history JSON from completed slot challenges"""
