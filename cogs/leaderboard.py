@@ -8,6 +8,7 @@ from datetime import datetime
 import datetime as dt
 import asyncio
 import calendar
+from milestones_config import MILESTONES
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -17,40 +18,6 @@ WAGER_LEADERBOARD_LOGS_CHANNEL_ID = int(os.getenv("WAGER_LEADERBOARD_LOGS_CHANNE
 PRIZE_DISTRIBUTION = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
 GOAL_THRESHOLDS = [
     25000, 50000, 75000, 100000, 125000, 150000, 175000, 200000, 225000, 250000, 275000, 300000, 325000, 350000, 375000, 400000, 425000, 450000, 475000, 500000
-]
-
-# Milestone data from milestones.py
-MILESTONES = [
-    {"tier": "Rank 1", "threshold": 50, "tip": 1.00, "emoji": "<:rank1:1389367229417656543>"},
-    {"tier": "Rank 2", "threshold": 100, "tip": 1.00, "emoji": "<:rank2:1389367231191715970>"},
-    {"tier": "Rank 3", "threshold": 150, "tip": 1.00, "emoji": "<:rank3:1389367233507229776>"},
-    {"tier": "Rank 4", "threshold": 250, "tip": 1.00, "emoji": "<:rank4:1389367235390472304>"},
-    {"tier": "Rank 5", "threshold": 400, "tip": 1.00, "emoji": "<:rank5:1389367237407670394>"},
-    {"tier": "Rank 6", "threshold": 600, "tip": 2.00, "emoji": "<:rank6:1389367239161155624>"},
-    {"tier": "Rank 7", "threshold": 800, "tip": 2.00, "emoji": "<:rank7:1389367446196060210>"},
-    {"tier": "Rank 8", "threshold": 1000, "tip": 2.00, "emoji": "<:rank8:1389367448133697647>"},
-    {"tier": "Rank 9", "threshold": 1500, "tip": 3.00, "emoji": "<:rank9:1389367449974997062>"},
-    {"tier": "Rank 10", "threshold": 2000, "tip": 3.00, "emoji": "<:rank10:1389367451770294386>"},
-    {"tier": "Rank 11", "threshold": 2500, "tip": 3.00, "emoji": "<:rank11:1389367453766909992>"},
-    {"tier": "Rank 12", "threshold": 3000, "tip": 3.00, "emoji": "<:rank12:1389367455788564613>"},
-    {"tier": "Rank 13", "threshold": 5000, "tip": 11.00, "emoji": "<:rank13:1389367624273498202>"},
-    {"tier": "Rank 14", "threshold": 7500, "tip": 14.00, "emoji": "<:rank14:1389367626102210721>"},
-    {"tier": "Rank 15", "threshold": 10000, "tip": 14.00, "emoji": "<:rank15:1389367628149166151>"},
-    {"tier": "Rank 16", "threshold": 15000, "tip": 27.00, "emoji": "<:rank16:1389367630078545930>"},
-    {"tier": "Rank 17", "threshold": 20000, "tip": 27.00, "emoji": "<:rank17:1389367632309784606>"},
-    {"tier": "Rank 18", "threshold": 25000, "tip": 27.00, "emoji": "<:rank18:1389367634189095023>"},
-    {"tier": "Rank 19", "threshold": 35000, "tip": 54.00, "emoji": "<:rank19:1389367787972985026>"},
-    {"tier": "Rank 20", "threshold": 50000, "tip": 81.00, "emoji": "<:rank20:1389367789894238340>"},
-    {"tier": "Rank 21", "threshold": 75000, "tip": 135.00, "emoji": "<:rank21:1389367791852716073>"},
-    {"tier": "Rank 22", "threshold": 100000, "tip": 149.00, "emoji": "<:rank22:1389367794444931193>"},
-    {"tier": "Rank 23", "threshold": 150000, "tip": 270.00, "emoji": "<:rank23:1389367796646940772>"},
-    {"tier": "Rank 24", "threshold": 200000, "tip": 270.00, "emoji": "<:rank24:1389367804523708576>"},
-    {"tier": "Rank 25", "threshold": 250000, "tip": 270.00, "emoji": "<:rank25:1389367974036504688>"},
-    {"tier": "Rank 26", "threshold": 350000, "tip": 540.00, "emoji": "<:rank26:1389367976104558692>"},
-    {"tier": "Rank 27", "threshold": 500000, "tip": 810.00, "emoji": "<:rank27:1389367978419683442>"},
-    {"tier": "Rank 28", "threshold": 650000, "tip": 810.00, "emoji": "<:rank28:1389367980793659432>"},
-    {"tier": "Rank 29", "threshold": 800000, "tip": 810.00, "emoji": "<:rank29:1389367970026754170>"},
-    {"tier": "Rank 30", "threshold": 1000000, "tip": 1080.00, "emoji": "<:rank30:1389367972090351626>"}
 ]
 
 class Leaderboard(commands.Cog):
