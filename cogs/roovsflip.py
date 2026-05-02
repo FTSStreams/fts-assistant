@@ -6,6 +6,7 @@ from db import (
     ensure_roovsflip_tables,
     get_roovsflip_queue,
     set_roovsflip_queue_slot,
+    swap_roovsflip_queue_positions,
     clear_roovsflip_queue_slot,
     get_roovsflip_draft_queue,
     set_roovsflip_draft_queue_slot,
@@ -713,6 +714,55 @@ class RooVsFlip(commands.Cog):
         await interaction.response.send_message(
             f"✅ Slot **{position}** set to **{emoji} {clean_name}** "
             f"(`{game_identifier}`) — Req: **x{req_multi}**",
+            ephemeral=True,
+        )
+
+    @rvf.command(
+        name="swap",
+        description="Swap two positions in the active Roo Vs Flip queue.",
+    )
+    @app_commands.describe(
+        position_1="First queue slot (1-5)",
+        position_2="Second queue slot (1-5)",
+    )
+    async def swap_queue_positions(
+        self,
+        interaction: discord.Interaction,
+        position_1: int,
+        position_2: int,
+    ):
+        if interaction.user.id != BOT_OWNER_ID:
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
+            return
+        if not 1 <= position_1 <= MAX_QUEUE_SIZE or not 1 <= position_2 <= MAX_QUEUE_SIZE:
+            await interaction.response.send_message(
+                f"❌ Positions must both be between 1 and {MAX_QUEUE_SIZE}.",
+                ephemeral=True,
+            )
+            return
+        if position_1 == position_2:
+            await interaction.response.send_message(
+                "❌ Choose two different positions to swap.",
+                ephemeral=True,
+            )
+            return
+
+        success, message = swap_roovsflip_queue_positions(position_1, position_2)
+        if not success:
+            await interaction.response.send_message(
+                f"❌ {message}",
+                ephemeral=True,
+            )
+            return
+
+        logger.info(
+            f"[RooVsFlip] Swapped active queue slots {position_1} and {position_2} "
+            f"by {interaction.user.id}"
+        )
+        await interaction.response.send_message(
+            f"✅ Swapped active queue slots **{position_1}** and **{position_2}**.",
             ephemeral=True,
         )
 

@@ -13,12 +13,6 @@ import re
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
 MONTHTOMONTH_AUTOPOST_CHANNEL_ID = int(os.getenv("MONTHTOMONTH_AUTOPOST_CHANNEL_ID", "0"))
-_eu_degens_role_id_raw = os.getenv("EU_DEGENS_ROLE_ID")
-try:
-    EU_DEGENS_ROLE_ID = int(_eu_degens_role_id_raw) if _eu_degens_role_id_raw else None
-except ValueError:
-    logger.warning("Invalid EU_DEGENS_ROLE_ID in environment; /eudeg command will be disabled.")
-    EU_DEGENS_ROLE_ID = None
 TIP_TYPE_DISPLAY_ORDER = [
     "monthly_leaderboard",
     "milestone",
@@ -588,110 +582,6 @@ class User(commands.Cog):
         embed.set_footer(text=f"🕒 Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="checkwager", description="Check a player's current-month wager for a specific game identifier")
-    @app_commands.describe(
-        username="Roobet username to check",
-        game_identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)",
-    )
-    async def checkwager(self, interaction: discord.Interaction, username: str, game_identifier: str):
-        await interaction.response.defer(ephemeral=True)
-
-        # Basic input validation
-        if not re.match(r'^[a-zA-Z0-9_]+$', username):
-            await interaction.followup.send("❌ Username can only contain letters, numbers, and underscores.", ephemeral=True)
-            return
-
-        game_identifier = game_identifier.strip()
-        if not game_identifier or len(game_identifier) > 120:
-            await interaction.followup.send("❌ Invalid game identifier.", ephemeral=True)
-            return
-
-        data_manager = self.get_data_manager()
-        if not data_manager:
-            await interaction.followup.send("❌ Data service unavailable. Please try again later.", ephemeral=True)
-            return
-
-        cached_data = data_manager.get_cached_data()
-        if not cached_data:
-            await interaction.followup.send("❌ No data available. Please try again later.", ephemeral=True)
-            return
-
-        weighted_wager_data = cached_data.get('weighted_wager', [])
-        username_lower = username.lower()
-
-        target_uid = None
-        canonical_username = username
-        for entry in weighted_wager_data:
-            entry_username = entry.get("username", "").lower()
-            if entry_username == username_lower:
-                target_uid = entry.get("uid")
-                canonical_username = entry.get("username", username)
-                break
-
-        if not target_uid:
-            await interaction.followup.send(
-                f"❌ No user found with username '{username}' in current month data.",
-                ephemeral=True,
-            )
-            return
-
-        from utils import fetch_weighted_wager
-
-        start_date, end_date = get_current_month_range()
-
-        try:
-            game_data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date, game_identifier)
-        except Exception as e:
-            logger.error(f"Error fetching /checkwager data for {canonical_username} ({game_identifier}): {e}")
-            await interaction.followup.send("❌ Failed to fetch wager data. Please try again later.", ephemeral=True)
-            return
-
-        target_entry = None
-        for entry in game_data:
-            if entry.get("uid") == target_uid:
-                target_entry = entry
-                break
-
-        # Fallback to username match in case UID is absent in response payload
-        if target_entry is None:
-            for entry in game_data:
-                if entry.get("username", "").lower() == username_lower:
-                    target_entry = entry
-                    break
-
-        total_wager = 0.0
-        weighted_wager = 0.0
-        highest_multi = None
-
-        if target_entry:
-            raw_total = target_entry.get("wagered", 0)
-            raw_weighted = target_entry.get("weightedWagered", 0)
-            total_wager = raw_total if isinstance(raw_total, (int, float)) else 0.0
-            weighted_wager = raw_weighted if isinstance(raw_weighted, (int, float)) else 0.0
-
-            hm = target_entry.get("highestMultiplier")
-            if isinstance(hm, dict):
-                multiplier = hm.get("multiplier")
-                if isinstance(multiplier, (int, float)):
-                    highest_multi = float(multiplier)
-
-        embed = discord.Embed(
-            title="🎮 Game Wager Check",
-            description=(
-                f"**User:** {canonical_username}\n"
-                f"**Game:** {game_identifier}\n"
-                f"**Window:** Current month (UTC)"
-            ),
-            color=discord.Color.blurple(),
-        )
-        embed.add_field(name="Total Wager", value=f"${total_wager:,.2f} USD", inline=True)
-        embed.add_field(name="Weighted Wager", value=f"${weighted_wager:,.2f} USD", inline=True)
-        if highest_multi is not None:
-            embed.add_field(name="Highest Multi", value=f"x{highest_multi:,.2f}", inline=True)
-        embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
-
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
     @app_commands.command(name="monthlygoal", description="Display total wager and weighted wager for the current month")
     async def monthlygoal(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -814,62 +704,6 @@ class User(commands.Cog):
         )
         embed.set_footer(text=f"Generated on {now.strftime('%Y-%m-%d %H:%M:%S')} GMT")
         await interaction.followup.send(embed=embed)
-
-    @app_commands.command(name="eudeg", description="Grant the EU DEGENS role to a member (EU DEGENS only)")
-    @app_commands.describe(member="Discord member to grant the EU DEGENS role")
-    async def eudeg(self, interaction: discord.Interaction, member: discord.Member):
-        if EU_DEGENS_ROLE_ID is None:
-            await interaction.response.send_message(
-                "❌ Command not configured. Set `EU_DEGENS_ROLE_ID` in environment variables.",
-                ephemeral=True,
-            )
-            return
-
-        if not interaction.guild:
-            await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
-            return
-
-        caller = interaction.user
-        if not isinstance(caller, discord.Member):
-            await interaction.response.send_message("❌ Could not verify your server roles.", ephemeral=True)
-            return
-
-        if EU_DEGENS_ROLE_ID not in [role.id for role in caller.roles]:
-            await interaction.response.send_message("❌ Only members with the EU DEGENS role can use this command.", ephemeral=True)
-            return
-
-        role = interaction.guild.get_role(EU_DEGENS_ROLE_ID)
-        if role is None:
-            await interaction.response.send_message(
-                "❌ EU DEGENS role not found in this server. Check `EU_DEGENS_ROLE_ID`.",
-                ephemeral=True,
-            )
-            return
-
-        if role in member.roles:
-            await interaction.response.send_message(
-                f"ℹ️ {member.mention} already has the {role.mention} role.",
-                ephemeral=True,
-            )
-            return
-
-        try:
-            await member.add_roles(role, reason=f"Assigned by {caller} via /eudeg")
-            await interaction.response.send_message(
-                f"✅ Added {role.mention} to {member.mention}.",
-                allowed_mentions=discord.AllowedMentions(users=True, roles=False),
-            )
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                "❌ I don't have permission to assign that role (check Manage Roles and role hierarchy).",
-                ephemeral=True,
-            )
-        except discord.HTTPException as e:
-            logger.error(f"Error assigning EU DEGENS role: {e}")
-            await interaction.response.send_message(
-                "❌ Failed to assign role due to a Discord API error.",
-                ephemeral=True,
-            )
 
     def cog_unload(self):
         self.auto_post_monthtomonth.cancel()

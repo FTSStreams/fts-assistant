@@ -592,6 +592,49 @@ def clear_roovsflip_queue_slot(position=None):
     _normalize_roovsflip_positions("roovsflip_queue")
 
 
+def swap_roovsflip_queue_positions(position_1, position_2):
+    """Swap two active queue positions. Returns (success, message)."""
+    if position_1 == position_2:
+        return False, "Positions must be different."
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT position FROM roovsflip_queue WHERE position IN (%s, %s);",
+                (position_1, position_2),
+            )
+            found_positions = {row[0] for row in cur.fetchall()}
+
+            if position_1 not in found_positions and position_2 not in found_positions:
+                return False, "Neither position currently has a game to swap."
+            if position_1 not in found_positions:
+                return False, f"Position {position_1} is empty."
+            if position_2 not in found_positions:
+                return False, f"Position {position_2} is empty."
+
+            temp_position = -9999
+            cur.execute(
+                "UPDATE roovsflip_queue SET position = %s WHERE position = %s;",
+                (temp_position, position_1),
+            )
+            cur.execute(
+                "UPDATE roovsflip_queue SET position = %s WHERE position = %s;",
+                (position_1, position_2),
+            )
+            cur.execute(
+                "UPDATE roovsflip_queue SET position = %s WHERE position = %s;",
+                (position_2, temp_position),
+            )
+            conn.commit()
+            return True, "Swap completed."
+    except Exception as e:
+        logger.error(f"Error swapping Roo Vs Flip queue positions: {e}")
+        return False, "Database error while swapping positions."
+    finally:
+        release_db_connection(conn)
+
+
 def is_roovsflip_paid(year, month):
     """Return True only when the month has been fully finalized."""
     conn = get_db_connection()
