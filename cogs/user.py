@@ -9,6 +9,7 @@ import datetime as dt
 import logging
 import asyncio
 import re
+from milestones_config import MILESTONES
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -568,13 +569,58 @@ class User(commands.Cog):
             if entry.get("uid") == roobet_uid:
                 weighted_wager = entry.get("weightedWagered", 0) if isinstance(entry.get("weightedWagered"), (int, float)) else 0
                 break
+
+        current_rank = None
+        next_rank = None
+        for milestone in MILESTONES:
+            if weighted_wager >= milestone["threshold"]:
+                current_rank = milestone
+            elif next_rank is None:
+                next_rank = milestone
+                break
+
+        if current_rank and next_rank:
+            progress_start = float(current_rank["threshold"])
+            progress_end = float(next_rank["threshold"])
+            progress_ratio = (weighted_wager - progress_start) / (progress_end - progress_start)
+        elif next_rank:
+            progress_start = 0.0
+            progress_end = float(next_rank["threshold"])
+            progress_ratio = weighted_wager / progress_end if progress_end > 0 else 0.0
+        else:
+            progress_start = float(current_rank["threshold"]) if current_rank else 0.0
+            progress_end = progress_start
+            progress_ratio = 1.0
+
+        progress_ratio = max(0.0, min(progress_ratio, 1.0))
+        bar_length = 10
+        filled_blocks = round(progress_ratio * bar_length)
+        progress_bar = "█" * filled_blocks + "░" * (bar_length - filled_blocks)
+        progress_percent = progress_ratio * 100
+
+        current_rank_label = current_rank["tier"] if current_rank else "Unranked"
+        current_rank_emoji = current_rank["emoji"] if current_rank else ""
+
+        if next_rank:
+            next_rank_progress_line = (
+                f"📈 **Next Rank Progress**: **${weighted_wager:,.2f} / ${float(next_rank['threshold']):,.2f}**\n"
+                f"🧱 **Progress Bar**: **{progress_bar} {progress_percent:.1f}%**\n"
+                f"💵 **Remaining**: **${float(next_rank['threshold']) - weighted_wager:,.2f}** to next rank"
+            )
+        else:
+            next_rank_progress_line = (
+                f"📈 **Next Rank Progress**: **MAX RANK REACHED**\n"
+                f"🧱 **Progress Bar**: **{progress_bar} {progress_percent:.1f}%**\n"
+                f"💵 **Remaining**: **$0.00** to next rank"
+            )
                 
         embed = discord.Embed(
             title=f"🎰 Your Wager Stats, {username}! 🎰",
             description=(
                 f"💰 **Total Wager**: **${total_wager:,.2f} USD** 💸\n"
                 f"✨ **Weighted Wager**: **${weighted_wager:,.2f} USD** 🌟\n"
-                f"🔥 Keep betting to climb the ranks! 🎲"
+                f"\n🏅 **Current Rank**: **{current_rank_label}** {current_rank_emoji}\n"
+                f"{next_rank_progress_line}"
             ),
             color=discord.Color.gold()
         )
