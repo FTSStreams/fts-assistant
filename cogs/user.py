@@ -603,8 +603,9 @@ class User(commands.Cog):
                 total_wager = entry.get("wagered", 0) if isinstance(entry.get("wagered"), (int, float)) else 0
                 break
 
-        # Find user's lifetime total wager from allWagerData.json (since Jan 1, 2025).
+        # Find user's lifetime total and weighted wager from allWagerData.json (since Jan 1, 2025).
         lifetime_total_wager = 0.0
+        lifetime_weighted_wager = 0.0
         all_wager_data = await self._get_cached_external_json("all_wager_data", ALL_WAGER_DATA_URL)
         try:
             lifetime_entries = (
@@ -618,6 +619,19 @@ class User(commands.Cog):
                 if str(entry.get("user_id")) == str(roobet_uid):
                     wagered_value = entry.get("wagered", 0)
                     lifetime_total_wager = float(wagered_value) if isinstance(wagered_value, (int, float)) else 0.0
+                    break
+
+            lifetime_weighted_entries = (
+                all_wager_data.get("data", {})
+                .get("lifetime", {})
+                .get("weighted_wager_data", [])
+                if isinstance(all_wager_data, dict)
+                else []
+            )
+            for entry in lifetime_weighted_entries:
+                if str(entry.get("user_id")) == str(roobet_uid):
+                    weighted_value = entry.get("weighted_wagered", 0)
+                    lifetime_weighted_wager = float(weighted_value) if isinstance(weighted_value, (int, float)) else 0.0
                     break
         except Exception as e:
             logger.warning(f"Error parsing lifetime wager data for /mywager: {e}")
@@ -1008,7 +1022,7 @@ class User(commands.Cog):
             "🗂️ **All-Time:**",
             f"• Milestone Tips: **${milestone_paid_all_time:,.2f}**",
             f"• Slot Challenges: **${slot_stats['earned_all_time']:,.2f}**",
-            f"• Wager Leaderboard (History): **${wager_lb_paid_all_time:,.2f}**",
+            f"• Wager Leaderboard: **${wager_lb_paid_all_time:,.2f}**",
             f"▸ All-Time Paid: **${all_time_paid:,.2f}** | Current Pending: **${current_month_pending:,.2f}** | Grand Total: **${all_time_grand_total:,.2f}**",
         ])
         payout_summary_block = "\n".join(payout_lines)
@@ -1018,8 +1032,10 @@ class User(commands.Cog):
         embed = discord.Embed(
             title=f"🎰 Your Wager Stats, {username}! 🎰",
             description=(
-                f"💰 **Total Wager (This Month)**: **${total_wager:,.2f} USD**\n"
                 f"💼 **Total Wager (All-Time, Since Jan 2025)**: **${lifetime_total_wager:,.2f} USD**\n"
+                f"⚖️ **Weighted Wager (All-Time, Since Jan 2025)**: **${lifetime_weighted_wager:,.2f} USD**\n"
+                f"\n"
+                f"💰 **Total Wager (This Month)**: **${total_wager:,.2f} USD**\n"
                 f"⚖️ **Weighted Wager (This Month)**: **${weighted_wager:,.2f} USD**\n"
                 f"\n{divider}\n"
                 f"\n🏅**Current Milestone Rank**: **{current_rank_label}** {current_rank_emoji}\n"
