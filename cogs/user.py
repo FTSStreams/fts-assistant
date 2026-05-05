@@ -635,6 +635,7 @@ class User(commands.Cog):
             )
 
         leaderboard_status_lines = []
+        current_lb_prize = 0.0
         if leaderboard_rank is not None and leaderboard_rank <= 10:
             current_lb_prize = MONTHLY_LEADERBOARD_PRIZES[leaderboard_rank - 1]
             leaderboard_status_lines.extend([
@@ -728,12 +729,12 @@ class User(commands.Cog):
 
                 if weekly_rank is not None and weekly_rank <= 3:
                     current_multi_prize = MULTI_LEADERBOARD_PRIZES[weekly_rank - 1]
-                    weekly_multi_lines.extend([
+                    weekly_multi_lines = [
                         f"🏆 **Multi Leaderboard Rank**: **#{weekly_rank}**",
                         f"🔥 **Biggest Multi This Week**: **x{weekly_multiplier:,.2f}** on **{weekly_game}**",
                         f"💰 **Payout**: **${weekly_payout:,.2f}** (**${weekly_wagered:,.2f}** base bet)",
                         f"🎁 **Current Multi Prize**: **${current_multi_prize:,.2f} USD**",
-                    ])
+                    ]
                     if weekly_rank == 1:
                         weekly_multi_lines.append("👑 **Status**: **Holding first place**")
                     else:
@@ -842,6 +843,7 @@ class User(commands.Cog):
 
         # Payout summary (paid + pending).
         milestone_paid_all_time = 0.0
+        milestone_paid_current_month = 0.0
         monthly_lb_paid_current_month = 0.0
         rvf_paid_for_cycle = False
         try:
@@ -857,6 +859,19 @@ class User(commands.Cog):
                         (str(roobet_uid),)
                     )
                     milestone_paid_all_time = float((cur.fetchone() or [0])[0] or 0)
+
+                                        cur.execute(
+                                                """
+                                                SELECT COALESCE(SUM(amount), 0)
+                                                FROM manualtips
+                                                WHERE user_id = %s
+                                                    AND tip_type = 'milestone'
+                                                    AND month = %s
+                                                    AND year = %s;
+                                                """,
+                                                (str(roobet_uid), now_utc.month, now_utc.year)
+                                        )
+                                        milestone_paid_current_month = float((cur.fetchone() or [0])[0] or 0)
 
                     cur.execute(
                         """
@@ -893,7 +908,8 @@ class User(commands.Cog):
         except Exception as e:
             logger.warning(f"Error building payout summary for /mywager: {e}")
 
-        wager_pending = current_lb_prize if (leaderboard_rank is not None and leaderboard_rank <= 10 and monthly_lb_paid_current_month <= 0) else 0.0
+        wager_expected = current_lb_prize if (leaderboard_rank is not None and leaderboard_rank <= 10) else 0.0
+        wager_pending = max(0.0, wager_expected - monthly_lb_paid_current_month)
         multi_pending = current_multi_prize if (weekly_rank is not None and weekly_rank <= 3) else 0.0
         rvf_pending = rvf_estimated_prize if (rvf_completed and not rvf_paid_for_cycle) else 0.0
 
@@ -911,8 +927,10 @@ class User(commands.Cog):
             "💸 **Payout Summary**",
             "",
             "✅ **Paid:**",
-            f"• Milestone Tips Earned: **${milestone_paid_all_time:,.2f}**",
-            f"• Slot Challenges: **${slot_stats['earned_all_time']:,.2f}**",
+            f"• Milestone Tips Earned (All-Time): **${milestone_paid_all_time:,.2f}**",
+            f"• Milestone Tips Earned (Current Month): **${milestone_paid_current_month:,.2f}**",
+            f"• Slot Challenges (All-Time): **${slot_stats['earned_all_time']:,.2f}**",
+            f"• Slot Challenges (Current Month): **${slot_stats['earned_current_month']:,.2f}**",
             "",
             "⏳ **Pending:**",
             f"• Wager Leaderboard: **${wager_pending:,.2f}** (Expected <t:{int(next_month_payout.timestamp())}:R>)",
@@ -926,14 +944,16 @@ class User(commands.Cog):
         else:
             payout_lines.append("• Roo vs Flip: **$0.00** (Expected N/A)")
 
-        total_paid_out = milestone_paid_all_time + float(slot_stats['earned_all_time'])
+        total_paid_out_all_time = milestone_paid_all_time + float(slot_stats['earned_all_time'])
+        total_paid_out_current_month = milestone_paid_current_month + float(slot_stats['earned_current_month'])
         total_pending = wager_pending + multi_pending + rvf_pending
-        grand_total = total_paid_out + total_pending
+        grand_total = total_paid_out_all_time + total_pending
 
         payout_lines.extend([
             "",
             "📊 **Totals:**",
-            f"• Total Paid Out: **${total_paid_out:,.2f}**",
+            f"• Total Paid Out (All-Time): **${total_paid_out_all_time:,.2f}**",
+            f"• Total Paid Out (Current Month): **${total_paid_out_current_month:,.2f}**",
             f"• Total Pending: **${total_pending:,.2f}**",
             f"• Grand Total: **${grand_total:,.2f}**",
         ])
