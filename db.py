@@ -5,6 +5,7 @@ from psycopg2 import pool
 from dotenv import load_dotenv
 from datetime import datetime
 import datetime as dt
+from decimal import Decimal, ROUND_DOWN
 
 load_dotenv()
 
@@ -896,3 +897,362 @@ def copy_roovsflip_draft_to_active():
     finally:
         release_db_connection(conn)
     _normalize_roovsflip_positions("roovsflip_queue")
+
+
+def _ensure_checkin_tables(cur):
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_checkins (
+            discord_user_id BIGINT PRIMARY KEY,
+            streak_days INTEGER NOT NULL DEFAULT 0,
+            balance NUMERIC(12, 2) NOT NULL DEFAULT 0,
+            last_checkin_date DATE,
+            withdrawal_hold_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+            withdrawal_hold_created_at TIMESTAMPTZ,
+            total_earned NUMERIC(12, 2) NOT NULL DEFAULT 0,
+            total_withdrawn NUMERIC(12, 2) NOT NULL DEFAULT 0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS daily_checkins (
+            id BIGSERIAL PRIMARY KEY,
+            discord_user_id BIGINT NOT NULL,
+            checkin_date DATE NOT NULL,
+            streak_days INTEGER NOT NULL,
+            reward_amount NUMERIC(12, 2) NOT NULL,
+            balance_after NUMERIC(12, 2) NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE(discord_user_id, checkin_date)
+        );
+        """
+    )
+
+
+def _get_or_create_checkin_row(cur, discord_user_id):
+    cur.execute(
+        """
+        INSERT INTO user_checkins (discord_user_id)
+        VALUES (%s)
+        ON CONFLICT (discord_user_id) DO NOTHING;
+        """,
+        (str(discord_user_id),),
+    )
+    cur.execute(
+        """
+        SELECT
+            streak_days,
+            balance,
+            last_checkin_date,
+            withdrawal_hold_amount,
+            withdrawal_hold_created_at,
+            total_earned,
+            total_withdrawn
+        FROM user_checkins
+        WHERE discord_user_id = %s
+        FOR UPDATE;
+        """,
+        (str(discord_user_id),),
+    )
+    return cur.fetchone()
+
+
+def process_daily_checkin(discord_user_id):
+    conn = get_db_connection()
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            row = _get_or_create_checkin_row(cur, discord_user_id)
+
+            streak_days = int(row[0] or 0)
+            balance = Decimal(row[1] or 0)
+            last_checkin_date = row[2]
+            total_earned = Decimal(row[5] or 0)
+            total_withdrawn = Decimal(row[6] or 0)
+
+            today = datetime.now(dt.UTC).date()
+            yesterday = today - dt.timedelta(days=1)
+
+            if last_checkin_date == today:
+                conn.commit()
+                return {
+                    "claimed_today": True,
+                    "reward": 0.0,
+                    "streak_days": streak_days,
+                    "balance": float(balance),
+                    "last_checkin_date": str(last_checkin_date) if last_checkin_date else None,
+                    "total_earned": float(total_earned),
+                    "total_withdrawn": float(total_withdrawn),
+                }
+
+            if last_checkin_date == yesterday:
+                streak_days += 1
+            else:
+                streak_days = 1
+
+            reward = (Decimal("0.01") * Decimal(streak_days)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            if reward > Decimal("1.00"):
+                reward = Decimal("1.00")
+
+            new_balance = (balance + reward).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            new_total_earned = (total_earned + reward).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+            cur.execute(
+                """
+                INSERT INTO daily_checkins (discord_user_id, checkin_date, streak_days, reward_amount, balance_after)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (discord_user_id, checkin_date) DO NOTHING
+                RETURNING id;
+                """,
+                (str(discord_user_id), today, streak_days, reward, new_balance),
+            )
+            inserted = cur.fetchone()
+            if not inserted:
+                conn.rollback()
+                conn.autocommit = False
+                with conn.cursor() as retry_cur:
+                    _ensure_checkin_tables(retry_cur)
+                    retry_cur.execute(
+                        """
+                        SELECT
+                            streak_days,
+                            balance,
+                            last_checkin_date,
+                            total_earned,
+                            total_withdrawn
+                        FROM user_checkins
+                        WHERE discord_user_id = %s;
+                        """,
+                        (str(discord_user_id),),
+                    )
+                    retry_row = retry_cur.fetchone() or (0, 0, None, 0, 0)
+                    conn.commit()
+                    return {
+                        "claimed_today": True,
+                        "reward": 0.0,
+                        "streak_days": int(retry_row[0] or 0),
+                        "balance": float(Decimal(retry_row[1] or 0)),
+                        "last_checkin_date": str(retry_row[2]) if retry_row[2] else None,
+                        "total_earned": float(Decimal(retry_row[3] or 0)),
+                        "total_withdrawn": float(Decimal(retry_row[4] or 0)),
+                    }
+
+            cur.execute(
+                """
+                UPDATE user_checkins
+                SET
+                    streak_days = %s,
+                    balance = %s,
+                    last_checkin_date = %s,
+                    total_earned = %s,
+                    updated_at = NOW()
+                WHERE discord_user_id = %s;
+                """,
+                (streak_days, new_balance, today, new_total_earned, str(discord_user_id)),
+            )
+            conn.commit()
+            return {
+                "claimed_today": False,
+                "reward": float(reward),
+                "streak_days": streak_days,
+                "balance": float(new_balance),
+                "last_checkin_date": str(today),
+                "total_earned": float(new_total_earned),
+                "total_withdrawn": float(total_withdrawn),
+            }
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error processing daily check-in for {discord_user_id}: {e}")
+        return None
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
+
+
+def reserve_checkin_withdrawal(discord_user_id, minimum_amount=1.00, hold_timeout_minutes=15):
+    conn = get_db_connection()
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            row = _get_or_create_checkin_row(cur, discord_user_id)
+
+            streak_days = int(row[0] or 0)
+            balance = Decimal(row[1] or 0)
+            hold_amount = Decimal(row[3] or 0)
+            hold_created_at = row[4]
+
+            if hold_amount > 0:
+                hold_is_stale = False
+                if hold_created_at is not None:
+                    hold_is_stale = (datetime.now(dt.UTC) - hold_created_at) >= dt.timedelta(minutes=hold_timeout_minutes)
+
+                if hold_is_stale:
+                    balance = (balance + hold_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+                    cur.execute(
+                        """
+                        UPDATE user_checkins
+                        SET
+                            balance = %s,
+                            withdrawal_hold_amount = 0,
+                            withdrawal_hold_created_at = NULL,
+                            updated_at = NOW()
+                        WHERE discord_user_id = %s;
+                        """,
+                        (balance, str(discord_user_id)),
+                    )
+                    hold_amount = Decimal("0")
+                else:
+                    conn.commit()
+                    return {
+                        "status": "in_progress",
+                        "balance": float(balance),
+                        "streak_days": streak_days,
+                    }
+
+            minimum_amount_dec = Decimal(str(minimum_amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            if balance < minimum_amount_dec:
+                conn.commit()
+                return {
+                    "status": "below_minimum",
+                    "balance": float(balance),
+                    "streak_days": streak_days,
+                    "minimum_amount": float(minimum_amount_dec),
+                }
+
+            withdraw_amount = balance.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            new_balance = (balance - withdraw_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+            cur.execute(
+                """
+                UPDATE user_checkins
+                SET
+                    balance = %s,
+                    withdrawal_hold_amount = %s,
+                    withdrawal_hold_created_at = NOW(),
+                    updated_at = NOW()
+                WHERE discord_user_id = %s;
+                """,
+                (new_balance, withdraw_amount, str(discord_user_id)),
+            )
+            conn.commit()
+            return {
+                "status": "ready",
+                "withdraw_amount": float(withdraw_amount),
+                "balance": float(new_balance),
+                "streak_days": streak_days,
+            }
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error reserving check-in withdrawal for {discord_user_id}: {e}")
+        return None
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
+
+
+def finalize_checkin_withdrawal(discord_user_id, success):
+    conn = get_db_connection()
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            row = _get_or_create_checkin_row(cur, discord_user_id)
+
+            balance = Decimal(row[1] or 0)
+            hold_amount = Decimal(row[3] or 0)
+            total_withdrawn = Decimal(row[6] or 0)
+
+            if hold_amount <= 0:
+                conn.commit()
+                return {
+                    "had_hold": False,
+                    "balance": float(balance),
+                    "total_withdrawn": float(total_withdrawn),
+                }
+
+            if success:
+                new_balance = balance
+                new_total_withdrawn = (total_withdrawn + hold_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            else:
+                new_balance = (balance + hold_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+                new_total_withdrawn = total_withdrawn
+
+            cur.execute(
+                """
+                UPDATE user_checkins
+                SET
+                    balance = %s,
+                    withdrawal_hold_amount = 0,
+                    withdrawal_hold_created_at = NULL,
+                    total_withdrawn = %s,
+                    updated_at = NOW()
+                WHERE discord_user_id = %s;
+                """,
+                (new_balance, new_total_withdrawn, str(discord_user_id)),
+            )
+            conn.commit()
+            return {
+                "had_hold": True,
+                "balance": float(new_balance),
+                "total_withdrawn": float(new_total_withdrawn),
+            }
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error finalizing check-in withdrawal for {discord_user_id}: {e}")
+        return None
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
+
+
+def add_checkin_balance(discord_user_id, amount):
+    conn = get_db_connection()
+    try:
+        amount_dec = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+        if amount_dec <= 0:
+            return None
+
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            row = _get_or_create_checkin_row(cur, discord_user_id)
+
+            streak_days = int(row[0] or 0)
+            balance = Decimal(row[1] or 0)
+            total_earned = Decimal(row[5] or 0)
+            total_withdrawn = Decimal(row[6] or 0)
+
+            new_balance = (balance + amount_dec).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            new_total_earned = (total_earned + amount_dec).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+            cur.execute(
+                """
+                UPDATE user_checkins
+                SET
+                    balance = %s,
+                    total_earned = %s,
+                    updated_at = NOW()
+                WHERE discord_user_id = %s;
+                """,
+                (new_balance, new_total_earned, str(discord_user_id)),
+            )
+            conn.commit()
+            return {
+                "amount_added": float(amount_dec),
+                "balance": float(new_balance),
+                "streak_days": streak_days,
+                "total_earned": float(new_total_earned),
+                "total_withdrawn": float(total_withdrawn),
+            }
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error adding check-in balance for {discord_user_id}: {e}")
+        return None
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)

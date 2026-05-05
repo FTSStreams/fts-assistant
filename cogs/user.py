@@ -2,7 +2,18 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager
-from db import get_db_connection, release_db_connection, save_tip_log, get_monthly_totals, get_user_slot_challenge_stats, get_roovsflip_queue, get_roovsflip_event_start
+from db import (
+    get_db_connection,
+    release_db_connection,
+    save_tip_log,
+    get_monthly_totals,
+    get_user_slot_challenge_stats,
+    get_roovsflip_queue,
+    get_roovsflip_event_start,
+    process_daily_checkin,
+    reserve_checkin_withdrawal,
+    finalize_checkin_withdrawal,
+)
 import os
 from datetime import datetime
 import datetime as dt
@@ -34,6 +45,7 @@ ALL_WAGER_DATA_URL = os.getenv(
 )
 EXTERNAL_JSON_CACHE_TTL_SECONDS = 900
 TIP_TYPE_DISPLAY_ORDER = [
+    "check_in",
     "monthly_leaderboard",
     "milestone",
     "weekly_multiplier",
@@ -43,6 +55,7 @@ TIP_TYPE_DISPLAY_ORDER = [
 ]
 
 TIP_TYPE_DISPLAY_NAMES = {
+    "check_in": "Check-In Withdrawals",
     "monthly_leaderboard": "Monthly Leaderboard",
     "milestone": "Milestones",
     "weekly_multiplier": "Weekly Multi Leaderboard",
@@ -576,6 +589,163 @@ class User(commands.Cog):
                 f"❌ Failed to send tip to {username}: {error_message}", ephemeral=True
             )
             logger.error(f"Failed to send {tip_type} tip to {username} (UID: {roobet_uid}): {error_message}")
+
+    async def _resolve_roobet_uid_by_username(self, username: str):
+        username_lower = username.lower()
+        canonical_username = username
+
+        try:
+            current_year = datetime.now(dt.UTC).year
+            start_date = f"{current_year}-01-01T00:00:00Z"
+            end_date = datetime.now(dt.UTC).isoformat()
+            yearly_wager_data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date)
+
+            for entry in yearly_wager_data:
+                entry_username = entry.get("username", "").lower()
+                if username_lower == entry_username:
+                    return entry.get("uid"), entry.get("username", username)
+        except Exception as e:
+            logger.warning(f"Failed yearly lookup for username {username}: {e}")
+
+        data_manager = self.get_data_manager()
+        if data_manager:
+            cached_data = data_manager.get_cached_data() or {}
+            weighted_wager_data = cached_data.get("weighted_wager", [])
+            for entry in weighted_wager_data:
+                entry_username = entry.get("username", "").lower()
+                if username_lower == entry_username:
+                    return entry.get("uid"), entry.get("username", username)
+
+        return None, canonical_username
+
+    @app_commands.command(name="checkin", description="Claim your daily check-in reward and keep your streak alive")
+    async def checkin(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        checkin_result = process_daily_checkin(interaction.user.id)
+        if checkin_result is None:
+            await interaction.followup.send("❌ Failed to process check-in. Please try again shortly.", ephemeral=True)
+            return
+
+        now_utc = datetime.now(dt.UTC)
+        next_reset = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) + dt.timedelta(days=1)
+        streak_days = int(checkin_result.get("streak_days", 0))
+        balance = float(checkin_result.get("balance", 0.0))
+        reward = float(checkin_result.get("reward", 0.0))
+        next_reward = min(1.00, round((streak_days + 1) * 0.01, 2))
+
+        already_checked_in = bool(checkin_result.get("claimed_today", False))
+        if already_checked_in:
+            title = "📅 Daily Check-In"
+            status_line = "You already checked in today. Come back after reset."
+            color = discord.Color.orange()
+        else:
+            title = "✅ Daily Check-In Claimed"
+            status_line = f"You earned **${reward:,.2f}** today."
+            color = discord.Color.green()
+
+        embed = discord.Embed(
+            title=title,
+            description=status_line,
+            color=color,
+        )
+        embed.add_field(name="🔥 Current Streak", value=f"**{streak_days} days**", inline=True)
+        embed.add_field(name="💰 Check-In Balance", value=f"**${balance:,.2f}**", inline=True)
+        embed.add_field(name="📈 Next Reward", value=f"**${next_reward:,.2f}**", inline=True)
+        embed.add_field(name="⏭️ Next Reset", value=f"<t:{int(next_reset.timestamp())}:R>", inline=False)
+        embed.set_footer(text="Rewards increase by $0.01/day up to a $1.00 daily cap")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="withdraw", description="Withdraw your check-in balance to a Roobet username (minimum $1.00)")
+    @app_commands.describe(roobet_id="Your Roobet username/ID to receive the tip")
+    async def withdraw(self, interaction: discord.Interaction, roobet_id: str):
+        await interaction.response.defer(ephemeral=True)
+
+        if not re.match(r'^[a-zA-Z0-9_]+$', roobet_id):
+            await interaction.followup.send("❌ Roobet ID can only contain letters, numbers, and underscores.", ephemeral=True)
+            return
+
+        if len(roobet_id) > 50:
+            await interaction.followup.send("❌ Roobet ID is too long (max 50 characters).", ephemeral=True)
+            return
+
+        reserve_result = reserve_checkin_withdrawal(interaction.user.id, minimum_amount=1.00)
+        if reserve_result is None:
+            await interaction.followup.send("❌ Failed to reserve withdrawal. Please try again shortly.", ephemeral=True)
+            return
+
+        reserve_status = reserve_result.get("status")
+        if reserve_status == "in_progress":
+            await interaction.followup.send(
+                "⏳ A withdrawal is already processing for your account. Please wait a moment and try again.",
+                ephemeral=True,
+            )
+            return
+
+        if reserve_status == "below_minimum":
+            balance = float(reserve_result.get("balance", 0.0))
+            minimum = float(reserve_result.get("minimum_amount", 1.0))
+            await interaction.followup.send(
+                f"❌ Minimum withdrawal is **${minimum:,.2f}**. Your current check-in balance is **${balance:,.2f}**.",
+                ephemeral=True,
+            )
+            return
+
+        withdraw_amount = float(reserve_result.get("withdraw_amount", 0.0))
+        roobet_uid, canonical_username = await self._resolve_roobet_uid_by_username(roobet_id)
+        if not roobet_uid:
+            finalize_checkin_withdrawal(interaction.user.id, success=False)
+            await interaction.followup.send(
+                f"❌ No user found with Roobet ID '{roobet_id}' in current data. Your balance was restored.",
+                ephemeral=True,
+            )
+            return
+
+        response = await send_tip(
+            user_id=os.getenv("ROOBET_USER_ID"),
+            to_username=canonical_username,
+            to_user_id=roobet_uid,
+            amount=withdraw_amount,
+            show_in_chat=True,
+            balance_type="crypto",
+        )
+
+        if response.get("success"):
+            save_tip_log(
+                roobet_uid,
+                canonical_username,
+                withdraw_amount,
+                "check_in",
+                month=datetime.now(dt.UTC).month,
+                year=datetime.now(dt.UTC).year,
+            )
+            finalize_result = finalize_checkin_withdrawal(interaction.user.id, success=True)
+            remaining_balance = 0.0
+            if isinstance(finalize_result, dict):
+                remaining_balance = float(finalize_result.get("balance", 0.0))
+
+            embed = discord.Embed(
+                title="✅ Withdrawal Sent",
+                description=f"Sent **${withdraw_amount:,.2f}** to **{canonical_username}**.",
+                color=discord.Color.green(),
+            )
+            embed.add_field(name="💼 Remaining Check-In Balance", value=f"**${remaining_balance:,.2f}**", inline=False)
+            embed.set_footer(text=f"Processed on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            logger.info(
+                f"[check_in] Withdrawal sent: discord_user_id={interaction.user.id}, roobet_uid={roobet_uid}, "
+                f"username={canonical_username}, amount={withdraw_amount:.2f}"
+            )
+        else:
+            finalize_checkin_withdrawal(interaction.user.id, success=False)
+            error_message = response.get("message", "Unknown error")
+            await interaction.followup.send(
+                f"❌ Withdrawal failed: {error_message}. Your check-in balance was restored.",
+                ephemeral=True,
+            )
+            logger.error(
+                f"[check_in] Withdrawal failed for discord_user_id={interaction.user.id}, roobet_id={roobet_id}: {error_message}"
+            )
 
     @app_commands.command(name="mywager", description="Check your personal wager stats for the current month using your Roobet username")
     @app_commands.describe(username="Your Roobet username")

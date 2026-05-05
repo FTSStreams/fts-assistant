@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from db import get_db_connection, release_db_connection, get_setting_value, save_setting_value
+from db import get_db_connection, release_db_connection, get_setting_value, save_setting_value, add_checkin_balance
 import logging
 import os
 from datetime import datetime
@@ -26,6 +26,35 @@ class Admin(commands.Cog):
             db_status = "Disconnected"
         await interaction.response.send_message(
             f"Bot Status:\n- Database: {db_status}", ephemeral=True
+        )
+
+    @app_commands.command(name="addcheckinbalance", description="Add check-in balance to a user for testing withdrawals (admin only)")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(user="Discord user to credit", amount="Amount to add (default 1.00)")
+    async def add_checkin_balance_cmd(self, interaction: discord.Interaction, user: discord.User, amount: float = 1.00):
+        await interaction.response.defer(ephemeral=True)
+
+        if amount <= 0:
+            await interaction.followup.send("❌ Amount must be greater than 0.", ephemeral=True)
+            return
+
+        result = add_checkin_balance(user.id, amount)
+        if result is None:
+            await interaction.followup.send("❌ Failed to add check-in balance.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="✅ Check-In Balance Updated",
+            description=f"Added **${result['amount_added']:,.2f}** to {user.mention}.",
+            color=discord.Color.green(),
+        )
+        embed.add_field(name="💰 New Balance", value=f"**${result['balance']:,.2f}**", inline=True)
+        embed.add_field(name="🔥 Current Streak", value=f"**{int(result['streak_days'])} days**", inline=True)
+        embed.set_footer(text=f"Updated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        logger.info(
+            f"[check_in] Admin {interaction.user} added ${result['amount_added']:.2f} check-in balance "
+            f"to discord_user_id={user.id}. New balance=${result['balance']:.2f}"
         )
 
 
