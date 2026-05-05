@@ -13,6 +13,10 @@ from db import (
     process_daily_checkin,
     reserve_checkin_withdrawal,
     finalize_checkin_withdrawal,
+    get_checkin_account_summary,
+    get_top_checkin_balances,
+    get_leaderboard_message_id,
+    save_leaderboard_message_id,
 )
 import os
 from datetime import datetime
@@ -32,6 +36,7 @@ WAGER_LEADERBOARD_CHANNEL_ID = int(os.getenv("WAGER_LEADERBOARD_CHANNEL_ID", "13
 SLOT_CHALLENGES_CHANNEL_ID = int(os.getenv("SLOT_CHALLENGES_CHANNEL_ID", "1385820512529158226"))
 MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID", "1352322188102991932"))
 MYWAGER_ADMIN_NOTIFY_CHANNEL_ID = int(os.getenv("MYWAGER_ADMIN_NOTIFY_CHANNEL_ID", "1008041424941498445"))
+CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID = int(os.getenv("CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID", "1501283696928362497"))
 ROO_VS_FLIP_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_CHANNEL_ID", "1486202172378189925"))
 ROO_VS_FLIP_PRIZE_POOL = 250.00
 MULTI_LEADERBOARD_PRIZES = [25, 15, 10]
@@ -73,6 +78,7 @@ class User(commands.Cog):
         self._external_json_cache_expires_at = {}
         self.auto_post_monthtomonth.start()
         self.auto_post_tipstats.start()
+        self.update_checkin_balance_leaderboard.start()
     
     def get_data_manager(self):
         """Helper to get DataManager cog"""
@@ -387,6 +393,87 @@ class User(commands.Cog):
     async def before_auto_post_tipstats(self):
         await self.bot.wait_until_ready()
 
+    def _build_checkin_balance_leaderboard_embed(self, rows):
+        now_utc = datetime.now(dt.UTC)
+        next_refresh = now_utc + dt.timedelta(minutes=15)
+
+        embed = discord.Embed(
+            title="💰 Check-In Balance Leaderboard",
+            description=(
+                "Top check-in balances in the server.\n"
+                f"⏱️ **Last Updated:** <t:{int(now_utc.timestamp())}:R>\n"
+                f"🔄 **Next Refresh:** <t:{int(next_refresh.timestamp())}:R>"
+            ),
+            color=discord.Color.green(),
+        )
+
+        position_markers = [
+            "🥇", "🥈", "🥉", ":four:", ":five:",
+            ":six:", ":seven:", ":eight:", ":nine:", ":one::zero:",
+        ]
+
+        if not rows:
+            embed.add_field(
+                name="No Active Balances Yet",
+                value="No users currently have a positive check-in balance.",
+                inline=False,
+            )
+        else:
+            for idx, row in enumerate(rows[:10], start=1):
+                marker = position_markers[idx - 1] if idx <= len(position_markers) else f"#{idx}"
+                user_mention = f"<@{row['discord_user_id']}>"
+                balance = float(row.get("balance", 0.0))
+                streak_days = int(row.get("streak_days", 0))
+                embed.add_field(
+                    name=f"{marker} — {user_mention}",
+                    value=(
+                        f"💼 **Balance:** `${balance:,.2f}`\n"
+                        f"🔥 **Streak:** `{streak_days}` day(s)"
+                    ),
+                    inline=False,
+                )
+
+        embed.set_footer(text="Auto-refreshes every 15 minutes")
+        return embed
+
+    @tasks.loop(minutes=15)
+    async def update_checkin_balance_leaderboard(self):
+        if not CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID:
+            return
+
+        channel = self.bot.get_channel(CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID)
+            except Exception as e:
+                logger.error(f"[check_in] Failed to fetch check-in leaderboard channel: {e}")
+                return
+
+        top_balances = get_top_checkin_balances(limit=10)
+        embed = self._build_checkin_balance_leaderboard_embed(top_balances)
+
+        message_key = "checkin_balance_leaderboard_message_id"
+        message_id = get_leaderboard_message_id(key=message_key)
+        if message_id:
+            try:
+                message = await channel.fetch_message(message_id)
+                await message.edit(embed=embed)
+                return
+            except discord.errors.NotFound:
+                logger.info("[check_in] Existing check-in leaderboard message not found, sending a new one.")
+            except Exception as e:
+                logger.error(f"[check_in] Failed to edit check-in leaderboard message: {e}")
+
+        try:
+            message = await channel.send(embed=embed)
+            save_leaderboard_message_id(message.id, key=message_key)
+        except Exception as e:
+            logger.error(f"[check_in] Failed to send check-in leaderboard message: {e}")
+
+    @update_checkin_balance_leaderboard.before_loop
+    async def before_update_checkin_balance_leaderboard(self):
+        await self.bot.wait_until_ready()
+
     async def _generate_tipstats_embeds(self):
         """Build and return (summary_embed, by_type_embed) from the manualtips table."""
         conn = get_db_connection()
@@ -654,6 +741,43 @@ class User(commands.Cog):
         embed.add_field(name="📈 Next Reward", value=f"**${next_reward:,.2f}**", inline=True)
         embed.add_field(name="⏭️ Next Reset", value=f"<t:{int(next_reset.timestamp())}:R>", inline=False)
         embed.set_footer(text="Rewards increase by $0.01/day up to a $1.00 daily cap")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="balance", description="Show your check-in balance, streak, and account stats")
+    async def balance(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        summary = get_checkin_account_summary(interaction.user.id)
+        if summary is None:
+            await interaction.followup.send("❌ Failed to load your check-in balance. Please try again shortly.", ephemeral=True)
+            return
+
+        now_utc = datetime.now(dt.UTC)
+        next_reset = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) + dt.timedelta(days=1)
+        streak_days = int(summary.get("streak_days", 0))
+        balance_amount = float(summary.get("balance", 0.0))
+        next_reward = float(summary.get("next_reward", 0.01))
+        total_earned = float(summary.get("total_earned", 0.0))
+        total_withdrawn = float(summary.get("total_withdrawn", 0.0))
+        last_checkin_date = summary.get("last_checkin_date")
+        claimed_today = bool(summary.get("claimed_today", False))
+
+        status_text = "✅ Claimed today" if claimed_today else "⏳ Not claimed today"
+        last_checkin_text = last_checkin_date if last_checkin_date else "Never"
+
+        embed = discord.Embed(
+            title="💼 Your Check-In Balance",
+            description=f"**Status:** {status_text}",
+            color=discord.Color.blurple(),
+        )
+        embed.add_field(name="💰 Current Balance", value=f"**${balance_amount:,.2f}**", inline=True)
+        embed.add_field(name="🔥 Current Streak", value=f"**{streak_days} days**", inline=True)
+        embed.add_field(name="📈 Next Check-In Reward", value=f"**${next_reward:,.2f}**", inline=True)
+        embed.add_field(name="🧾 Total Earned", value=f"**${total_earned:,.2f}**", inline=True)
+        embed.add_field(name="💸 Total Withdrawn", value=f"**${total_withdrawn:,.2f}**", inline=True)
+        embed.add_field(name="📅 Last Check-In Date", value=f"**{last_checkin_text}**", inline=True)
+        embed.add_field(name="⏭️ Next Reset", value=f"<t:{int(next_reset.timestamp())}:R>", inline=False)
+        embed.set_footer(text="Use /checkin daily and /withdraw once your balance is at least $1.00")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="withdraw", description="Withdraw your check-in balance to a Roobet username (minimum $1.00)")
@@ -1369,6 +1493,7 @@ class User(commands.Cog):
     def cog_unload(self):
         self.auto_post_monthtomonth.cancel()
         self.auto_post_tipstats.cancel()
+        self.update_checkin_balance_leaderboard.cancel()
 
 async def setup(bot):
     await bot.add_cog(User(bot))

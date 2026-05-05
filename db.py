@@ -1256,3 +1256,85 @@ def add_checkin_balance(discord_user_id, amount):
     finally:
         conn.autocommit = True
         release_db_connection(conn)
+
+
+def get_checkin_account_summary(discord_user_id):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            row = _get_or_create_checkin_row(cur, discord_user_id)
+            conn.commit()
+
+            streak_days = int(row[0] or 0)
+            balance = float(Decimal(row[1] or 0))
+            last_checkin_date = row[2]
+            total_earned = float(Decimal(row[5] or 0))
+            total_withdrawn = float(Decimal(row[6] or 0))
+
+            today = datetime.now(dt.UTC).date()
+            claimed_today = (last_checkin_date == today)
+            next_reward = min(1.00, round((streak_days + 1) * 0.01, 2))
+
+            return {
+                "streak_days": streak_days,
+                "balance": balance,
+                "last_checkin_date": str(last_checkin_date) if last_checkin_date else None,
+                "claimed_today": claimed_today,
+                "next_reward": next_reward,
+                "total_earned": total_earned,
+                "total_withdrawn": total_withdrawn,
+            }
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error loading check-in account summary for {discord_user_id}: {e}")
+        return None
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
+
+
+def get_top_checkin_balances(limit=10):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            cur.execute(
+                """
+                SELECT
+                    discord_user_id,
+                    balance,
+                    streak_days,
+                    total_earned,
+                    total_withdrawn,
+                    last_checkin_date
+                FROM user_checkins
+                WHERE balance > 0
+                ORDER BY balance DESC, streak_days DESC, updated_at ASC
+                LIMIT %s;
+                """,
+                (int(limit),),
+            )
+            rows = cur.fetchall()
+            conn.commit()
+
+            result = []
+            for row in rows:
+                result.append(
+                    {
+                        "discord_user_id": int(row[0]),
+                        "balance": float(Decimal(row[1] or 0)),
+                        "streak_days": int(row[2] or 0),
+                        "total_earned": float(Decimal(row[3] or 0)),
+                        "total_withdrawn": float(Decimal(row[4] or 0)),
+                        "last_checkin_date": str(row[5]) if row[5] else None,
+                    }
+                )
+            return result
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error loading top check-in balances: {e}")
+        return []
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
