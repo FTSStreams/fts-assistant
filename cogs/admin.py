@@ -1,7 +1,14 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from db import get_db_connection, release_db_connection, get_setting_value, save_setting_value, edit_checkin_balance
+from db import (
+    get_db_connection,
+    release_db_connection,
+    get_setting_value,
+    save_setting_value,
+    edit_checkin_balance,
+    resolve_checkin_withdrawal_hold,
+)
 import logging
 import os
 from datetime import datetime
@@ -87,6 +94,61 @@ class Admin(commands.Cog):
         logger.info(
             f"[check_in] Admin {interaction.user} edited check-in balance by ${delta_value:.2f} "
             f"for discord_user_id={user.id}. New balance=${result['balance']:.2f}"
+        )
+
+    @app_commands.command(name="resolvecheckinhold", description="Resolve a stuck check-in withdrawal hold (admin only)")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        user="Discord user whose hold should be resolved",
+        action="release returns held funds; commit marks held funds as withdrawn",
+        note="Optional note for audit trail",
+    )
+    @app_commands.choices(
+        action=[
+            app_commands.Choice(name="release", value="release"),
+            app_commands.Choice(name="commit", value="commit"),
+        ]
+    )
+    async def resolve_checkin_hold_cmd(
+        self,
+        interaction: discord.Interaction,
+        user: discord.User,
+        action: app_commands.Choice[str],
+        note: str = None,
+    ):
+        await interaction.response.defer(ephemeral=True)
+
+        note_value = note.strip() if isinstance(note, str) else None
+        result = resolve_checkin_withdrawal_hold(user.id, action.value, note=note_value)
+        if result is None:
+            await interaction.followup.send("❌ Failed to resolve check-in hold.", ephemeral=True)
+            return
+
+        if not result.get("ok", False):
+            reason = result.get("reason", "unknown")
+            if reason == "no_hold":
+                await interaction.followup.send(
+                    f"ℹ️ {user.mention} has no active hold.",
+                    ephemeral=True,
+                )
+                return
+            await interaction.followup.send("❌ Failed to resolve check-in hold.", ephemeral=True)
+            return
+
+        resolved_amount = float(result.get("released_or_committed", 0.0))
+        action_word = "Released" if action.value == "release" else "Committed"
+        embed = discord.Embed(
+            title="✅ Check-In Hold Resolved",
+            description=f"{action_word} **${resolved_amount:,.2f}** for {user.mention}.",
+            color=discord.Color.green(),
+        )
+        embed.add_field(name="💰 New Balance", value=f"**${float(result.get('balance', 0.0)):,.2f}**", inline=True)
+        embed.add_field(name="💸 Total Withdrawn", value=f"**${float(result.get('total_withdrawn', 0.0)):,.2f}**", inline=True)
+        embed.set_footer(text=f"Resolved on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        logger.info(
+            f"[check_in] Admin {interaction.user} resolved hold for discord_user_id={user.id} "
+            f"action={action.value} amount={resolved_amount:.2f}"
         )
 
 

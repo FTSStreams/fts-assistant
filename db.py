@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 import datetime as dt
 from decimal import Decimal, ROUND_DOWN
+import uuid
 
 load_dotenv()
 
@@ -930,6 +931,21 @@ def _ensure_checkin_tables(cur):
         );
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS checkin_withdrawals (
+            withdrawal_id UUID PRIMARY KEY,
+            discord_user_id BIGINT NOT NULL,
+            amount NUMERIC(12, 2) NOT NULL,
+            status TEXT NOT NULL,
+            roobet_uid TEXT,
+            roobet_username TEXT,
+            error_message TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """
+    )
 
 
 def _get_or_create_checkin_row(cur, discord_user_id):
@@ -1073,7 +1089,13 @@ def process_daily_checkin(discord_user_id):
         release_db_connection(conn)
 
 
-def reserve_checkin_withdrawal(discord_user_id, minimum_amount=1.00, hold_timeout_minutes=15, requested_amount=None):
+def reserve_checkin_withdrawal(
+    discord_user_id,
+    minimum_amount=1.00,
+    hold_timeout_minutes=15,
+    requested_amount=None,
+    daily_withdraw_limit=25.00,
+):
     conn = get_db_connection()
     try:
         conn.autocommit = False
@@ -1087,32 +1109,29 @@ def reserve_checkin_withdrawal(discord_user_id, minimum_amount=1.00, hold_timeou
             hold_created_at = row[4]
 
             if hold_amount > 0:
-                hold_is_stale = False
+                hold_age_minutes = 0.0
                 if hold_created_at is not None:
-                    hold_is_stale = (datetime.now(dt.UTC) - hold_created_at) >= dt.timedelta(minutes=hold_timeout_minutes)
-
-                if hold_is_stale:
-                    balance = (balance + hold_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-                    cur.execute(
-                        """
-                        UPDATE user_checkins
-                        SET
-                            balance = %s,
-                            withdrawal_hold_amount = 0,
-                            withdrawal_hold_created_at = NULL,
-                            updated_at = NOW()
-                        WHERE discord_user_id = %s;
-                        """,
-                        (balance, str(discord_user_id)),
+                    hold_age_minutes = max(
+                        0.0,
+                        (datetime.now(dt.UTC) - hold_created_at).total_seconds() / 60.0,
                     )
-                    hold_amount = Decimal("0")
-                else:
-                    conn.commit()
+
+                conn.commit()
+                if hold_age_minutes >= float(hold_timeout_minutes):
                     return {
-                        "status": "in_progress",
+                        "status": "manual_review_required",
                         "balance": float(balance),
                         "streak_days": streak_days,
+                        "hold_amount": float(hold_amount),
+                        "hold_age_minutes": hold_age_minutes,
                     }
+
+                return {
+                    "status": "in_progress",
+                    "balance": float(balance),
+                    "streak_days": streak_days,
+                    "hold_amount": float(hold_amount),
+                }
 
             minimum_amount_dec = Decimal(str(minimum_amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
 
@@ -1156,7 +1175,36 @@ def reserve_checkin_withdrawal(discord_user_id, minimum_amount=1.00, hold_timeou
 
             if withdraw_amount is None:
                 withdraw_amount = balance.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+            daily_limit_dec = Decimal(str(daily_withdraw_limit)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            if daily_limit_dec > 0:
+                now_utc = datetime.now(dt.UTC)
+                day_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+                next_day_start = day_start + dt.timedelta(days=1)
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(amount), 0)
+                    FROM checkin_withdrawals
+                    WHERE discord_user_id = %s
+                        AND status = 'success'
+                        AND created_at >= %s
+                        AND created_at < %s;
+                    """,
+                    (str(discord_user_id), day_start, next_day_start),
+                )
+                withdrawn_today = Decimal(cur.fetchone()[0] or 0)
+                if (withdrawn_today + withdraw_amount) > daily_limit_dec:
+                    conn.commit()
+                    return {
+                        "status": "daily_limit_reached",
+                        "balance": float(balance),
+                        "streak_days": streak_days,
+                        "daily_limit": float(daily_limit_dec),
+                        "withdrawn_today": float(withdrawn_today),
+                    }
+
             new_balance = (balance - withdraw_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            withdrawal_id = str(uuid.uuid4())
 
             cur.execute(
                 """
@@ -1170,9 +1218,17 @@ def reserve_checkin_withdrawal(discord_user_id, minimum_amount=1.00, hold_timeou
                 """,
                 (new_balance, withdraw_amount, str(discord_user_id)),
             )
+            cur.execute(
+                """
+                INSERT INTO checkin_withdrawals (withdrawal_id, discord_user_id, amount, status)
+                VALUES (%s, %s, %s, 'pending');
+                """,
+                (withdrawal_id, str(discord_user_id), withdraw_amount),
+            )
             conn.commit()
             return {
                 "status": "ready",
+                "withdrawal_id": withdrawal_id,
                 "withdraw_amount": float(withdraw_amount),
                 "balance": float(new_balance),
                 "streak_days": streak_days,
@@ -1186,7 +1242,14 @@ def reserve_checkin_withdrawal(discord_user_id, minimum_amount=1.00, hold_timeou
         release_db_connection(conn)
 
 
-def finalize_checkin_withdrawal(discord_user_id, success):
+def finalize_checkin_withdrawal(
+    discord_user_id,
+    outcome,
+    withdrawal_id=None,
+    roobet_uid=None,
+    roobet_username=None,
+    error_message=None,
+):
     conn = get_db_connection()
     try:
         conn.autocommit = False
@@ -1197,8 +1260,35 @@ def finalize_checkin_withdrawal(discord_user_id, success):
             balance = Decimal(row[1] or 0)
             hold_amount = Decimal(row[3] or 0)
             total_withdrawn = Decimal(row[6] or 0)
+            withdrawal_exists = False
+
+            if withdrawal_id:
+                cur.execute(
+                    """
+                    SELECT status
+                    FROM checkin_withdrawals
+                    WHERE withdrawal_id = %s
+                        AND discord_user_id = %s
+                    FOR UPDATE;
+                    """,
+                    (str(withdrawal_id), str(discord_user_id)),
+                )
+                withdrawal_row = cur.fetchone()
+                withdrawal_exists = withdrawal_row is not None
 
             if hold_amount <= 0:
+                if withdrawal_exists:
+                    cur.execute(
+                        """
+                        UPDATE checkin_withdrawals
+                        SET
+                            status = CASE WHEN %s = 'unknown' THEN 'unknown' ELSE status END,
+                            error_message = COALESCE(%s, error_message),
+                            updated_at = NOW()
+                        WHERE withdrawal_id = %s;
+                        """,
+                        (str(outcome), error_message, str(withdrawal_id)),
+                    )
                 conn.commit()
                 return {
                     "had_hold": False,
@@ -1206,12 +1296,33 @@ def finalize_checkin_withdrawal(discord_user_id, success):
                     "total_withdrawn": float(total_withdrawn),
                 }
 
-            if success:
+            if outcome == "success":
                 new_balance = balance
                 new_total_withdrawn = (total_withdrawn + hold_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-            else:
+            elif outcome == "failed":
                 new_balance = (balance + hold_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
                 new_total_withdrawn = total_withdrawn
+            else:
+                # Unknown outcome fails closed: keep hold in place until manual resolution.
+                if withdrawal_exists:
+                    cur.execute(
+                        """
+                        UPDATE checkin_withdrawals
+                        SET
+                            status = 'unknown',
+                            error_message = %s,
+                            updated_at = NOW()
+                        WHERE withdrawal_id = %s;
+                        """,
+                        (error_message or "Unknown payout outcome", str(withdrawal_id)),
+                    )
+                conn.commit()
+                return {
+                    "had_hold": True,
+                    "pending_review": True,
+                    "balance": float(balance),
+                    "total_withdrawn": float(total_withdrawn),
+                }
 
             cur.execute(
                 """
@@ -1226,6 +1337,27 @@ def finalize_checkin_withdrawal(discord_user_id, success):
                 """,
                 (new_balance, new_total_withdrawn, str(discord_user_id)),
             )
+
+            if withdrawal_exists:
+                cur.execute(
+                    """
+                    UPDATE checkin_withdrawals
+                    SET
+                        status = %s,
+                        roobet_uid = %s,
+                        roobet_username = %s,
+                        error_message = %s,
+                        updated_at = NOW()
+                    WHERE withdrawal_id = %s;
+                    """,
+                    (
+                        "success" if outcome == "success" else "failed",
+                        str(roobet_uid) if roobet_uid is not None else None,
+                        roobet_username,
+                        error_message,
+                        str(withdrawal_id),
+                    ),
+                )
             conn.commit()
             return {
                 "had_hold": True,
@@ -1378,6 +1510,97 @@ def get_top_checkin_balances(limit=10):
         conn.rollback()
         logger.error(f"Error loading top check-in balances: {e}")
         return []
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
+
+
+def resolve_checkin_withdrawal_hold(discord_user_id, action, note=None):
+    conn = get_db_connection()
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            row = _get_or_create_checkin_row(cur, discord_user_id)
+
+            balance = Decimal(row[1] or 0)
+            hold_amount = Decimal(row[3] or 0)
+            total_withdrawn = Decimal(row[6] or 0)
+
+            if hold_amount <= 0:
+                conn.commit()
+                return {
+                    "ok": False,
+                    "reason": "no_hold",
+                    "balance": float(balance),
+                }
+
+            action_normalized = str(action or "").strip().lower()
+            if action_normalized not in {"release", "commit"}:
+                conn.commit()
+                return {
+                    "ok": False,
+                    "reason": "invalid_action",
+                    "balance": float(balance),
+                }
+
+            if action_normalized == "release":
+                new_balance = (balance + hold_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+                new_total_withdrawn = total_withdrawn
+            else:
+                new_balance = balance
+                new_total_withdrawn = (total_withdrawn + hold_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+            cur.execute(
+                """
+                UPDATE user_checkins
+                SET
+                    balance = %s,
+                    withdrawal_hold_amount = 0,
+                    withdrawal_hold_created_at = NULL,
+                    total_withdrawn = %s,
+                    updated_at = NOW()
+                WHERE discord_user_id = %s;
+                """,
+                (new_balance, new_total_withdrawn, str(discord_user_id)),
+            )
+
+            cur.execute(
+                """
+                WITH latest_row AS (
+                    SELECT withdrawal_id
+                    FROM checkin_withdrawals
+                    WHERE discord_user_id = %s
+                        AND status IN ('pending', 'unknown')
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                )
+                UPDATE checkin_withdrawals
+                SET
+                    status = %s,
+                    error_message = COALESCE(%s, error_message),
+                    updated_at = NOW()
+                WHERE withdrawal_id IN (SELECT withdrawal_id FROM latest_row);
+                """,
+                (
+                    str(discord_user_id),
+                    "failed" if action_normalized == "release" else "success",
+                    note,
+                ),
+            )
+
+            conn.commit()
+            return {
+                "ok": True,
+                "action": action_normalized,
+                "released_or_committed": float(hold_amount),
+                "balance": float(new_balance),
+                "total_withdrawn": float(new_total_withdrawn),
+            }
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error resolving check-in withdrawal hold for {discord_user_id}: {e}")
+        return None
     finally:
         conn.autocommit = True
         release_db_connection(conn)

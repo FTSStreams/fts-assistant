@@ -36,8 +36,14 @@ WAGER_LEADERBOARD_CHANNEL_ID = int(os.getenv("WAGER_LEADERBOARD_CHANNEL_ID", "13
 SLOT_CHALLENGES_CHANNEL_ID = int(os.getenv("SLOT_CHALLENGES_CHANNEL_ID", "1385820512529158226"))
 MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID", "1352322188102991932"))
 MYWAGER_ADMIN_NOTIFY_CHANNEL_ID = int(os.getenv("MYWAGER_ADMIN_NOTIFY_CHANNEL_ID", "1008041424941498445"))
+CHECKIN_ADMIN_LOG_CHANNEL_ID = int(os.getenv("CHECKIN_ADMIN_LOG_CHANNEL_ID", "1008041424941498445"))
 CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID = int(os.getenv("CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID", "1501283696928362497"))
 CHECKIN_COMMAND_CHANNEL_ID = int(os.getenv("CHECKIN_COMMAND_CHANNEL_ID", "1036310766300700752"))
+CHECKIN_MIN_WITHDRAW_AMOUNT = float(os.getenv("CHECKIN_MIN_WITHDRAW_AMOUNT", "1.0"))
+CHECKIN_DAILY_WITHDRAW_LIMIT = float(os.getenv("CHECKIN_DAILY_WITHDRAW_LIMIT", "25.0"))
+CHECKIN_WITHDRAW_HOLD_TIMEOUT_MINUTES = int(os.getenv("CHECKIN_WITHDRAW_HOLD_TIMEOUT_MINUTES", "20"))
+CHECKIN_MIN_ACCOUNT_AGE_DAYS = int(os.getenv("CHECKIN_MIN_ACCOUNT_AGE_DAYS", "7"))
+CHECKIN_MIN_GUILD_MEMBER_AGE_DAYS = int(os.getenv("CHECKIN_MIN_GUILD_MEMBER_AGE_DAYS", "3"))
 ROO_VS_FLIP_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_CHANNEL_ID", "1486202172378189925"))
 ROO_VS_FLIP_PRIZE_POOL = 250.00
 MULTI_LEADERBOARD_PRIZES = [25, 15, 10]
@@ -85,6 +91,32 @@ class User(commands.Cog):
         """Helper to get DataManager cog"""
         return self.bot.get_cog('DataManager')
 
+    def _check_checkin_eligibility(self, interaction: discord.Interaction):
+        if interaction.user.bot:
+            return False, "❌ Bots cannot use this command."
+
+        now_utc = datetime.now(dt.UTC)
+        user_created_at = getattr(interaction.user, "created_at", None)
+        if user_created_at is not None:
+            account_age_days = (now_utc - user_created_at).days
+            if account_age_days < CHECKIN_MIN_ACCOUNT_AGE_DAYS:
+                return (
+                    False,
+                    f"❌ Your Discord account must be at least **{CHECKIN_MIN_ACCOUNT_AGE_DAYS} days** old to use check-in features.",
+                )
+
+        member = interaction.guild.get_member(interaction.user.id) if interaction.guild else None
+        joined_at = getattr(member, "joined_at", None)
+        if joined_at is not None:
+            member_age_days = (now_utc - joined_at).days
+            if member_age_days < CHECKIN_MIN_GUILD_MEMBER_AGE_DAYS:
+                return (
+                    False,
+                    f"❌ You must be in this server for at least **{CHECKIN_MIN_GUILD_MEMBER_AGE_DAYS} days** to use check-in features.",
+                )
+
+        return True, None
+
     async def _get_cached_external_json(self, cache_key: str, url: str):
         now_ts = datetime.now(dt.UTC).timestamp()
         expires_at = self._external_json_cache_expires_at.get(cache_key, 0)
@@ -127,6 +159,36 @@ class User(commands.Cog):
             )
         except Exception as e:
             logger.warning(f"Failed to send /mywager staff notification: {e}")
+
+    async def _send_checkin_staff_log(
+        self,
+        interaction: discord.Interaction,
+        reward: float,
+        streak_days: int,
+        balance: float,
+    ):
+        if CHECKIN_ADMIN_LOG_CHANNEL_ID <= 0:
+            return
+
+        try:
+            channel = self.bot.get_channel(CHECKIN_ADMIN_LOG_CHANNEL_ID)
+            if channel is None:
+                channel = await self.bot.fetch_channel(CHECKIN_ADMIN_LOG_CHANNEL_ID)
+
+            if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+                logger.warning(
+                    f"Configured CHECKIN_ADMIN_LOG_CHANNEL_ID {CHECKIN_ADMIN_LOG_CHANNEL_ID} is not a text channel/thread"
+                )
+                return
+
+            await channel.send(
+                f"✅ {interaction.user.mention} checked in | "
+                f"Reward: **${reward:,.2f}** | "
+                f"Streak: **{streak_days}** | "
+                f"Balance: **${balance:,.2f}**"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send check-in staff log: {e}")
 
     async def _generate_monthtomonth_embed_file(self):
         import matplotlib.pyplot as plt
@@ -735,6 +797,11 @@ class User(commands.Cog):
             )
             return
 
+        eligible, reason = self._check_checkin_eligibility(interaction)
+        if not eligible:
+            await interaction.response.send_message(reason, ephemeral=True)
+            return
+
         await interaction.response.defer()
 
         checkin_result = process_daily_checkin(interaction.user.id)
@@ -769,7 +836,10 @@ class User(commands.Cog):
         embed.add_field(name="📈 Next Reward", value=f"**${next_reward:,.2f}**", inline=True)
         embed.add_field(name="⏭️ Next Reset", value=f"<t:{int(next_reset.timestamp())}:R>", inline=False)
         embed.set_footer(text="Rewards increase by $0.01/day up to a $1.00 daily cap")
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=already_checked_in)
+
+        if not already_checked_in:
+            await self._send_checkin_staff_log(interaction, reward, streak_days, balance)
 
     @app_commands.command(name="balance", description="Show your check-in balance, streak, and account stats")
     async def balance(self, interaction: discord.Interaction):
@@ -816,6 +886,11 @@ class User(commands.Cog):
     async def withdraw(self, interaction: discord.Interaction, roobet_id: str, amount: float = None):
         await interaction.response.defer(ephemeral=True)
 
+        eligible, reason = self._check_checkin_eligibility(interaction)
+        if not eligible:
+            await interaction.followup.send(reason, ephemeral=True)
+            return
+
         if not re.match(r'^[a-zA-Z0-9_]+$', roobet_id):
             await interaction.followup.send("❌ Roobet ID can only contain letters, numbers, and underscores.", ephemeral=True)
             return
@@ -830,8 +905,10 @@ class User(commands.Cog):
 
         reserve_result = reserve_checkin_withdrawal(
             interaction.user.id,
-            minimum_amount=1.00,
+            minimum_amount=CHECKIN_MIN_WITHDRAW_AMOUNT,
+            hold_timeout_minutes=CHECKIN_WITHDRAW_HOLD_TIMEOUT_MINUTES,
             requested_amount=amount,
+            daily_withdraw_limit=CHECKIN_DAILY_WITHDRAW_LIMIT,
         )
         if reserve_result is None:
             await interaction.followup.send("❌ Failed to reserve withdrawal. Please try again shortly.", ephemeral=True)
@@ -847,7 +924,7 @@ class User(commands.Cog):
 
         if reserve_status == "below_minimum":
             balance = float(reserve_result.get("balance", 0.0))
-            minimum = float(reserve_result.get("minimum_amount", 1.0))
+            minimum = float(reserve_result.get("minimum_amount", CHECKIN_MIN_WITHDRAW_AMOUNT))
             await interaction.followup.send(
                 f"❌ Minimum withdrawal is **${minimum:,.2f}**. Your current check-in balance is **${balance:,.2f}**.",
                 ephemeral=True,
@@ -855,7 +932,7 @@ class User(commands.Cog):
             return
 
         if reserve_status == "below_minimum_request":
-            minimum = float(reserve_result.get("minimum_amount", 1.0))
+            minimum = float(reserve_result.get("minimum_amount", CHECKIN_MIN_WITHDRAW_AMOUNT))
             await interaction.followup.send(
                 f"❌ Minimum withdrawal amount is **${minimum:,.2f}**.",
                 ephemeral=True,
@@ -875,24 +952,69 @@ class User(commands.Cog):
             await interaction.followup.send("❌ Invalid withdrawal amount.", ephemeral=True)
             return
 
+        if reserve_status == "daily_limit_reached":
+            daily_limit = float(reserve_result.get("daily_limit", CHECKIN_DAILY_WITHDRAW_LIMIT))
+            withdrawn_today = float(reserve_result.get("withdrawn_today", 0.0))
+            await interaction.followup.send(
+                f"❌ Daily withdrawal cap reached. Limit: **${daily_limit:,.2f}** | "
+                f"Already withdrawn today: **${withdrawn_today:,.2f}**.",
+                ephemeral=True,
+            )
+            return
+
+        if reserve_status == "manual_review_required":
+            hold_amount = float(reserve_result.get("hold_amount", 0.0))
+            await interaction.followup.send(
+                f"⚠️ Your previous withdrawal is pending manual review (held: **${hold_amount:,.2f}**). "
+                "Please ask staff to review before retrying.",
+                ephemeral=True,
+            )
+            return
+
+        withdrawal_id = reserve_result.get("withdrawal_id")
         withdraw_amount = float(reserve_result.get("withdraw_amount", 0.0))
         roobet_uid, canonical_username = await self._resolve_roobet_uid_by_username(roobet_id)
         if not roobet_uid:
-            finalize_checkin_withdrawal(interaction.user.id, success=False)
+            finalize_checkin_withdrawal(
+                interaction.user.id,
+                outcome="failed",
+                withdrawal_id=withdrawal_id,
+                error_message=f"Roobet ID not found: {roobet_id}",
+            )
             await interaction.followup.send(
                 f"❌ No user found with Roobet ID '{roobet_id}' in current data. Your balance was restored.",
                 ephemeral=True,
             )
             return
 
-        response = await send_tip(
-            user_id=os.getenv("ROOBET_USER_ID"),
-            to_username=canonical_username,
-            to_user_id=roobet_uid,
-            amount=withdraw_amount,
-            show_in_chat=True,
-            balance_type="crypto",
-        )
+        try:
+            response = await send_tip(
+                user_id=os.getenv("ROOBET_USER_ID"),
+                to_username=canonical_username,
+                to_user_id=roobet_uid,
+                amount=withdraw_amount,
+                show_in_chat=True,
+                balance_type="crypto",
+            )
+        except Exception as e:
+            finalize_checkin_withdrawal(
+                interaction.user.id,
+                outcome="unknown",
+                withdrawal_id=withdrawal_id,
+                roobet_uid=roobet_uid,
+                roobet_username=canonical_username,
+                error_message=f"send_tip exception: {e}",
+            )
+            await interaction.followup.send(
+                "⚠️ Withdrawal status is uncertain due to a payout transport error. "
+                "Funds are locked for manual review to prevent double-payout abuse.",
+                ephemeral=True,
+            )
+            logger.error(
+                f"[check_in] Withdrawal uncertain for discord_user_id={interaction.user.id}, "
+                f"roobet_id={roobet_id}: {e}"
+            )
+            return
 
         if response.get("success"):
             save_tip_log(
@@ -903,7 +1025,13 @@ class User(commands.Cog):
                 month=datetime.now(dt.UTC).month,
                 year=datetime.now(dt.UTC).year,
             )
-            finalize_result = finalize_checkin_withdrawal(interaction.user.id, success=True)
+            finalize_result = finalize_checkin_withdrawal(
+                interaction.user.id,
+                outcome="success",
+                withdrawal_id=withdrawal_id,
+                roobet_uid=roobet_uid,
+                roobet_username=canonical_username,
+            )
             remaining_balance = 0.0
             if isinstance(finalize_result, dict):
                 remaining_balance = float(finalize_result.get("balance", 0.0))
@@ -921,8 +1049,15 @@ class User(commands.Cog):
                 f"username={canonical_username}, amount={withdraw_amount:.2f}"
             )
         else:
-            finalize_checkin_withdrawal(interaction.user.id, success=False)
             error_message = response.get("message", "Unknown error")
+            finalize_checkin_withdrawal(
+                interaction.user.id,
+                outcome="failed",
+                withdrawal_id=withdrawal_id,
+                roobet_uid=roobet_uid,
+                roobet_username=canonical_username,
+                error_message=error_message,
+            )
             await interaction.followup.send(
                 f"❌ Withdrawal failed: {error_message}. Your check-in balance was restored.",
                 ephemeral=True,
