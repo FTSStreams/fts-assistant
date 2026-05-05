@@ -204,8 +204,8 @@ class Admin(commands.Cog):
 
     @app_commands.command(name="populatejson", description="Build pastleaderboards.json from API history (admin only, one-time use)")
     @app_commands.default_permissions(administrator=True)
-    @app_commands.describe(start_year="Year to start from (default 2024)", start_month="Month to start from (default 1)")
-    async def populatejson(self, interaction: discord.Interaction, start_year: int = 2024, start_month: int = 1):
+    @app_commands.describe(start_year="Year to start from (default 2025)", start_month="Month to start from (default 1)")
+    async def populatejson(self, interaction: discord.Interaction, start_year: int = 2025, start_month: int = 1):
         await interaction.response.defer(ephemeral=True)
 
         from utils import fetch_weighted_wager, get_month_range, generate_backfill_months
