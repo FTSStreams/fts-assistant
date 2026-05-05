@@ -21,6 +21,13 @@ intents.message_content = False
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot._commands_synced = False
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 # List of cogs to load...
 COGS = [
     "cogs.datamanager",  # Load DataManager first so other cogs can access it
@@ -49,12 +56,14 @@ async def on_ready():
     bot.tree.copy_global_to(guild=guild)
     synced_guild = await bot.tree.sync(guild=guild)
 
-    bot.tree.clear_commands(guild=None)
-    await bot.tree.sync()
+    clear_global_commands = _env_flag("CLEAR_GLOBAL_COMMANDS_ON_STARTUP", default=False)
+    if clear_global_commands:
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()
+        logger.info("Global slash commands were cleared due to CLEAR_GLOBAL_COMMANDS_ON_STARTUP.")
 
     bot._commands_synced = True
     logger.info(f"Guild-only slash commands synced for guild {guild_id}. ({len(synced_guild)} commands)")
-    logger.info("Global slash commands were cleared to prevent duplicate command listings.")
 
 async def load_cogs():
     for cog in COGS:
