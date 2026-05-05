@@ -1073,7 +1073,7 @@ def process_daily_checkin(discord_user_id):
         release_db_connection(conn)
 
 
-def reserve_checkin_withdrawal(discord_user_id, minimum_amount=1.00, hold_timeout_minutes=15):
+def reserve_checkin_withdrawal(discord_user_id, minimum_amount=1.00, hold_timeout_minutes=15, requested_amount=None):
     conn = get_db_connection()
     try:
         conn.autocommit = False
@@ -1115,6 +1115,27 @@ def reserve_checkin_withdrawal(discord_user_id, minimum_amount=1.00, hold_timeou
                     }
 
             minimum_amount_dec = Decimal(str(minimum_amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+            withdraw_amount = None
+            if requested_amount is not None:
+                requested_amount_dec = Decimal(str(requested_amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+                if requested_amount_dec <= 0:
+                    conn.commit()
+                    return {
+                        "status": "invalid_amount",
+                        "balance": float(balance),
+                        "streak_days": streak_days,
+                    }
+                if requested_amount_dec < minimum_amount_dec:
+                    conn.commit()
+                    return {
+                        "status": "below_minimum_request",
+                        "balance": float(balance),
+                        "streak_days": streak_days,
+                        "minimum_amount": float(minimum_amount_dec),
+                    }
+                withdraw_amount = requested_amount_dec
+
             if balance < minimum_amount_dec:
                 conn.commit()
                 return {
@@ -1124,7 +1145,17 @@ def reserve_checkin_withdrawal(discord_user_id, minimum_amount=1.00, hold_timeou
                     "minimum_amount": float(minimum_amount_dec),
                 }
 
-            withdraw_amount = balance.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            if withdraw_amount is not None and withdraw_amount > balance:
+                conn.commit()
+                return {
+                    "status": "insufficient_funds",
+                    "balance": float(balance),
+                    "streak_days": streak_days,
+                    "requested_amount": float(withdraw_amount),
+                }
+
+            if withdraw_amount is None:
+                withdraw_amount = balance.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
             new_balance = (balance - withdraw_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
 
             cur.execute(
@@ -1210,11 +1241,11 @@ def finalize_checkin_withdrawal(discord_user_id, success):
         release_db_connection(conn)
 
 
-def add_checkin_balance(discord_user_id, amount):
+def edit_checkin_balance(discord_user_id, amount_delta):
     conn = get_db_connection()
     try:
-        amount_dec = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-        if amount_dec <= 0:
+        delta_dec = Decimal(str(amount_delta)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+        if delta_dec == 0:
             return None
 
         conn.autocommit = False
@@ -1227,8 +1258,19 @@ def add_checkin_balance(discord_user_id, amount):
             total_earned = Decimal(row[5] or 0)
             total_withdrawn = Decimal(row[6] or 0)
 
-            new_balance = (balance + amount_dec).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-            new_total_earned = (total_earned + amount_dec).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            new_balance = (balance + delta_dec).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            if new_balance < 0:
+                conn.commit()
+                return {
+                    "ok": False,
+                    "reason": "insufficient_balance",
+                    "balance": float(balance),
+                    "delta": float(delta_dec),
+                }
+
+            new_total_earned = total_earned
+            if delta_dec > 0:
+                new_total_earned = (total_earned + delta_dec).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
 
             cur.execute(
                 """
@@ -1243,7 +1285,8 @@ def add_checkin_balance(discord_user_id, amount):
             )
             conn.commit()
             return {
-                "amount_added": float(amount_dec),
+                "ok": True,
+                "amount_delta": float(delta_dec),
                 "balance": float(new_balance),
                 "streak_days": streak_days,
                 "total_earned": float(new_total_earned),
@@ -1251,7 +1294,7 @@ def add_checkin_balance(discord_user_id, amount):
             }
     except Exception as e:
         conn.rollback()
-        logger.error(f"Error adding check-in balance for {discord_user_id}: {e}")
+        logger.error(f"Error editing check-in balance for {discord_user_id}: {e}")
         return None
     finally:
         conn.autocommit = True

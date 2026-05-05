@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from db import get_db_connection, release_db_connection, get_setting_value, save_setting_value, add_checkin_balance
+from db import get_db_connection, release_db_connection, get_setting_value, save_setting_value, edit_checkin_balance
 import logging
 import os
 from datetime import datetime
@@ -28,24 +28,56 @@ class Admin(commands.Cog):
             f"Bot Status:\n- Database: {db_status}", ephemeral=True
         )
 
-    @app_commands.command(name="addcheckinbalance", description="Add check-in balance to a user for testing withdrawals (admin only)")
+    @app_commands.command(name="editcheckinbalance", description="Add or remove check-in balance for a user (admin only)")
     @app_commands.default_permissions(administrator=True)
-    @app_commands.describe(user="Discord user to credit", amount="Amount to add (default 1.00)")
-    async def add_checkin_balance_cmd(self, interaction: discord.Interaction, user: discord.User, amount: float = 1.00):
+    @app_commands.describe(
+        user="Discord user to edit",
+        action="Choose whether to add or remove balance",
+        amount="Amount to change (must be greater than 0)",
+    )
+    @app_commands.choices(
+        action=[
+            app_commands.Choice(name="add", value="add"),
+            app_commands.Choice(name="remove", value="remove"),
+        ]
+    )
+    async def edit_checkin_balance_cmd(
+        self,
+        interaction: discord.Interaction,
+        user: discord.User,
+        action: app_commands.Choice[str],
+        amount: float,
+    ):
         await interaction.response.defer(ephemeral=True)
 
         if amount <= 0:
             await interaction.followup.send("❌ Amount must be greater than 0.", ephemeral=True)
             return
 
-        result = add_checkin_balance(user.id, amount)
+        delta = amount if action.value == "add" else -amount
+        result = edit_checkin_balance(user.id, delta)
         if result is None:
-            await interaction.followup.send("❌ Failed to add check-in balance.", ephemeral=True)
+            await interaction.followup.send("❌ Failed to edit check-in balance.", ephemeral=True)
             return
 
+        if not result.get("ok", False):
+            if result.get("reason") == "insufficient_balance":
+                current_balance = float(result.get("balance", 0.0))
+                await interaction.followup.send(
+                    f"❌ Cannot remove **${amount:,.2f}** from {user.mention}. "
+                    f"Current balance is **${current_balance:,.2f}**.",
+                    ephemeral=True,
+                )
+                return
+
+            await interaction.followup.send("❌ Failed to edit check-in balance.", ephemeral=True)
+            return
+
+        delta_value = float(result["amount_delta"])
+        action_word = "Added" if delta_value >= 0 else "Removed"
         embed = discord.Embed(
             title="✅ Check-In Balance Updated",
-            description=f"Added **${result['amount_added']:,.2f}** to {user.mention}.",
+            description=f"{action_word} **${abs(delta_value):,.2f}** {'to' if delta_value >= 0 else 'from'} {user.mention}.",
             color=discord.Color.green(),
         )
         embed.add_field(name="💰 New Balance", value=f"**${result['balance']:,.2f}**", inline=True)
@@ -53,8 +85,8 @@ class Admin(commands.Cog):
         embed.set_footer(text=f"Updated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
         await interaction.followup.send(embed=embed, ephemeral=True)
         logger.info(
-            f"[check_in] Admin {interaction.user} added ${result['amount_added']:.2f} check-in balance "
-            f"to discord_user_id={user.id}. New balance=${result['balance']:.2f}"
+            f"[check_in] Admin {interaction.user} edited check-in balance by ${delta_value:.2f} "
+            f"for discord_user_id={user.id}. New balance=${result['balance']:.2f}"
         )
 
 

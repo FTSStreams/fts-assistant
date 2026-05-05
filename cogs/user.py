@@ -37,6 +37,7 @@ SLOT_CHALLENGES_CHANNEL_ID = int(os.getenv("SLOT_CHALLENGES_CHANNEL_ID", "138582
 MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID", "1352322188102991932"))
 MYWAGER_ADMIN_NOTIFY_CHANNEL_ID = int(os.getenv("MYWAGER_ADMIN_NOTIFY_CHANNEL_ID", "1008041424941498445"))
 CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID = int(os.getenv("CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID", "1501283696928362497"))
+CHECKIN_COMMAND_CHANNEL_ID = int(os.getenv("CHECKIN_COMMAND_CHANNEL_ID", "1036310766300700752"))
 ROO_VS_FLIP_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_CHANNEL_ID", "1486202172378189925"))
 ROO_VS_FLIP_PRIZE_POOL = 250.00
 MULTI_LEADERBOARD_PRIZES = [25, 15, 10]
@@ -421,11 +422,11 @@ class User(commands.Cog):
         else:
             for idx, row in enumerate(rows[:10], start=1):
                 marker = position_markers[idx - 1] if idx <= len(position_markers) else f"#{idx}"
-                user_mention = f"<@{row['discord_user_id']}>"
+                display_name = row.get("display_name") or f"User {row['discord_user_id']}"
                 balance = float(row.get("balance", 0.0))
                 streak_days = int(row.get("streak_days", 0))
                 embed.add_field(
-                    name=f"{marker} — {user_mention}",
+                    name=f"{marker} — {display_name}",
                     value=(
                         f"💼 **Balance:** `${balance:,.2f}`\n"
                         f"🔥 **Streak:** `{streak_days}` day(s)"
@@ -450,6 +451,26 @@ class User(commands.Cog):
                 return
 
         top_balances = get_top_checkin_balances(limit=10)
+        guild = getattr(channel, "guild", None)
+        for row in top_balances:
+            display_name = None
+            if guild is not None:
+                member = guild.get_member(int(row["discord_user_id"]))
+                if member is not None:
+                    display_name = member.display_name
+
+            if not display_name:
+                user_obj = self.bot.get_user(int(row["discord_user_id"]))
+                if user_obj is None:
+                    try:
+                        user_obj = await self.bot.fetch_user(int(row["discord_user_id"]))
+                    except Exception:
+                        user_obj = None
+                if user_obj is not None:
+                    display_name = user_obj.display_name
+
+            row["display_name"] = display_name or f"User {row['discord_user_id']}"
+
         embed = self._build_checkin_balance_leaderboard_embed(top_balances)
 
         message_key = "checkin_balance_leaderboard_message_id"
@@ -707,7 +728,14 @@ class User(commands.Cog):
 
     @app_commands.command(name="checkin", description="Claim your daily check-in reward and keep your streak alive")
     async def checkin(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        if interaction.channel_id != CHECKIN_COMMAND_CHANNEL_ID:
+            await interaction.response.send_message(
+                f"❌ /checkin can only be used in <#{CHECKIN_COMMAND_CHANNEL_ID}>.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer()
 
         checkin_result = process_daily_checkin(interaction.user.id)
         if checkin_result is None:
@@ -741,7 +769,7 @@ class User(commands.Cog):
         embed.add_field(name="📈 Next Reward", value=f"**${next_reward:,.2f}**", inline=True)
         embed.add_field(name="⏭️ Next Reset", value=f"<t:{int(next_reset.timestamp())}:R>", inline=False)
         embed.set_footer(text="Rewards increase by $0.01/day up to a $1.00 daily cap")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="balance", description="Show your check-in balance, streak, and account stats")
     async def balance(self, interaction: discord.Interaction):
@@ -780,9 +808,12 @@ class User(commands.Cog):
         embed.set_footer(text="Use /checkin daily and /withdraw once your balance is at least $1.00")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="withdraw", description="Withdraw your check-in balance to a Roobet username (minimum $1.00)")
-    @app_commands.describe(roobet_id="Your Roobet username/ID to receive the tip")
-    async def withdraw(self, interaction: discord.Interaction, roobet_id: str):
+    @app_commands.command(name="withdraw", description="Withdraw check-in balance to a Roobet username (minimum $1.00)")
+    @app_commands.describe(
+        roobet_id="Your Roobet username/ID to receive the tip",
+        amount="Optional amount to withdraw (defaults to full balance)",
+    )
+    async def withdraw(self, interaction: discord.Interaction, roobet_id: str, amount: float = None):
         await interaction.response.defer(ephemeral=True)
 
         if not re.match(r'^[a-zA-Z0-9_]+$', roobet_id):
@@ -793,7 +824,15 @@ class User(commands.Cog):
             await interaction.followup.send("❌ Roobet ID is too long (max 50 characters).", ephemeral=True)
             return
 
-        reserve_result = reserve_checkin_withdrawal(interaction.user.id, minimum_amount=1.00)
+        if amount is not None and amount <= 0:
+            await interaction.followup.send("❌ Withdrawal amount must be greater than 0.", ephemeral=True)
+            return
+
+        reserve_result = reserve_checkin_withdrawal(
+            interaction.user.id,
+            minimum_amount=1.00,
+            requested_amount=amount,
+        )
         if reserve_result is None:
             await interaction.followup.send("❌ Failed to reserve withdrawal. Please try again shortly.", ephemeral=True)
             return
@@ -813,6 +852,27 @@ class User(commands.Cog):
                 f"❌ Minimum withdrawal is **${minimum:,.2f}**. Your current check-in balance is **${balance:,.2f}**.",
                 ephemeral=True,
             )
+            return
+
+        if reserve_status == "below_minimum_request":
+            minimum = float(reserve_result.get("minimum_amount", 1.0))
+            await interaction.followup.send(
+                f"❌ Minimum withdrawal amount is **${minimum:,.2f}**.",
+                ephemeral=True,
+            )
+            return
+
+        if reserve_status == "insufficient_funds":
+            balance = float(reserve_result.get("balance", 0.0))
+            requested = float(reserve_result.get("requested_amount", 0.0))
+            await interaction.followup.send(
+                f"❌ Insufficient balance. You requested **${requested:,.2f}**, but only have **${balance:,.2f}**.",
+                ephemeral=True,
+            )
+            return
+
+        if reserve_status == "invalid_amount":
+            await interaction.followup.send("❌ Invalid withdrawal amount.", ephemeral=True)
             return
 
         withdraw_amount = float(reserve_result.get("withdraw_amount", 0.0))
