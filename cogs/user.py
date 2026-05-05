@@ -971,7 +971,7 @@ class User(commands.Cog):
         )
         embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
         embed.set_footer(text=f"🕒 Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="monthlygoal", description="Display total wager and weighted wager for the current month")
     async def monthlygoal(self, interaction: discord.Interaction):
