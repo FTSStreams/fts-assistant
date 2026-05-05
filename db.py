@@ -367,6 +367,7 @@ def get_user_slot_challenge_stats(user_id, month=None, year=None):
             all_time_row = cur.fetchone() or (0, 0)
 
             current_month_completed = 0
+            current_month_earned = 0.0
             if month is not None and year is not None:
                 month_start = datetime(year, month, 1, 0, 0, 0, tzinfo=dt.UTC)
                 if month == 12:
@@ -376,7 +377,7 @@ def get_user_slot_challenge_stats(user_id, month=None, year=None):
 
                 cur.execute(
                     """
-                    SELECT COUNT(*)
+                    SELECT COUNT(*), COALESCE(SUM(prize), 0)
                     FROM slot_challenge_logs
                     WHERE winner_uid = %s
                       AND multiplier IS NOT NULL
@@ -385,13 +386,15 @@ def get_user_slot_challenge_stats(user_id, month=None, year=None):
                     """,
                     (str(user_id), month_start, month_end)
                 )
-                month_row = cur.fetchone() or (0,)
+                month_row = cur.fetchone() or (0, 0)
                 current_month_completed = int(month_row[0] or 0)
+                current_month_earned = float(month_row[1] or 0)
 
             return {
                 "completed_all_time": int(all_time_row[0] or 0),
                 "completed_current_month": int(current_month_completed),
                 "earned_all_time": float(all_time_row[1] or 0),
+                "earned_current_month": float(current_month_earned),
             }
     except Exception as e:
         logger.error(f"Error fetching slot challenge stats for user {user_id}: {e}")
@@ -399,6 +402,7 @@ def get_user_slot_challenge_stats(user_id, month=None, year=None):
             "completed_all_time": 0,
             "completed_current_month": 0,
             "earned_all_time": 0.0,
+            "earned_current_month": 0.0,
         }
     finally:
         release_db_connection(conn)
