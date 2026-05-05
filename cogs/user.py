@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager, fetch_user_game_stats
+from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager
 from db import get_db_connection, release_db_connection, save_tip_log, get_monthly_totals, get_user_slot_challenge_stats, get_roovsflip_queue, get_roovsflip_event_start
 import os
 from datetime import datetime
@@ -21,6 +21,7 @@ SLOT_CHALLENGES_CHANNEL_ID = int(os.getenv("SLOT_CHALLENGES_CHANNEL_ID", "138582
 MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID", "1352322188102991932"))
 ROO_VS_FLIP_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_CHANNEL_ID", "1486202172378189925"))
 ROO_VS_FLIP_PRIZE_POOL = 250.00
+MULTI_LEADERBOARD_PRIZES = [25, 15, 10]
 TIP_TYPE_DISPLAY_ORDER = [
     "monthly_leaderboard",
     "milestone",
@@ -680,28 +681,91 @@ class User(commands.Cog):
             f"📣 **Slot Challenges**: <#{SLOT_CHALLENGES_CHANNEL_ID}>"
         )
 
-        # Weekly biggest single multiplier hit (sync with multi leaderboard period).
-        weekly_multi_block = (
-            "💥 **Biggest Win This Week (Multi LB)**: **No qualifying multi hit yet**\n"
-            f"📣 **Multi Leaderboard**: <#{MULTI_LEADERBOARD_CHANNEL_ID}>"
-        )
+        # Weekly biggest single multiplier hit + placement details (sync with multi leaderboard period).
+        weekly_multi_lines = ["💥 **Biggest Win This Week (Multi LB)**: **No qualifying multi hit yet**"]
         try:
             week_start, week_end = get_current_week_range()
             weekly_weighted_data = await asyncio.to_thread(fetch_weighted_wager, week_start, week_end)
-            user_week_entry = next((entry for entry in weekly_weighted_data if entry.get("uid") == roobet_uid), None)
-            highest_multi = user_week_entry.get("highestMultiplier") if isinstance(user_week_entry, dict) else None
-            if isinstance(highest_multi, dict) and isinstance(highest_multi.get("multiplier"), (int, float)) and highest_multi.get("multiplier", 0) > 0:
+            weekly_candidates = []
+            for entry in weekly_weighted_data:
+                if not isinstance(entry, dict):
+                    continue
+                highest = entry.get("highestMultiplier")
+                if not isinstance(highest, dict):
+                    continue
+                multiplier = highest.get("multiplier")
+                if isinstance(multiplier, (int, float)) and multiplier > 0:
+                    weekly_candidates.append(entry)
+
+            weekly_candidates.sort(
+                key=lambda entry: entry.get("highestMultiplier", {}).get("multiplier", 0),
+                reverse=True
+            )
+
+            user_week_entry = next(
+                (entry for entry in weekly_candidates if str(entry.get("uid")) == str(roobet_uid)),
+                None
+            )
+
+            if user_week_entry:
+                highest_multi = user_week_entry.get("highestMultiplier", {})
                 weekly_multiplier = float(highest_multi.get("multiplier", 0))
                 weekly_game = highest_multi.get("gameTitle", "Unknown")
                 weekly_payout = float(highest_multi.get("payout", 0)) if isinstance(highest_multi.get("payout"), (int, float)) else 0.0
                 weekly_wagered = float(highest_multi.get("wagered", 0)) if isinstance(highest_multi.get("wagered"), (int, float)) else 0.0
-                weekly_multi_block = (
-                    f"💥 **Biggest Win This Week (Multi LB)**: **x{weekly_multiplier:,.2f}** on **{weekly_game}**\n"
-                    f"💰 **Payout**: **${weekly_payout:,.2f}** (**${weekly_wagered:,.2f}** base bet)\n"
-                    f"📣 **Multi Leaderboard**: <#{MULTI_LEADERBOARD_CHANNEL_ID}>"
+                weekly_rank = next(
+                    (idx + 1 for idx, entry in enumerate(weekly_candidates) if str(entry.get("uid")) == str(roobet_uid)),
+                    None
                 )
+
+                weekly_multi_lines = [
+                    f"💥 **Biggest Win This Week (Multi LB)**: **x{weekly_multiplier:,.2f}** on **{weekly_game}**",
+                    f"💰 **Payout**: **${weekly_payout:,.2f}** (**${weekly_wagered:,.2f}** base bet)",
+                ]
+
+                if weekly_rank is not None and weekly_rank <= 3:
+                    current_multi_prize = MULTI_LEADERBOARD_PRIZES[weekly_rank - 1]
+                    weekly_multi_lines.extend([
+                        f"🏆 **Multi Leaderboard Rank**: **#{weekly_rank}**",
+                        f"🎁 **Current Multi Prize**: **${current_multi_prize:,.2f} USD**",
+                    ])
+                    if weekly_rank == 1:
+                        weekly_multi_lines.append("👑 **Status**: **Holding first place**")
+                    else:
+                        target_rank = weekly_rank - 1
+                        target_entry = weekly_candidates[target_rank - 1]
+                        target_multiplier = float(target_entry.get("highestMultiplier", {}).get("multiplier", 0))
+                        required_multi_gap = max(0.0, target_multiplier - weekly_multiplier)
+                        target_prize = MULTI_LEADERBOARD_PRIZES[target_rank - 1]
+                        weekly_multi_lines.extend([
+                            f"⬆️ **Needed for #{target_rank}**: **x{required_multi_gap:,.2f}** more multiplier",
+                            f"🎯 **Next Tier Prize**: **${target_prize:,.2f} USD**",
+                        ])
+                else:
+                    third_multiplier = 0.0
+                    if len(weekly_candidates) >= 3:
+                        third_multiplier = float(weekly_candidates[2].get("highestMultiplier", {}).get("multiplier", 0))
+                    needed_for_top3 = max(0.0, third_multiplier - weekly_multiplier)
+                    weekly_multi_lines.extend([
+                        "🏆 **Multi Leaderboard Status**: **Not placed**",
+                        f"🥉 **Top 3 Cutoff**: **x{third_multiplier:,.2f}**",
+                        f"📌 **Needed for #3**: **x{needed_for_top3:,.2f}** more multiplier",
+                        f"🎁 **Prize at #3**: **${MULTI_LEADERBOARD_PRIZES[2]:,.2f} USD**",
+                    ])
+            else:
+                third_multiplier = 0.0
+                if len(weekly_candidates) >= 3:
+                    third_multiplier = float(weekly_candidates[2].get("highestMultiplier", {}).get("multiplier", 0))
+                weekly_multi_lines.extend([
+                    "🏆 **Multi Leaderboard Status**: **Not placed**",
+                    f"🥉 **Top 3 Cutoff**: **x{third_multiplier:,.2f}**",
+                    f"📌 **Needed for #3**: **x{third_multiplier:,.2f}** more multiplier",
+                    f"🎁 **Prize at #3**: **${MULTI_LEADERBOARD_PRIZES[2]:,.2f} USD**",
+                ])
         except Exception as e:
             logger.warning(f"Error loading weekly biggest win for /mywager: {e}")
+        weekly_multi_lines.append(f"📣 **Multi Leaderboard**: <#{MULTI_LEADERBOARD_CHANNEL_ID}>")
+        weekly_multi_block = "\n".join(weekly_multi_lines)
 
         # Roo vs Flip progress for current event.
         rvf_block = (
@@ -716,14 +780,13 @@ class User(commands.Cog):
                 completed_games = 0
                 total_games = len(rvf_queue)
                 for game in rvf_queue:
-                    game_stats = await asyncio.to_thread(
-                        fetch_user_game_stats,
-                        str(roobet_uid),
-                        game.get("game_identifier"),
-                        event_start,
-                        None,
+                    game_identifier = game.get("game_identifier")
+                    game_entries = await asyncio.to_thread(fetch_weighted_wager, event_start, None, game_identifier)
+                    user_game_entry = next(
+                        (entry for entry in game_entries if str(entry.get("uid")) == str(roobet_uid)),
+                        None
                     )
-                    highest = game_stats.get("highestMultiplier") if isinstance(game_stats, dict) else None
+                    highest = user_game_entry.get("highestMultiplier") if isinstance(user_game_entry, dict) else None
                     multi_value = 0.0
                     if isinstance(highest, dict) and isinstance(highest.get("multiplier"), (int, float)):
                         multi_value = float(highest.get("multiplier", 0))
