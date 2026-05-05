@@ -14,6 +14,8 @@ from milestones_config import MILESTONES
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
 MONTHTOMONTH_AUTOPOST_CHANNEL_ID = int(os.getenv("MONTHTOMONTH_AUTOPOST_CHANNEL_ID", "0"))
+MILESTONE_PRIZES_CHANNEL_ID = int(os.getenv("MILESTONE_PRIZES_CHANNEL_ID", "1362517492651790416"))
+MONTHLY_LEADERBOARD_PRIZES = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
 TIP_TYPE_DISPLAY_ORDER = [
     "monthly_leaderboard",
     "milestone",
@@ -570,6 +572,18 @@ class User(commands.Cog):
                 weighted_wager = entry.get("weightedWagered", 0) if isinstance(entry.get("weightedWagered"), (int, float)) else 0
                 break
 
+        sorted_weighted_wager_data = sorted(
+            weighted_wager_data,
+            key=lambda entry: entry.get("weightedWagered", 0) if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0 else 0,
+            reverse=True
+        )
+
+        leaderboard_rank = None
+        for index, entry in enumerate(sorted_weighted_wager_data, start=1):
+            if entry.get("uid") == roobet_uid:
+                leaderboard_rank = index
+                break
+
         current_rank = None
         next_rank = None
         for milestone in MILESTONES:
@@ -613,6 +627,42 @@ class User(commands.Cog):
                 f"🧱 **Progress Bar**: **{progress_bar} {progress_percent:.1f}%**\n"
                 f"💵 **Remaining**: **$0.00** to next rank"
             )
+
+        leaderboard_status_lines = []
+        if leaderboard_rank is not None and leaderboard_rank <= 10:
+            current_lb_prize = MONTHLY_LEADERBOARD_PRIZES[leaderboard_rank - 1]
+            leaderboard_status_lines.extend([
+                f"🏆 **Leaderboard Rank**: **#{leaderboard_rank}**",
+                f"🎁 **Current LB Prize**: **${current_lb_prize:,.2f} USD**"
+            ])
+
+            if leaderboard_rank == 1:
+                leaderboard_status_lines.append("👑 **Status**: **Holding first place**")
+            else:
+                next_lb_position = leaderboard_rank - 1
+                next_lb_entry = sorted_weighted_wager_data[next_lb_position - 1]
+                next_lb_weighted = next_lb_entry.get("weightedWagered", 0) if isinstance(next_lb_entry.get("weightedWagered"), (int, float)) else 0
+                next_lb_gap = max(0.0, next_lb_weighted - weighted_wager)
+                next_lb_prize = MONTHLY_LEADERBOARD_PRIZES[next_lb_position - 1]
+                leaderboard_status_lines.extend([
+                    f"⬆️ **Needed for #{next_lb_position}**: **${next_lb_gap:,.2f}** weighted wager",
+                    f"🎯 **Next Tier Prize**: **${next_lb_prize:,.2f} USD**"
+                ])
+        else:
+            tenth_place_weighted = 0.0
+            if len(sorted_weighted_wager_data) >= 10:
+                tenth_place_entry = sorted_weighted_wager_data[9]
+                tenth_place_weighted = tenth_place_entry.get("weightedWagered", 0) if isinstance(tenth_place_entry.get("weightedWagered"), (int, float)) else 0
+
+            leaderboard_gap = max(0.0, tenth_place_weighted - weighted_wager)
+            leaderboard_status_lines.extend([
+                "🏆 **Leaderboard Status**: **Not placed**",
+                f"🔟 **Top 10 Cutoff**: **${tenth_place_weighted:,.2f}** weighted",
+                f"📌 **Needed for #10**: **${leaderboard_gap:,.2f}** weighted wager",
+                f"🎁 **Prize at #10**: **${MONTHLY_LEADERBOARD_PRIZES[9]:,.2f} USD**"
+            ])
+
+        leaderboard_status_block = "\n".join(leaderboard_status_lines)
                 
         embed = discord.Embed(
             title=f"🎰 Your Wager Stats, {username}! 🎰",
@@ -620,7 +670,9 @@ class User(commands.Cog):
                 f"💰 **Total Wager**: **${total_wager:,.2f} USD** 💸\n"
                 f"✨ **Weighted Wager**: **${weighted_wager:,.2f} USD** 🌟\n"
                 f"\n🏅 **Current Rank**: **{current_rank_label}** {current_rank_emoji}\n"
-                f"{next_rank_progress_line}"
+                f"{next_rank_progress_line}\n"
+                f"\n{leaderboard_status_block}\n"
+                f"\n🎁 **Milestone Prizes**: <#{MILESTONE_PRIZES_CHANNEL_ID}>"
             ),
             color=discord.Color.gold()
         )
