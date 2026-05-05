@@ -348,6 +348,61 @@ def get_all_completed_slot_challenges():
     finally:
         release_db_connection(conn)
 
+def get_user_slot_challenge_stats(user_id, month=None, year=None):
+    """Return all-time and optional month-specific slot challenge completion stats for one user."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS completed_count,
+                    COALESCE(SUM(prize), 0) AS total_earned
+                FROM slot_challenge_logs
+                WHERE winner_uid = %s
+                  AND multiplier IS NOT NULL;
+                """,
+                (str(user_id),)
+            )
+            all_time_row = cur.fetchone() or (0, 0)
+
+            current_month_completed = 0
+            if month is not None and year is not None:
+                month_start = datetime(year, month, 1, 0, 0, 0, tzinfo=dt.UTC)
+                if month == 12:
+                    month_end = datetime(year + 1, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+                else:
+                    month_end = datetime(year, month + 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+
+                cur.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM slot_challenge_logs
+                    WHERE winner_uid = %s
+                      AND multiplier IS NOT NULL
+                      AND challenge_start >= %s
+                      AND challenge_start < %s;
+                    """,
+                    (str(user_id), month_start, month_end)
+                )
+                month_row = cur.fetchone() or (0,)
+                current_month_completed = int(month_row[0] or 0)
+
+            return {
+                "completed_all_time": int(all_time_row[0] or 0),
+                "completed_current_month": int(current_month_completed),
+                "earned_all_time": float(all_time_row[1] or 0),
+            }
+    except Exception as e:
+        logger.error(f"Error fetching slot challenge stats for user {user_id}: {e}")
+        return {
+            "completed_all_time": 0,
+            "completed_current_month": 0,
+            "earned_all_time": 0.0,
+        }
+    finally:
+        release_db_connection(conn)
+
 def save_monthly_totals(year, month, total_wager, weighted_wager):
     """Save monthly totals for the month-to-month chart"""
     conn = get_db_connection()

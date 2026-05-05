@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from utils import send_tip, get_current_month_range
-from db import get_db_connection, release_db_connection, save_tip_log, get_monthly_totals
+from db import get_db_connection, release_db_connection, save_tip_log, get_monthly_totals, get_user_slot_challenge_stats
 import os
 from datetime import datetime
 import datetime as dt
@@ -16,6 +16,8 @@ GUILD_ID = int(os.getenv("GUILD_ID"))
 MONTHTOMONTH_AUTOPOST_CHANNEL_ID = int(os.getenv("MONTHTOMONTH_AUTOPOST_CHANNEL_ID", "0"))
 MILESTONE_PRIZES_CHANNEL_ID = int(os.getenv("MILESTONE_PRIZES_CHANNEL_ID", "1362517492651790416"))
 MONTHLY_LEADERBOARD_PRIZES = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
+WAGER_LEADERBOARD_CHANNEL_ID = int(os.getenv("WAGER_LEADERBOARD_CHANNEL_ID", "1324462489404051487"))
+SLOT_CHALLENGES_CHANNEL_ID = int(os.getenv("SLOT_CHALLENGES_CHANNEL_ID", "1385820512529158226"))
 TIP_TYPE_DISPLAY_ORDER = [
     "monthly_leaderboard",
     "milestone",
@@ -617,22 +619,22 @@ class User(commands.Cog):
 
         if next_rank:
             next_rank_progress_line = (
-                f"📈 **Next Rank Progress**: **${weighted_wager:,.2f} / ${float(next_rank['threshold']):,.2f}**\n"
+                f"📈 **Next Milestone Progress**: **${weighted_wager:,.2f} / ${float(next_rank['threshold']):,.2f}**\n"
                 f"🧱 **Progress Bar**: **{progress_bar} {progress_percent:.1f}%**\n"
-                f"💵 **Remaining**: **${float(next_rank['threshold']) - weighted_wager:,.2f}** to next rank"
+                f"💵 **Remaining**: **${float(next_rank['threshold']) - weighted_wager:,.2f}** to next milestone rank"
             )
         else:
             next_rank_progress_line = (
-                f"📈 **Next Rank Progress**: **MAX RANK REACHED**\n"
+                f"📈 **Next Milestone Progress**: **MAX RANK REACHED**\n"
                 f"🧱 **Progress Bar**: **{progress_bar} {progress_percent:.1f}%**\n"
-                f"💵 **Remaining**: **$0.00** to next rank"
+                f"💵 **Remaining**: **$0.00** to next milestone rank"
             )
 
         leaderboard_status_lines = []
         if leaderboard_rank is not None and leaderboard_rank <= 10:
             current_lb_prize = MONTHLY_LEADERBOARD_PRIZES[leaderboard_rank - 1]
             leaderboard_status_lines.extend([
-                f"🏆 **Leaderboard Rank**: **#{leaderboard_rank}**",
+                f"🏆 **Wager Leaderboard Rank**: **#{leaderboard_rank}**",
                 f"🎁 **Current LB Prize**: **${current_lb_prize:,.2f} USD**"
             ])
 
@@ -656,23 +658,35 @@ class User(commands.Cog):
 
             leaderboard_gap = max(0.0, tenth_place_weighted - weighted_wager)
             leaderboard_status_lines.extend([
-                "🏆 **Leaderboard Status**: **Not placed**",
+                "🏆 **Wager Leaderboard Status**: **Not placed**",
                 f"🔟 **Top 10 Cutoff**: **${tenth_place_weighted:,.2f}** weighted",
                 f"📌 **Needed for #10**: **${leaderboard_gap:,.2f}** weighted wager",
                 f"🎁 **Prize at #10**: **${MONTHLY_LEADERBOARD_PRIZES[9]:,.2f} USD**"
             ])
 
+        leaderboard_status_lines.append(f"📣 **Wager Leaderboard**: <#{WAGER_LEADERBOARD_CHANNEL_ID}>")
+
         leaderboard_status_block = "\n".join(leaderboard_status_lines)
+
+        now_utc = datetime.now(dt.UTC)
+        slot_stats = get_user_slot_challenge_stats(roobet_uid, month=now_utc.month, year=now_utc.year)
+        slot_challenge_status_block = (
+            f"🎰 **Slot Challenges Completed (All-Time)**: **{slot_stats['completed_all_time']}**\n"
+            f"📅 **Slot Challenges Completed (Current Month)**: **{slot_stats['completed_current_month']}**\n"
+            f"💵 **Slot Challenges Money Earned**: **${slot_stats['earned_all_time']:,.2f} USD**\n"
+            f"📣 **Slot Challenges**: <#{SLOT_CHALLENGES_CHANNEL_ID}>"
+        )
                 
         embed = discord.Embed(
             title=f"🎰 Your Wager Stats, {username}! 🎰",
             description=(
                 f"💰 **Total Wager**: **${total_wager:,.2f} USD** 💸\n"
                 f"✨ **Weighted Wager**: **${weighted_wager:,.2f} USD** 🌟\n"
-                f"\n🏅 **Current Rank**: **{current_rank_label}** {current_rank_emoji}\n"
+                f"\n🏅**Current Milestone Rank**: **{current_rank_label}** {current_rank_emoji}\n"
                 f"{next_rank_progress_line}\n"
+                f"🎁 **Milestone Prizes**: <#{MILESTONE_PRIZES_CHANNEL_ID}>\n"
                 f"\n{leaderboard_status_block}\n"
-                f"\n🎁 **Milestone Prizes**: <#{MILESTONE_PRIZES_CHANNEL_ID}>"
+                f"\n{slot_challenge_status_block}"
             ),
             color=discord.Color.gold()
         )
