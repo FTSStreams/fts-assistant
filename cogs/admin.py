@@ -15,24 +15,6 @@ class Admin(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="clear_tips", description="Clear all milestone tips from the database (admin only)")
-    @app_commands.default_permissions(administrator=True)
-    async def clear_tips(self, interaction: discord.Interaction):
-        conn = get_db_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("TRUNCATE milestonetips; TRUNCATE pending_tips;")
-                conn.commit()
-            global SENT_TIPS
-            SENT_TIPS = set()
-            logger.info("Cleared all milestone tips and pending tips from database and in-memory set.")
-            await interaction.response.send_message("✅ All milestone tips have been cleared from the database.", ephemeral=True)
-        except Exception as e:
-            logger.error(f"Failed to clear milestone tips: {e}")
-            await interaction.response.send_message(f"❌ Error clearing milestone tips: {e}", ephemeral=True)
-        finally:
-            release_db_connection(conn)
-
     @app_commands.command(name="status", description="Check bot status (admin only)")
     @app_commands.default_permissions(administrator=True)
     async def status(self, interaction: discord.Interaction):
@@ -46,31 +28,6 @@ class Admin(commands.Cog):
             f"Bot Status:\n- Database: {db_status}", ephemeral=True
         )
 
-    @app_commands.command(name="backfillmonths", description="Backfill missing monthly totals (admin only, one-time use)")
-    @app_commands.default_permissions(administrator=True)
-    async def backfill_months(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-
-        data_manager = self.bot.get_cog('DataManager')
-        if not data_manager:
-            await interaction.followup.send("❌ DataManager is not available.", ephemeral=True)
-            return
-
-        try:
-            await data_manager.backfill_historical_data()
-
-            # Trigger immediate monthly winner logs post (if configured) so admins can run once and verify.
-            leaderboard_cog = self.bot.get_cog('Leaderboard')
-            if leaderboard_cog:
-                await leaderboard_cog.maybe_post_monthly_winner_logs()
-
-            await interaction.followup.send(
-                "✅ Monthly backfill finished. Missing months from Jan 2025 to current month were backfilled. If WAGER_LEADERBOARD_LOGS_CHANNEL_ID is configured, monthly winners were posted now.",
-                ephemeral=True,
-            )
-        except Exception as e:
-            logger.error(f"Failed to backfill monthly totals: {e}")
-            await interaction.followup.send(f"❌ Backfill failed: {e}", ephemeral=True)
 
     @app_commands.command(name="backfillmonthlylogs", description="Post historical monthly winner log embeds (admin only)")
     @app_commands.describe(
@@ -208,7 +165,7 @@ class Admin(commands.Cog):
     async def populatejson(self, interaction: discord.Interaction, start_year: int = 2025, start_month: int = 1):
         await interaction.response.defer(ephemeral=True)
 
-        from utils import fetch_weighted_wager, get_month_range, generate_backfill_months
+        from utils import fetch_weighted_wager, get_month_range
         import json, io
 
         PRIZES = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
@@ -273,28 +230,6 @@ class Admin(commands.Cog):
 
         await interaction.followup.send(summary, file=file, ephemeral=True)
 
-    @app_commands.command(name="repostlastlb", description="Re-post the previous month's leaderboard results embed (admin only)")
-    @app_commands.default_permissions(administrator=True)
-    async def repostlastlb(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-
-        now = datetime.now(dt.UTC)
-        prev = (now.replace(day=1) - dt.timedelta(days=1))
-        target_year = prev.year
-        target_month = prev.month
-
-        leaderboard_cog = interaction.client.cogs.get("Leaderboard")
-        if not leaderboard_cog:
-            await interaction.followup.send("❌ Leaderboard cog not found.", ephemeral=True)
-            return
-
-        success = await leaderboard_cog.post_monthly_winner_logs_for_month(target_year, target_month, force=True)
-        if success:
-            import calendar
-            label = f"{calendar.month_name[target_month]} {target_year}"
-            await interaction.followup.send(f"✅ Re-posted **{label}** leaderboard results.", ephemeral=True)
-        else:
-            await interaction.followup.send("❌ Failed to post — check bot logs for details.", ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(Admin(bot))

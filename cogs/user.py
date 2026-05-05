@@ -1083,8 +1083,9 @@ class User(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
         await self._send_mywager_staff_notification(interaction, username, embed)
 
-    @app_commands.command(name="monthlygoal", description="Display total wager and weighted wager for the current month")
-    async def monthlygoal(self, interaction: discord.Interaction):
+    @app_commands.command(name="stats", description="Display monthly and all-time wager totals (admin only)")
+    @app_commands.default_permissions(administrator=True)
+    async def stats(self, interaction: discord.Interaction):
         await interaction.response.defer()
         
         # Get data from DataManager
@@ -1102,29 +1103,59 @@ class User(commands.Cog):
             total_wager_data = cached_data.get('total_wager', [])
             weighted_wager_data = cached_data.get('weighted_wager', [])
             
-            total_wager = sum(
+            total_wager_this_month = sum(
                 entry.get("wagered", 0)
                 for entry in total_wager_data
                 if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
             )
-            total_weighted_wager = sum(
+            weighted_wager_this_month = sum(
                 entry.get("weightedWagered", 0)
                 for entry in weighted_wager_data
                 if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
             )
+
+            total_wager_all_time = 0.0
+            weighted_wager_all_time = 0.0
+            all_wager_data = await self._get_cached_external_json("all_wager_data", ALL_WAGER_DATA_URL)
+
+            if isinstance(all_wager_data, dict):
+                lifetime_total_entries = (
+                    all_wager_data.get("data", {})
+                    .get("lifetime", {})
+                    .get("total_wager_data", [])
+                )
+                lifetime_weighted_entries = (
+                    all_wager_data.get("data", {})
+                    .get("lifetime", {})
+                    .get("weighted_wager_data", [])
+                )
+
+                total_wager_all_time = sum(
+                    float(entry.get("wagered", 0))
+                    for entry in lifetime_total_entries
+                    if isinstance(entry, dict) and isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
+                )
+                weighted_wager_all_time = sum(
+                    float(entry.get("weighted_wagered", 0))
+                    for entry in lifetime_weighted_entries
+                    if isinstance(entry, dict) and isinstance(entry.get("weighted_wagered"), (int, float)) and entry.get("weighted_wagered") >= 0
+                )
+
             embed = discord.Embed(
-                title="📈 Monthly Wager Stats",
+                title="📊 Wager Stats",
                 description=(
-                    f"**TOTAL WAGER THIS MONTH**: ${total_wager:,.2f} USD\n"
-                    f"**TOTAL WEIGHTED WAGER THIS MONTH**: ${total_weighted_wager:,.2f} USD"
+                    f"**TOTAL WAGER THIS MONTH**: ${total_wager_this_month:,.2f} USD\n"
+                    f"**TOTAL WAGER ALL-TIME**: ${total_wager_all_time:,.2f} USD\n"
+                    f"**WEIGHTED WAGER THIS MONTH**: ${weighted_wager_this_month:,.2f} USD\n"
+                    f"**WEIGHTED WAGER ALL-TIME**: ${weighted_wager_all_time:,.2f} USD"
                 ),
                 color=discord.Color.blue()
             )
             embed.set_footer(text=f"Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
             await interaction.followup.send(embed=embed)
         except Exception as e:
-            await interaction.followup.send(f"❌ Error retrieving monthly stats: {str(e)}", ephemeral=True)
-            logger.error(f"Error in /monthlygoal: {str(e)}")
+            await interaction.followup.send(f"❌ Error retrieving stats: {str(e)}", ephemeral=True)
+            logger.error(f"Error in /stats: {str(e)}")
 
     @app_commands.command(name="tipstats", description="Display tip statistics (admin only)")
     @app_commands.default_permissions(administrator=True)
@@ -1156,6 +1187,7 @@ class User(commands.Cog):
         await self._send_logged_tip(interaction, username, amount, "monthly_leaderboard", "🏆 Monthly Leaderboard Tip Sent!")
 
     @app_commands.command(name="monthtomonth", description="Show a month-to-month wager line chart")
+    @app_commands.default_permissions(administrator=True)
     async def monthtomonth(self, interaction: discord.Interaction):
         await interaction.response.defer()
         embed, file = await self._generate_monthtomonth_embed_file()
@@ -1163,48 +1195,6 @@ class User(commands.Cog):
             await interaction.followup.send(embed=embed, file=file)
         else:
             await interaction.followup.send(embed=embed)
-
-    @app_commands.command(name="lifetimestats", description="Show total wager and weighted wager for the current month")
-    async def lifetimestats(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        
-        # Get data from DataManager (current month data)
-        data_manager = self.get_data_manager()
-        if not data_manager:
-            await interaction.followup.send("❌ Data service unavailable. Please try again later.", ephemeral=True)
-            return
-            
-        cached_data = data_manager.get_cached_data()
-        if not cached_data:
-            await interaction.followup.send("❌ No data available. Please try again later.", ephemeral=True)
-            return
-        
-        total_wager_data = cached_data.get('total_wager', [])
-        weighted_wager_data = cached_data.get('weighted_wager', [])
-        
-        total_wager = sum(
-            entry.get("wagered", 0)
-            for entry in total_wager_data
-            if isinstance(entry.get("wagered"), (int, float)) and entry.get("wagered") >= 0
-        )
-        total_weighted_wager = sum(
-            entry.get("weightedWagered", 0)
-            for entry in weighted_wager_data
-            if isinstance(entry.get("weightedWagered"), (int, float)) and entry.get("weightedWagered") >= 0
-        )
-        
-        now = datetime.now(dt.UTC)
-        
-        embed = discord.Embed(
-            title="🏆 Current Month Wager Stats",
-            description=(
-                f"**TOTAL WAGER (This Month):** ${total_wager:,.2f} USD\n"
-                f"**TOTAL WEIGHTED WAGER (This Month):** ${total_weighted_wager:,.2f} USD"
-            ),
-            color=discord.Color.purple()
-        )
-        embed.set_footer(text=f"Generated on {now.strftime('%Y-%m-%d %H:%M:%S')} GMT")
-        await interaction.followup.send(embed=embed)
 
     def cog_unload(self):
         self.auto_post_monthtomonth.cancel()

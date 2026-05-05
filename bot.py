@@ -19,6 +19,7 @@ intents = discord.Intents.default()
 intents.members = True
 intents.message_content = False
 bot = commands.Bot(command_prefix="!", intents=intents)
+bot._commands_synced = False
 
 # List of cogs to load...
 COGS = [
@@ -37,12 +38,23 @@ COGS = [
 @bot.event
 async def on_ready():
     logger.info(f"{bot.user.name} is now online and ready!")
+    if bot._commands_synced:
+        return
+
     guild_id = int(os.getenv("GUILD_ID"))
     guild = discord.Object(id=guild_id)
-    # Guild-only sync for proprietary single-server deployment.
+
+    # Keep commands guild-scoped and remove stale global commands to avoid duplicate listings.
+    bot.tree.clear_commands(guild=guild)
     bot.tree.copy_global_to(guild=guild)
-    await bot.tree.sync(guild=guild)
-    logger.info(f"Guild-only slash commands synced for guild {guild_id}.")
+    synced_guild = await bot.tree.sync(guild=guild)
+
+    bot.tree.clear_commands(guild=None)
+    await bot.tree.sync()
+
+    bot._commands_synced = True
+    logger.info(f"Guild-only slash commands synced for guild {guild_id}. ({len(synced_guild)} commands)")
+    logger.info("Global slash commands were cleared to prevent duplicate command listings.")
 
 async def load_cogs():
     for cog in COGS:
