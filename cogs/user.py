@@ -20,6 +20,7 @@ MONTHLY_LEADERBOARD_PRIZES = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
 WAGER_LEADERBOARD_CHANNEL_ID = int(os.getenv("WAGER_LEADERBOARD_CHANNEL_ID", "1324462489404051487"))
 SLOT_CHALLENGES_CHANNEL_ID = int(os.getenv("SLOT_CHALLENGES_CHANNEL_ID", "1385820512529158226"))
 MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID", "1352322188102991932"))
+MYWAGER_ADMIN_NOTIFY_CHANNEL_ID = int(os.getenv("MYWAGER_ADMIN_NOTIFY_CHANNEL_ID", "1008041424941498445"))
 ROO_VS_FLIP_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_CHANNEL_ID", "1486202172378189925"))
 ROO_VS_FLIP_PRIZE_POOL = 250.00
 MULTI_LEADERBOARD_PRIZES = [25, 15, 10]
@@ -83,6 +84,29 @@ class User(commands.Cog):
         except Exception as e:
             logger.warning(f"Failed to fetch external JSON {cache_key} from {url}: {e}")
             return self._external_json_cache.get(cache_key)
+
+    async def _send_mywager_staff_notification(self, interaction: discord.Interaction, username: str, embed: discord.Embed):
+        if MYWAGER_ADMIN_NOTIFY_CHANNEL_ID <= 0:
+            return
+
+        try:
+            channel = self.bot.get_channel(MYWAGER_ADMIN_NOTIFY_CHANNEL_ID)
+            if channel is None:
+                channel = await self.bot.fetch_channel(MYWAGER_ADMIN_NOTIFY_CHANNEL_ID)
+
+            if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+                logger.warning(
+                    f"Configured MYWAGER_ADMIN_NOTIFY_CHANNEL_ID {MYWAGER_ADMIN_NOTIFY_CHANNEL_ID} is not a text channel/thread"
+                )
+                return
+
+            requester = interaction.user.mention if interaction.user else "Unknown user"
+            await channel.send(
+                content=f"📣 /mywager used by {requester} for username '{username}'.",
+                embed=embed
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send /mywager staff notification: {e}")
 
     async def _generate_monthtomonth_embed_file(self):
         import matplotlib.pyplot as plt
@@ -1057,6 +1081,7 @@ class User(commands.Cog):
         embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
         embed.set_footer(text=f"🕒 Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
         await interaction.followup.send(embed=embed, ephemeral=True)
+        await self._send_mywager_staff_notification(interaction, username, embed)
 
     @app_commands.command(name="monthlygoal", description="Display total wager and weighted wager for the current month")
     async def monthlygoal(self, interaction: discord.Interaction):
