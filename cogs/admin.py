@@ -202,5 +202,76 @@ class Admin(commands.Cog):
 
         await interaction.followup.send(summary, ephemeral=True)
 
+    @app_commands.command(name="populatejson", description="Build pastleaderboards.json from API history (admin only, one-time use)")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(start_year="Year to start from (default 2024)", start_month="Month to start from (default 1)")
+    async def populatejson(self, interaction: discord.Interaction, start_year: int = 2024, start_month: int = 1):
+        await interaction.response.defer(ephemeral=True)
+
+        from utils import fetch_weighted_wager, get_month_range, generate_backfill_months
+        import json, io
+
+        PRIZES = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
+
+        now = datetime.now(dt.UTC)
+        # Generate months from start up to (but not including) the current in-progress month
+        months = []
+        y, m = start_year, start_month
+        while (y < now.year) or (y == now.year and m < now.month):
+            months.append((y, m))
+            m += 1
+            if m > 12:
+                m = 1
+                y += 1
+
+        result = {}
+        failed = []
+
+        await interaction.followup.send(
+            f"⏳ Fetching leaderboard data for **{len(months)} months** ({start_year}-{start_month:02d} → {now.year}-{now.month:02d})... This may take a minute.",
+            ephemeral=True
+        )
+
+        for year, month in months:
+            key = f"{year}-{month:02d}"
+            try:
+                start_date, end_date = get_month_range(year, month)
+                data = await asyncio.to_thread(fetch_weighted_wager, start_date, end_date)
+
+                sorted_data = sorted(
+                    [e for e in data if isinstance(e.get("weightedWagered"), (int, float)) and e.get("weightedWagered", 0) > 0],
+                    key=lambda e: e.get("weightedWagered", 0),
+                    reverse=True
+                )
+
+                month_result = {}
+                for rank, entry in enumerate(sorted_data[:10], start=1):
+                    uid = str(entry.get("uid", ""))
+                    if not uid:
+                        continue
+                    month_result[uid] = {
+                        "username": entry.get("username", ""),
+                        "rank": rank,
+                        "prize": PRIZES[rank - 1],
+                        "weighted_wagered": round(float(entry.get("weightedWagered", 0)), 2)
+                    }
+
+                result[key] = month_result
+                logger.info(f"[populatejson] {key}: {len(month_result)} top-10 entries")
+
+            except Exception as e:
+                logger.error(f"[populatejson] Failed for {key}: {e}")
+                failed.append(key)
+
+        json_bytes = json.dumps(result, indent=2).encode("utf-8")
+        file = discord.File(io.BytesIO(json_bytes), filename="pastleaderboards.json")
+
+        summary = f"✅ Done! Built data for **{len(result)}/{len(months)} months**."
+        if failed:
+            summary += f"\n⚠️ Failed: {', '.join(failed)}"
+        summary += "\nUpload `pastleaderboards.json` to your GitHub data repo and let me know when it's there."
+
+        await interaction.followup.send(summary, file=file, ephemeral=True)
+
 async def setup(bot):
     await bot.add_cog(Admin(bot))
