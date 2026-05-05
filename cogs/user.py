@@ -860,18 +860,18 @@ class User(commands.Cog):
                     )
                     milestone_paid_all_time = float((cur.fetchone() or [0])[0] or 0)
 
-                                        cur.execute(
-                                                """
-                                                SELECT COALESCE(SUM(amount), 0)
-                                                FROM manualtips
-                                                WHERE user_id = %s
-                                                    AND tip_type = 'milestone'
-                                                    AND month = %s
-                                                    AND year = %s;
-                                                """,
-                                                (str(roobet_uid), now_utc.month, now_utc.year)
-                                        )
-                                        milestone_paid_current_month = float((cur.fetchone() or [0])[0] or 0)
+                    cur.execute(
+                        """
+                        SELECT COALESCE(SUM(amount), 0)
+                        FROM manualtips
+                        WHERE user_id = %s
+                            AND tip_type = 'milestone'
+                            AND month = %s
+                            AND year = %s;
+                        """,
+                        (str(roobet_uid), now_utc.month, now_utc.year)
+                    )
+                    milestone_paid_current_month = float((cur.fetchone() or [0])[0] or 0)
 
                     cur.execute(
                         """
