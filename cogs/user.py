@@ -1,8 +1,8 @@
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from utils import send_tip, get_current_month_range
-from db import get_db_connection, release_db_connection, save_tip_log, get_monthly_totals, get_user_slot_challenge_stats
+from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager, fetch_user_game_stats
+from db import get_db_connection, release_db_connection, save_tip_log, get_monthly_totals, get_user_slot_challenge_stats, get_roovsflip_queue, get_roovsflip_event_start
 import os
 from datetime import datetime
 import datetime as dt
@@ -18,6 +18,9 @@ MILESTONE_PRIZES_CHANNEL_ID = int(os.getenv("MILESTONE_PRIZES_CHANNEL_ID", "1362
 MONTHLY_LEADERBOARD_PRIZES = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
 WAGER_LEADERBOARD_CHANNEL_ID = int(os.getenv("WAGER_LEADERBOARD_CHANNEL_ID", "1324462489404051487"))
 SLOT_CHALLENGES_CHANNEL_ID = int(os.getenv("SLOT_CHALLENGES_CHANNEL_ID", "1385820512529158226"))
+MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID", "1352322188102991932"))
+ROO_VS_FLIP_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_CHANNEL_ID", "1486202172378189925"))
+ROO_VS_FLIP_PRIZE_POOL = 250.00
 TIP_TYPE_DISPLAY_ORDER = [
     "monthly_leaderboard",
     "milestone",
@@ -676,6 +679,68 @@ class User(commands.Cog):
             f"💵 **Slot Challenges Money Earned**: **${slot_stats['earned_all_time']:,.2f} USD**\n"
             f"📣 **Slot Challenges**: <#{SLOT_CHALLENGES_CHANNEL_ID}>"
         )
+
+        # Weekly biggest single multiplier hit (sync with multi leaderboard period).
+        weekly_multi_block = (
+            "💥 **Biggest Win This Week (Multi LB)**: **No qualifying multi hit yet**\n"
+            f"📣 **Multi Leaderboard**: <#{MULTI_LEADERBOARD_CHANNEL_ID}>"
+        )
+        try:
+            week_start, week_end = get_current_week_range()
+            weekly_weighted_data = await asyncio.to_thread(fetch_weighted_wager, week_start, week_end)
+            user_week_entry = next((entry for entry in weekly_weighted_data if entry.get("uid") == roobet_uid), None)
+            highest_multi = user_week_entry.get("highestMultiplier") if isinstance(user_week_entry, dict) else None
+            if isinstance(highest_multi, dict) and isinstance(highest_multi.get("multiplier"), (int, float)) and highest_multi.get("multiplier", 0) > 0:
+                weekly_multiplier = float(highest_multi.get("multiplier", 0))
+                weekly_game = highest_multi.get("gameTitle", "Unknown")
+                weekly_payout = float(highest_multi.get("payout", 0)) if isinstance(highest_multi.get("payout"), (int, float)) else 0.0
+                weekly_wagered = float(highest_multi.get("wagered", 0)) if isinstance(highest_multi.get("wagered"), (int, float)) else 0.0
+                weekly_multi_block = (
+                    f"💥 **Biggest Win This Week (Multi LB)**: **x{weekly_multiplier:,.2f}** on **{weekly_game}**\n"
+                    f"💰 **Payout**: **${weekly_payout:,.2f}** (**${weekly_wagered:,.2f}** base bet)\n"
+                    f"📣 **Multi Leaderboard**: <#{MULTI_LEADERBOARD_CHANNEL_ID}>"
+                )
+        except Exception as e:
+            logger.warning(f"Error loading weekly biggest win for /mywager: {e}")
+
+        # Roo vs Flip progress for current event.
+        rvf_block = (
+            "🪙 **Roo vs Flip Status**: **No active event**\n"
+            f"💰 **Current Prize Pool**: **${ROO_VS_FLIP_PRIZE_POOL:,.2f} USD**\n"
+            f"📣 **Roo vs Flip**: <#{ROO_VS_FLIP_CHANNEL_ID}>"
+        )
+        try:
+            rvf_queue = get_roovsflip_queue()
+            if rvf_queue:
+                event_start = get_roovsflip_event_start()
+                completed_games = 0
+                total_games = len(rvf_queue)
+                for game in rvf_queue:
+                    game_stats = await asyncio.to_thread(
+                        fetch_user_game_stats,
+                        str(roobet_uid),
+                        game.get("game_identifier"),
+                        event_start,
+                        None,
+                    )
+                    highest = game_stats.get("highestMultiplier") if isinstance(game_stats, dict) else None
+                    multi_value = 0.0
+                    if isinstance(highest, dict) and isinstance(highest.get("multiplier"), (int, float)):
+                        multi_value = float(highest.get("multiplier", 0))
+                    req_multi = float(game.get("req_multi", 0)) if isinstance(game.get("req_multi"), (int, float)) else 0.0
+                    if multi_value >= req_multi and req_multi > 0:
+                        completed_games += 1
+
+                rvf_completed = completed_games == total_games and total_games > 0
+                rvf_status = "✅ Completed" if rvf_completed else "❌ Not completed"
+                rvf_block = (
+                    f"🪙 **Roo vs Flip Status**: **{rvf_status}**\n"
+                    f"💰 **Current Prize Pool**: **${ROO_VS_FLIP_PRIZE_POOL:,.2f} USD**\n"
+                    f"🎯 **Progress**: **{completed_games}/{total_games}** games completed\n"
+                    f"📣 **Roo vs Flip**: <#{ROO_VS_FLIP_CHANNEL_ID}>"
+                )
+        except Exception as e:
+            logger.warning(f"Error loading Roo vs Flip status for /mywager: {e}")
                 
         embed = discord.Embed(
             title=f"🎰 Your Wager Stats, {username}! 🎰",
@@ -686,7 +751,9 @@ class User(commands.Cog):
                 f"{next_rank_progress_line}\n"
                 f"🎁 **Milestone Prizes**: <#{MILESTONE_PRIZES_CHANNEL_ID}>\n"
                 f"\n{leaderboard_status_block}\n"
-                f"\n{slot_challenge_status_block}"
+                f"\n{weekly_multi_block}\n"
+                f"\n{slot_challenge_status_block}\n"
+                f"\n{rvf_block}"
             ),
             color=discord.Color.gold()
         )
