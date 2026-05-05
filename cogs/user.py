@@ -556,7 +556,7 @@ class User(commands.Cog):
     @app_commands.command(name="mywager", description="Check your personal wager stats for the current month using your Roobet username")
     @app_commands.describe(username="Your Roobet username")
     async def mywager(self, interaction: discord.Interaction, username: str):
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         
         # Input validation - only allow alphanumeric characters and underscores
         if not re.match(r'^[a-zA-Z0-9_]+$', username):
