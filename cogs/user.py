@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+from discord import ui
 from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager
 from db import (
     get_db_connection,
@@ -17,6 +18,7 @@ from db import (
     get_top_checkin_balances,
     get_leaderboard_message_id,
     save_leaderboard_message_id,
+    process_coinflip_bet,
 )
 import os
 from datetime import datetime
@@ -39,11 +41,14 @@ MYWAGER_ADMIN_NOTIFY_CHANNEL_ID = int(os.getenv("MYWAGER_ADMIN_NOTIFY_CHANNEL_ID
 CHECKIN_ADMIN_LOG_CHANNEL_ID = int(os.getenv("CHECKIN_ADMIN_LOG_CHANNEL_ID", "1008041424941498445"))
 CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID = int(os.getenv("CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID", "1501283696928362497"))
 CHECKIN_COMMAND_CHANNEL_ID = int(os.getenv("CHECKIN_COMMAND_CHANNEL_ID", "1036310766300700752"))
+COINFLIP_COMMAND_CHANNEL_ID = int(os.getenv("COINFLIP_COMMAND_CHANNEL_ID", "1501341349780131942"))
 CHECKIN_MIN_WITHDRAW_AMOUNT = float(os.getenv("CHECKIN_MIN_WITHDRAW_AMOUNT", "1.0"))
 CHECKIN_DAILY_WITHDRAW_LIMIT = float(os.getenv("CHECKIN_DAILY_WITHDRAW_LIMIT", "25.0"))
 CHECKIN_WITHDRAW_HOLD_TIMEOUT_MINUTES = int(os.getenv("CHECKIN_WITHDRAW_HOLD_TIMEOUT_MINUTES", "20"))
 CHECKIN_MIN_ACCOUNT_AGE_DAYS = int(os.getenv("CHECKIN_MIN_ACCOUNT_AGE_DAYS", "7"))
 CHECKIN_MIN_GUILD_MEMBER_AGE_DAYS = int(os.getenv("CHECKIN_MIN_GUILD_MEMBER_AGE_DAYS", "3"))
+COINFLIP_MIN_BET = float(os.getenv("COINFLIP_MIN_BET", "0.10"))
+COINFLIP_MAX_BET = float(os.getenv("COINFLIP_MAX_BET", "100.00"))
 ROO_VS_FLIP_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_CHANNEL_ID", "1486202172378189925"))
 ROO_VS_FLIP_PRIZE_POOL = 250.00
 MULTI_LEADERBOARD_PRIZES = [25, 15, 10]
@@ -91,6 +96,56 @@ class User(commands.Cog):
         """Helper to get DataManager cog"""
         return self.bot.get_cog('DataManager')
 
+    async def _run_coinflip(self, interaction: discord.Interaction, wager_amount: float, side: str):
+        result = process_coinflip_bet(interaction.user.id, wager_amount, side)
+        if result is None:
+            await interaction.followup.send("❌ Coinflip failed due to a backend error. Please try again.", ephemeral=True)
+            return
+
+        status = result.get("status")
+        if status == "invalid_choice":
+            await interaction.followup.send("❌ Invalid side. Choose heads or tails.", ephemeral=True)
+            return
+
+        if status == "invalid_wager":
+            await interaction.followup.send("❌ Invalid wager amount.", ephemeral=True)
+            return
+
+        if status == "insufficient_funds":
+            balance = float(result.get("balance", 0.0))
+            await interaction.followup.send(
+                f"❌ Insufficient balance. You currently have **${balance:,.2f}**.",
+                ephemeral=True,
+            )
+            return
+
+        won = bool(result.get("won", False))
+        outcome = str(result.get("outcome", "heads")).title()
+        choice = str(result.get("player_choice", side)).title()
+        wager = float(result.get("wager_amount", wager_amount))
+        net = float(result.get("net_amount", 0.0))
+        payout = float(result.get("payout_amount", 0.0))
+        balance_after = float(result.get("balance_after", 0.0))
+
+        title = "🪙 Coinflip Result: You Won!" if won else "🪙 Coinflip Result: You Lost"
+        color = discord.Color.green() if won else discord.Color.red()
+        net_display = f"+${net:,.2f}" if net >= 0 else f"-${abs(net):,.2f}"
+
+        embed = discord.Embed(
+            title=title,
+            description=(
+                f"**Your Pick:** {choice}\n"
+                f"**Coin Landed:** {outcome}"
+            ),
+            color=color,
+        )
+        embed.add_field(name="💵 Wager", value=f"**${wager:,.2f}**", inline=True)
+        embed.add_field(name="💸 Payout", value=f"**${payout:,.2f}**", inline=True)
+        embed.add_field(name="📈 Net", value=f"**{net_display}**", inline=True)
+        embed.add_field(name="💼 New Balance", value=f"**${balance_after:,.2f}**", inline=False)
+        embed.set_footer(text="Win payout is wager × 1.95")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
     def _check_checkin_eligibility(self, interaction: discord.Interaction):
         if interaction.user.bot:
             return False, "❌ Bots cannot use this command."
@@ -116,6 +171,44 @@ class User(commands.Cog):
                 )
 
         return True, None
+
+    class CoinflipChoiceView(ui.View):
+        def __init__(self, cog, user_id: int, wager_amount: float):
+            super().__init__(timeout=45)
+            self.cog = cog
+            self.user_id = int(user_id)
+            self.wager_amount = float(wager_amount)
+            self.resolved = False
+
+        async def _handle_pick(self, interaction: discord.Interaction, pick: str):
+            if interaction.user.id != self.user_id:
+                await interaction.response.send_message("❌ This coinflip menu is not for you.", ephemeral=True)
+                return
+
+            if self.resolved:
+                await interaction.response.send_message("⚠️ This coinflip has already been used.", ephemeral=True)
+                return
+
+            self.resolved = True
+            for child in self.children:
+                child.disabled = True
+
+            await interaction.response.edit_message(view=self)
+            await interaction.followup.send("🎲 Flipping the coin...", ephemeral=True)
+            await self.cog._run_coinflip(interaction, self.wager_amount, pick)
+            self.stop()
+
+        @ui.button(label="Heads", style=discord.ButtonStyle.primary)
+        async def pick_heads(self, interaction: discord.Interaction, button: ui.Button):
+            await self._handle_pick(interaction, "heads")
+
+        @ui.button(label="Tails", style=discord.ButtonStyle.secondary)
+        async def pick_tails(self, interaction: discord.Interaction, button: ui.Button):
+            await self._handle_pick(interaction, "tails")
+
+        async def on_timeout(self):
+            for child in self.children:
+                child.disabled = True
 
     async def _get_cached_external_json(self, cache_key: str, url: str):
         now_ts = datetime.now(dt.UTC).timestamp()
@@ -473,6 +566,7 @@ class User(commands.Cog):
                 f"• **/checkin** (must be used in <#{CHECKIN_COMMAND_CHANNEL_ID}>)\n"
                 "• **/balance** (view your check-in wallet stats)\n"
                 "• **/withdraw** (withdraw all or a chosen amount to your Roobet ID)\n\n"
+                f"🎲 **Coinflip:** Use **/coinflip** in <#{COINFLIP_COMMAND_CHANNEL_ID}>\n\n"
                 "💵 **All amounts displayed are in USD.**\n\n"
                 f"🔄 **Next Refresh:** <t:{int(next_refresh.timestamp())}:R>"
             ),
@@ -1078,6 +1172,61 @@ class User(commands.Cog):
             logger.error(
                 f"[check_in] Withdrawal failed for discord_user_id={interaction.user.id}, roobet_id={roobet_id}: {error_message}"
             )
+
+    @app_commands.command(name="coinflip", description="Gamble your check-in balance on a coin flip")
+    @app_commands.describe(wager_amount="Amount to wager")
+    async def coinflip(self, interaction: discord.Interaction, wager_amount: float):
+        if interaction.channel_id != COINFLIP_COMMAND_CHANNEL_ID:
+            await interaction.response.send_message(
+                f"❌ /coinflip can only be used in <#{COINFLIP_COMMAND_CHANNEL_ID}>.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        if wager_amount <= 0:
+            await interaction.followup.send("❌ Wager must be greater than 0.", ephemeral=True)
+            return
+
+        if wager_amount < COINFLIP_MIN_BET:
+            await interaction.followup.send(
+                f"❌ Minimum coinflip wager is **${COINFLIP_MIN_BET:,.2f}**.",
+                ephemeral=True,
+            )
+            return
+
+        if wager_amount > COINFLIP_MAX_BET:
+            await interaction.followup.send(
+                f"❌ Maximum coinflip wager is **${COINFLIP_MAX_BET:,.2f}**.",
+                ephemeral=True,
+            )
+            return
+
+        summary = get_checkin_account_summary(interaction.user.id)
+        if summary is None:
+            await interaction.followup.send("❌ Failed to load your balance. Try again.", ephemeral=True)
+            return
+
+        current_balance = float(summary.get("balance", 0.0))
+        if wager_amount > current_balance:
+            await interaction.followup.send(
+                f"❌ You only have **${current_balance:,.2f}** available.",
+                ephemeral=True,
+            )
+            return
+
+        prompt_embed = discord.Embed(
+            title="🪙 Coinflip: Choose Your Side",
+            description=(
+                f"**Wager:** ${wager_amount:,.2f}\n"
+                "Pick **Heads** or **Tails** below."
+            ),
+            color=discord.Color.blurple(),
+        )
+        prompt_embed.set_footer(text="Win payout is wager × 1.95")
+        view = self.CoinflipChoiceView(self, interaction.user.id, wager_amount)
+        await interaction.followup.send(embed=prompt_embed, view=view, ephemeral=True)
 
     @app_commands.command(name="mywager", description="Check your personal wager stats for the current month using your Roobet username")
     @app_commands.describe(username="Your Roobet username")

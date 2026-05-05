@@ -7,6 +7,7 @@ from datetime import datetime
 import datetime as dt
 from decimal import Decimal, ROUND_DOWN
 import uuid
+import secrets
 
 load_dotenv()
 
@@ -946,6 +947,23 @@ def _ensure_checkin_tables(cur):
         );
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS checkin_coinflip_logs (
+            id BIGSERIAL PRIMARY KEY,
+            discord_user_id BIGINT NOT NULL,
+            wager_amount NUMERIC(12, 2) NOT NULL,
+            player_choice TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            payout_multiplier NUMERIC(6, 3) NOT NULL,
+            payout_amount NUMERIC(12, 2) NOT NULL,
+            net_amount NUMERIC(12, 2) NOT NULL,
+            balance_before NUMERIC(12, 2) NOT NULL,
+            balance_after NUMERIC(12, 2) NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """
+    )
 
 
 def _get_or_create_checkin_row(cur, discord_user_id):
@@ -1463,6 +1481,102 @@ def get_checkin_account_summary(discord_user_id):
     except Exception as e:
         conn.rollback()
         logger.error(f"Error loading check-in account summary for {discord_user_id}: {e}")
+        return None
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
+
+
+def process_coinflip_bet(discord_user_id, wager_amount, player_choice):
+    conn = get_db_connection()
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+
+            choice = str(player_choice or "").strip().lower()
+            if choice not in {"heads", "tails"}:
+                conn.commit()
+                return {"status": "invalid_choice"}
+
+            wager_dec = Decimal(str(wager_amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            if wager_dec <= 0:
+                conn.commit()
+                return {"status": "invalid_wager"}
+
+            row = _get_or_create_checkin_row(cur, discord_user_id)
+            balance_before = Decimal(row[1] or 0).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+            if balance_before < wager_dec:
+                conn.commit()
+                return {
+                    "status": "insufficient_funds",
+                    "balance": float(balance_before),
+                }
+
+            outcome = "heads" if secrets.randbelow(2) == 0 else "tails"
+            won = (choice == outcome)
+
+            payout_multiplier = Decimal("1.95") if won else Decimal("0.00")
+            payout_amount = (wager_dec * payout_multiplier).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            net_amount = (payout_amount - wager_dec).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            balance_after = (balance_before + net_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+            cur.execute(
+                """
+                UPDATE user_checkins
+                SET
+                    balance = %s,
+                    updated_at = NOW()
+                WHERE discord_user_id = %s;
+                """,
+                (balance_after, str(discord_user_id)),
+            )
+
+            cur.execute(
+                """
+                INSERT INTO checkin_coinflip_logs (
+                    discord_user_id,
+                    wager_amount,
+                    player_choice,
+                    outcome,
+                    payout_multiplier,
+                    payout_amount,
+                    net_amount,
+                    balance_before,
+                    balance_after
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+                """,
+                (
+                    str(discord_user_id),
+                    wager_dec,
+                    choice,
+                    outcome,
+                    payout_multiplier,
+                    payout_amount,
+                    net_amount,
+                    balance_before,
+                    balance_after,
+                ),
+            )
+
+            conn.commit()
+            return {
+                "status": "ok",
+                "won": won,
+                "player_choice": choice,
+                "outcome": outcome,
+                "wager_amount": float(wager_dec),
+                "payout_multiplier": float(payout_multiplier),
+                "payout_amount": float(payout_amount),
+                "net_amount": float(net_amount),
+                "balance_before": float(balance_before),
+                "balance_after": float(balance_after),
+            }
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error processing coinflip bet for {discord_user_id}: {e}")
         return None
     finally:
         conn.autocommit = True
