@@ -273,5 +273,28 @@ class Admin(commands.Cog):
 
         await interaction.followup.send(summary, file=file, ephemeral=True)
 
+    @app_commands.command(name="repostlastlb", description="Re-post the previous month's leaderboard results embed (admin only)")
+    @app_commands.default_permissions(administrator=True)
+    async def repostlastlb(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        now = datetime.now(dt.UTC)
+        prev = (now.replace(day=1) - dt.timedelta(days=1))
+        target_year = prev.year
+        target_month = prev.month
+
+        leaderboard_cog = interaction.client.cogs.get("Leaderboard")
+        if not leaderboard_cog:
+            await interaction.followup.send("❌ Leaderboard cog not found.", ephemeral=True)
+            return
+
+        success = await leaderboard_cog.post_monthly_winner_logs_for_month(target_year, target_month, force=True)
+        if success:
+            import calendar
+            label = f"{calendar.month_name[target_month]} {target_year}"
+            await interaction.followup.send(f"✅ Re-posted **{label}** leaderboard results.", ephemeral=True)
+        else:
+            await interaction.followup.send("❌ Failed to post — check bot logs for details.", ephemeral=True)
+
 async def setup(bot):
     await bot.add_cog(Admin(bot))
