@@ -9,6 +9,7 @@ import datetime as dt
 import logging
 import asyncio
 import re
+import requests
 from milestones_config import MILESTONES
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,15 @@ MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID", "13
 ROO_VS_FLIP_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_CHANNEL_ID", "1486202172378189925"))
 ROO_VS_FLIP_PRIZE_POOL = 250.00
 MULTI_LEADERBOARD_PRIZES = [25, 15, 10]
+LEADERBOARD_HISTORY_URL = os.getenv(
+    "LEADERBOARD_HISTORY_URL",
+    "https://raw.githubusercontent.com/FTSStreams/wagerData/refs/heads/main/leaderboardhistory.json"
+)
+ALL_WAGER_DATA_URL = os.getenv(
+    "ALL_WAGER_DATA_URL",
+    "https://raw.githubusercontent.com/FTSStreams/wagerData/refs/heads/main/allWagerData.json"
+)
+EXTERNAL_JSON_CACHE_TTL_SECONDS = 900
 TIP_TYPE_DISPLAY_ORDER = [
     "monthly_leaderboard",
     "milestone",
@@ -45,12 +55,34 @@ class User(commands.Cog):
         self.bot = bot
         self.last_monthtomonth_autopost_slot = None
         self.last_tipstats_autopost_slot = None
+        self._external_json_cache = {}
+        self._external_json_cache_expires_at = {}
         self.auto_post_monthtomonth.start()
         self.auto_post_tipstats.start()
     
     def get_data_manager(self):
         """Helper to get DataManager cog"""
         return self.bot.get_cog('DataManager')
+
+    async def _get_cached_external_json(self, cache_key: str, url: str):
+        now_ts = datetime.now(dt.UTC).timestamp()
+        expires_at = self._external_json_cache_expires_at.get(cache_key, 0)
+        if now_ts < expires_at and cache_key in self._external_json_cache:
+            return self._external_json_cache.get(cache_key)
+
+        def _fetch_json():
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            return response.json()
+
+        try:
+            data = await asyncio.to_thread(_fetch_json)
+            self._external_json_cache[cache_key] = data
+            self._external_json_cache_expires_at[cache_key] = now_ts + EXTERNAL_JSON_CACHE_TTL_SECONDS
+            return data
+        except Exception as e:
+            logger.warning(f"Failed to fetch external JSON {cache_key} from {url}: {e}")
+            return self._external_json_cache.get(cache_key)
 
     async def _generate_monthtomonth_embed_file(self):
         import matplotlib.pyplot as plt
@@ -570,6 +602,25 @@ class User(commands.Cog):
             if entry.get("uid") == roobet_uid:
                 total_wager = entry.get("wagered", 0) if isinstance(entry.get("wagered"), (int, float)) else 0
                 break
+
+        # Find user's lifetime total wager from allWagerData.json (since Jan 1, 2025).
+        lifetime_total_wager = 0.0
+        all_wager_data = await self._get_cached_external_json("all_wager_data", ALL_WAGER_DATA_URL)
+        try:
+            lifetime_entries = (
+                all_wager_data.get("data", {})
+                .get("lifetime", {})
+                .get("total_wager_data", [])
+                if isinstance(all_wager_data, dict)
+                else []
+            )
+            for entry in lifetime_entries:
+                if str(entry.get("user_id")) == str(roobet_uid):
+                    wagered_value = entry.get("wagered", 0)
+                    lifetime_total_wager = float(wagered_value) if isinstance(wagered_value, (int, float)) else 0.0
+                    break
+        except Exception as e:
+            logger.warning(f"Error parsing lifetime wager data for /mywager: {e}")
                 
         # Find user's weighted wager
         weighted_wager = 0
@@ -845,6 +896,7 @@ class User(commands.Cog):
         milestone_paid_all_time = 0.0
         milestone_paid_current_month = 0.0
         rvf_paid_for_cycle = False
+        wager_lb_paid_all_time = 0.0
         try:
             conn = get_db_connection()
             try:
@@ -894,6 +946,22 @@ class User(commands.Cog):
         except Exception as e:
             logger.warning(f"Error building payout summary for /mywager: {e}")
 
+        # Historical wager leaderboard paid totals from prebuilt leaderboardhistory.json.
+        leaderboard_history = await self._get_cached_external_json("leaderboard_history", LEADERBOARD_HISTORY_URL)
+        try:
+            if isinstance(leaderboard_history, dict):
+                uid_key = str(roobet_uid)
+                for month_bucket in leaderboard_history.values():
+                    if not isinstance(month_bucket, dict):
+                        continue
+                    user_entry = month_bucket.get(uid_key)
+                    if isinstance(user_entry, dict):
+                        prize_value = user_entry.get("prize", 0)
+                        if isinstance(prize_value, (int, float)):
+                            wager_lb_paid_all_time += float(prize_value)
+        except Exception as e:
+            logger.warning(f"Error parsing leaderboard history for /mywager: {e}")
+
         wager_expected = current_lb_prize if (leaderboard_rank is not None and leaderboard_rank <= 10) else 0.0
         wager_pending = wager_expected  # Current month's LB prize is always pending; it pays out on the 1st of next month
         multi_pending = current_multi_prize if (weekly_rank is not None and weekly_rank <= 3) else 0.0
@@ -909,16 +977,20 @@ class User(commands.Cog):
         if next_multi_payout <= now_utc:
             next_multi_payout = next_multi_payout + dt.timedelta(days=7)
 
+        current_month_paid = milestone_paid_current_month + float(slot_stats['earned_current_month'])
+        current_month_pending = wager_pending + multi_pending + rvf_pending
+        current_month_total = current_month_paid + current_month_pending
+
+        all_time_paid = milestone_paid_all_time + float(slot_stats['earned_all_time']) + wager_lb_paid_all_time
+        all_time_grand_total = all_time_paid + current_month_pending
+
         payout_lines = [
             "💸 **Payout Summary**",
             "",
-            "✅ **Paid:**",
-            f"• Milestone Tips Earned (All-Time): **${milestone_paid_all_time:,.2f}**",
-            f"• Milestone Tips Earned (Current Month): **${milestone_paid_current_month:,.2f}**",
-            f"• Slot Challenges (All-Time): **${slot_stats['earned_all_time']:,.2f}**",
-            f"• Slot Challenges (Current Month): **${slot_stats['earned_current_month']:,.2f}**",
+            "📅 **Current Month:**",
+            f"• Milestone Tips: **${milestone_paid_current_month:,.2f}** paid",
+            f"• Slot Challenges: **${slot_stats['earned_current_month']:,.2f}** paid",
             "",
-            "⏳ **Pending:**",
             f"• Wager Leaderboard: **${wager_pending:,.2f}** (Expected <t:{int(next_month_payout.timestamp())}:R>)",
             f"• Multi Leaderboard: **${multi_pending:,.2f}** (Expected <t:{int(next_multi_payout.timestamp())}:R>)",
         ]
@@ -930,18 +1002,14 @@ class User(commands.Cog):
         else:
             payout_lines.append("• Roo vs Flip: **$0.00** (Expected N/A)")
 
-        total_paid_out_all_time = milestone_paid_all_time + float(slot_stats['earned_all_time'])
-        total_paid_out_current_month = milestone_paid_current_month + float(slot_stats['earned_current_month'])
-        total_pending = wager_pending + multi_pending + rvf_pending
-        grand_total = total_paid_out_all_time + total_pending
-
         payout_lines.extend([
+            f"▸ Month Paid: **${current_month_paid:,.2f}** | Pending: **${current_month_pending:,.2f}** | Month Total: **${current_month_total:,.2f}**",
             "",
-            "📊 **Totals:**",
-            f"• Total Paid Out (All-Time): **${total_paid_out_all_time:,.2f}**",
-            f"• Total Paid Out (Current Month): **${total_paid_out_current_month:,.2f}**",
-            f"• Total Pending: **${total_pending:,.2f}**",
-            f"• Grand Total: **${grand_total:,.2f}**",
+            "🗂️ **All-Time:**",
+            f"• Milestone Tips: **${milestone_paid_all_time:,.2f}**",
+            f"• Slot Challenges: **${slot_stats['earned_all_time']:,.2f}**",
+            f"• Wager Leaderboard (History): **${wager_lb_paid_all_time:,.2f}**",
+            f"▸ All-Time Paid: **${all_time_paid:,.2f}** | Current Pending: **${current_month_pending:,.2f}** | Grand Total: **${all_time_grand_total:,.2f}**",
         ])
         payout_summary_block = "\n".join(payout_lines)
 
@@ -950,8 +1018,9 @@ class User(commands.Cog):
         embed = discord.Embed(
             title=f"🎰 Your Wager Stats, {username}! 🎰",
             description=(
-                f"💰 **Total Wager**: **${total_wager:,.2f} USD**\n"
-                f"⚖️ **Weighted Wager**: **${weighted_wager:,.2f} USD**\n"
+                f"💰 **Total Wager (This Month)**: **${total_wager:,.2f} USD**\n"
+                f"💼 **Total Wager (All-Time, Since Jan 2025)**: **${lifetime_total_wager:,.2f} USD**\n"
+                f"⚖️ **Weighted Wager (This Month)**: **${weighted_wager:,.2f} USD**\n"
                 f"\n{divider}\n"
                 f"\n🏅**Current Milestone Rank**: **{current_rank_label}** {current_rank_emoji}\n"
                 f"{next_rank_progress_line}\n"
