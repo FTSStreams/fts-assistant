@@ -844,7 +844,6 @@ class User(commands.Cog):
         # Payout summary (paid + pending).
         milestone_paid_all_time = 0.0
         milestone_paid_current_month = 0.0
-        monthly_lb_paid_current_month = 0.0
         rvf_paid_for_cycle = False
         try:
             conn = get_db_connection()
@@ -873,19 +872,6 @@ class User(commands.Cog):
                     )
                     milestone_paid_current_month = float((cur.fetchone() or [0])[0] or 0)
 
-                    cur.execute(
-                        """
-                        SELECT COALESCE(SUM(amount), 0)
-                        FROM manualtips
-                        WHERE user_id = %s
-                          AND tip_type = 'monthly_leaderboard'
-                          AND month = %s
-                          AND year = %s;
-                        """,
-                        (str(roobet_uid), now_utc.month, now_utc.year)
-                    )
-                    monthly_lb_paid_current_month = float((cur.fetchone() or [0])[0] or 0)
-
                     if rvf_period_end:
                         if rvf_period_end.month == 1:
                             payout_year = rvf_period_end.year - 1
@@ -909,7 +895,7 @@ class User(commands.Cog):
             logger.warning(f"Error building payout summary for /mywager: {e}")
 
         wager_expected = current_lb_prize if (leaderboard_rank is not None and leaderboard_rank <= 10) else 0.0
-        wager_pending = max(0.0, wager_expected - monthly_lb_paid_current_month)
+        wager_pending = wager_expected  # Current month's LB prize is always pending; it pays out on the 1st of next month
         multi_pending = current_multi_prize if (weekly_rank is not None and weekly_rank <= 3) else 0.0
         rvf_pending = rvf_estimated_prize if (rvf_completed and not rvf_paid_for_cycle) else 0.0
 
