@@ -461,10 +461,19 @@ class User(commands.Cog):
         next_refresh = now_utc + dt.timedelta(minutes=15)
 
         embed = discord.Embed(
-            title="💰 Check-In Balance Leaderboard",
+            title="🏆 Check-In Balance Leaderboard 🏆",
             description=(
-                "Top check-in balances in the server.\n"
-                f"⏱️ **Last Updated:** <t:{int(now_utc.timestamp())}:R>\n"
+                f"⏱️ **Last Updated:** <t:{int(now_utc.timestamp())}:R>\n\n"
+                "📜 **Rules & Disclosure:**\n"
+                "• One check-in per UTC day.\n"
+                "• Daily reward starts at **$0.01** and increases by **$0.01** per streak day.\n"
+                "• Daily reward is capped at **$1.00**.\n"
+                "• Withdrawals require minimum **$1.00** balance.\n\n"
+                "👤 **User Commands:**\n"
+                f"• **/checkin** (must be used in <#{CHECKIN_COMMAND_CHANNEL_ID}>)\n"
+                "• **/balance** (view your check-in wallet stats)\n"
+                "• **/withdraw** (withdraw all or a chosen amount to your Roobet ID)\n\n"
+                "💵 **All amounts displayed are in USD.**\n\n"
                 f"🔄 **Next Refresh:** <t:{int(next_refresh.timestamp())}:R>"
             ),
             color=discord.Color.green(),
@@ -487,11 +496,15 @@ class User(commands.Cog):
                 display_name = row.get("display_name") or f"User {row['discord_user_id']}"
                 balance = float(row.get("balance", 0.0))
                 streak_days = int(row.get("streak_days", 0))
+                total_earned = float(row.get("total_earned", 0.0))
+                total_withdrawn = float(row.get("total_withdrawn", 0.0))
                 embed.add_field(
                     name=f"{marker} — {display_name}",
                     value=(
                         f"💼 **Balance:** `${balance:,.2f}`\n"
-                        f"🔥 **Streak:** `{streak_days}` day(s)"
+                        f"🔥 **Streak:** `{streak_days}` day(s)\n"
+                        f"🧾 **Total Earned:** `${total_earned:,.2f}`\n"
+                        f"💸 **Total Withdrawn:** `${total_withdrawn:,.2f}`"
                     ),
                     inline=False,
                 )
