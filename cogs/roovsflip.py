@@ -325,7 +325,7 @@ class RooVsFlip(commands.Cog):
             f"✅ {game['game_name']} {game.get('emoji', '🎮')}: x{float(game_info['multi']):,.2f} / x{req_display}\n"
             f"🕒 <t:{completed_ts}:F>\n"
             f"{self.build_prize_summary(winner_count)}\n\n"
-            f"📍 Track this month's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
+            f"👀 Track this month's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
             f"🎭 Claim the Roo Vs Flip Degens role: <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
         )
         return discord.Embed(
@@ -353,7 +353,7 @@ class RooVsFlip(commands.Cog):
             "✅ Completed Games\n"
             + "\n".join(completed_lines)
             + "\n\n"
-            f"📍 Track this month's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
+            f"👀 Track this month's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
             f"🎭 Claim the Roo Vs Flip Degens role: <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
         )
         return discord.Embed(
