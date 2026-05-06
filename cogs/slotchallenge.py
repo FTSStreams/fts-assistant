@@ -18,6 +18,7 @@ CHALLENGE_CHANNEL_ID = int(os.getenv("CHALLENGE_CHANNEL_ID"))
 HISTORY_CHANNEL_ID = 1387301442598998016  # Consolidated history channel for all events
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID"))
 ACTIVE_CHALLENGES_CHANNEL_ID = 1385820512529158226
+SLOT_CHALLENGE_ROLE_CLAIM_CHANNEL_ID = 1440843895360590028
 
 class SlotChallenge(commands.Cog):
     challenge = app_commands.Group(name="challenge", description="Slot challenge management commands")
@@ -65,21 +66,17 @@ class SlotChallenge(commands.Cog):
                 except Exception:
                     description += f"**Challenge Duration:** Started {challenge['start_time']}\n\n"
 
-                description += "***Challenge Details:***\n\n"
-                description += f"🎰 **Game:** {challenge['game_name']}\n"
-                description += f"📈 **Multi Required:** x{int(challenge['required_multi'])}\n"
-                description += f"💰 **Prize:** ${challenge.get('prize', 0):.2f} USD\n"
-                if challenge.get('min_bet'):
-                    description += f"🪙 **Minimum Bet:** ${challenge['min_bet']:.2f}\n"
                 description += f"🧾 **Challenge ID:** #{challenge['challenge_id']}\n\n"
-
-                description += "***Winner:***\n\n"
-                description += f"🆔 **ID:** {winner_display_name}\n"
-                description += f"✅ **Multiplier Achieved:** x{winner.get('multiplier', 0):.2f}\n"
-                description += f"💰 **Bet:** ${winner.get('bet', 0):.2f} | **Payout:** ${winner.get('payout', 0):.2f}\n"
+                description += f"👑 **Winner:** {winner_display_name}\n"
+                description += (
+                    f"✅ **Multi Hit:** x{winner.get('multiplier', 0):.2f} / "
+                    f"x{int(challenge['required_multi'])}\n"
+                )
+                description += f"💰 **Bet:** ${winner.get('bet', 0):.2f} | **Game Payout:** ${winner.get('payout', 0):.2f}\n"
                 description += f"💸 **Prize Sent:** ${challenge.get('prize', 0):.2f}\n\n"
                 description += (
-                    f"Track Current Active Challenges -> <#{ACTIVE_CHALLENGES_CHANNEL_ID}>"
+                    f"📍 **Track active challenges:** <#{ACTIVE_CHALLENGES_CHANNEL_ID}>\n"
+                    f"🎭 **Claim the Slot Challenge Warriors role:** <#{SLOT_CHALLENGE_ROLE_CLAIM_CHANNEL_ID}>"
                 )
                 
                 embed.description = description
@@ -182,25 +179,25 @@ class SlotChallenge(commands.Cog):
                 color=discord.Color.blue()
             )
             
-            # Build single-line description
-            description = f"**Game:** {clean_game_name}\n"
-            description += f"**Required Multiplier:** x{int(required_multi)}\n"
-            description += f"**Prize:** ${prize:.2f}\n"
+            description = f"🎮 **Game:** {clean_game_name}\n"
+            description += f"🎯 **Required Multi:** x{int(required_multi)}\n"
+            description += f"💰 **Prize:** ${prize:.2f}\n"
             if min_bet:
-                description += f"**Minimum Bet:** ${min_bet:.2f}\n"
-            description += f"\n"
+                description += f"🪙 **Min Bet:** ${min_bet:.2f}\n"
+            description += f"🧾 **Challenge ID:** #{challenge_id}\n"
             
             # Add timestamp for start time
             try:
                 start_dt = datetime.fromisoformat(challenge_start_utc)
                 start_ts = int(start_dt.timestamp())
-                description += f"⏰ **Challenge Active:** Ready to start!\n"
-                description += f"**Started:** <t:{start_ts}:F>\n\n"
+                description += f"🕒 **Started:** <t:{start_ts}:F>\n\n"
             except Exception:
-                description += f"**Started:** {challenge_start_utc}\n\n"
-            
-            description += f"**Challenge ID:** #{challenge_id}\n"
-            description += f"🍀 **Status:** Good luck!"
+                description += f"🕒 **Started:** {challenge_start_utc}\n\n"
+
+            description += (
+                f"📍 **Track active challenges:** <#{ACTIVE_CHALLENGES_CHANNEL_ID}>\n"
+                f"🎭 **Claim the Slot Challenge Warriors role:** <#{SLOT_CHALLENGE_ROLE_CLAIM_CHANNEL_ID}>"
+            )
             
             embed.description = description
             
@@ -242,6 +239,10 @@ class SlotChallenge(commands.Cog):
             if challenge.get('min_bet'):
                 desc += f"💵 **Min Bet:** `${float(challenge['min_bet']):,.2f}`\n"
             desc += f"🕒 **Start:** {start_str}\n\n"
+        desc += (
+            f"📍 **Track active, new, and completed challenges:** <#{HISTORY_CHANNEL_ID}>\n"
+            f"🎭 **Claim the Slot Challenge Warriors role:** <#{SLOT_CHALLENGE_ROLE_CLAIM_CHANNEL_ID}>"
+        )
         embed = discord.Embed(
             title="🎰 **Active Slot Challenges** 🎰",
             description=desc,
