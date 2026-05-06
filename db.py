@@ -999,7 +999,7 @@ def _ensure_checkin_tables(cur):
 def _get_checkin_random_drop_claims(cur, drop_id):
     cur.execute(
         """
-        SELECT discord_user_id, claimed_amount, created_at
+        SELECT id, discord_user_id, claimed_amount, created_at
         FROM checkin_random_drop_claims
         WHERE drop_id = %s
         ORDER BY created_at ASC, id ASC;
@@ -1007,15 +1007,114 @@ def _get_checkin_random_drop_claims(cur, drop_id):
         (int(drop_id),),
     )
     claims = []
-    for discord_user_id, claimed_amount, created_at in cur.fetchall():
+    for claim_id, discord_user_id, claimed_amount, created_at in cur.fetchall():
         claims.append(
             {
+                "id": int(claim_id),
                 "discord_user_id": int(discord_user_id),
                 "claimed_amount": float(Decimal(claimed_amount or 0)),
                 "created_at": created_at,
             }
         )
     return claims
+
+
+def _split_random_drop_pool(total_amount_dec, participant_count):
+    if participant_count <= 0:
+        return []
+
+    total_cents = int((total_amount_dec * Decimal("100")).to_integral_value(rounding=ROUND_DOWN))
+    base_cents = total_cents // participant_count
+    remainder_cents = total_cents % participant_count
+
+    payouts = []
+    for index in range(participant_count):
+        cents = base_cents + (1 if index < remainder_cents else 0)
+        payouts.append((Decimal(cents) / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_DOWN))
+    return payouts
+
+
+def _settle_checkin_random_drop(cur, drop, now_utc):
+    claims = list(drop.get("claims", []))
+    drop_id = int(drop["id"])
+
+    if not claims:
+        cur.execute(
+            """
+            UPDATE checkin_random_drops
+            SET
+                status = 'expired',
+                completed_at = COALESCE(completed_at, %s),
+                updated_at = NOW()
+            WHERE id = %s;
+            """,
+            (now_utc, drop_id),
+        )
+    else:
+        pool_amount = Decimal(str(drop.get("reward_amount", 0))).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+        payouts = _split_random_drop_pool(pool_amount, len(claims))
+
+        for claim, payout_amount in zip(claims, payouts):
+            cur.execute(
+                """
+                UPDATE checkin_random_drop_claims
+                SET claimed_amount = %s
+                WHERE id = %s;
+                """,
+                (payout_amount, int(claim["id"])),
+            )
+
+            row = _get_or_create_checkin_row(cur, int(claim["discord_user_id"]))
+            current_balance = Decimal(row[1] or 0)
+            total_earned = Decimal(row[5] or 0)
+            new_balance = (current_balance + payout_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            new_total_earned = (total_earned + payout_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+            cur.execute(
+                """
+                UPDATE user_checkins
+                SET
+                    balance = %s,
+                    total_earned = %s,
+                    updated_at = NOW()
+                WHERE discord_user_id = %s;
+                """,
+                (new_balance, new_total_earned, str(claim["discord_user_id"])),
+            )
+
+        cur.execute(
+            """
+            UPDATE checkin_random_drops
+            SET
+                status = 'completed',
+                completed_at = COALESCE(completed_at, %s),
+                updated_at = NOW()
+            WHERE id = %s;
+            """,
+            (now_utc, drop_id),
+        )
+
+    cur.execute(
+        """
+        SELECT
+            id,
+            drop_date,
+            scheduled_for,
+            reward_amount,
+            max_claims,
+            status,
+            message_channel_id,
+            message_id,
+            posted_at,
+            completed_at,
+            created_at,
+            updated_at
+        FROM checkin_random_drops
+        WHERE id = %s;
+        """,
+        (drop_id,),
+    )
+    return _serialize_checkin_random_drop(cur, cur.fetchone())
 
 
 def _serialize_checkin_random_drop(cur, row):
@@ -1194,9 +1293,10 @@ def mark_checkin_random_drop_posted(drop_id, channel_id, message_id):
         release_db_connection(conn)
 
 
-def expire_stale_checkin_random_drops(now=None):
+def expire_stale_checkin_random_drops(now=None, expiry_minutes=3):
     now_utc = now or datetime.now(dt.UTC)
     today = now_utc.date()
+    expiry_delta = dt.timedelta(minutes=max(1, int(expiry_minutes)))
     conn = get_db_connection()
     try:
         conn.autocommit = False
@@ -1218,16 +1318,31 @@ def expire_stale_checkin_random_drops(now=None):
                     created_at,
                     updated_at
                 FROM checkin_random_drops
-                WHERE drop_date < %s
-                  AND status IN ('scheduled', 'active')
+                WHERE status IN ('scheduled', 'active')
                 FOR UPDATE;
                 """,
-                (today,),
             )
             rows = cur.fetchall()
             expired_drops = []
             for row in rows:
                 expired_drop = _serialize_checkin_random_drop(cur, row)
+                should_close = False
+
+                if expired_drop["drop_date"] < today:
+                    should_close = True
+                elif expired_drop["status"] == "active":
+                    posted_at = expired_drop.get("posted_at")
+                    if posted_at is not None and now_utc >= (posted_at + expiry_delta):
+                        should_close = True
+
+                if not should_close:
+                    continue
+
+                if expired_drop["status"] == "active":
+                    closed_drop = _settle_checkin_random_drop(cur, expired_drop, now_utc)
+                    expired_drops.append(closed_drop)
+                    continue
+
                 cur.execute(
                     """
                     UPDATE checkin_random_drops
@@ -1254,7 +1369,9 @@ def expire_stale_checkin_random_drops(now=None):
         release_db_connection(conn)
 
 
-def process_checkin_random_drop_claim(message_id, discord_user_id):
+def process_checkin_random_drop_claim(message_id, discord_user_id, now=None, expiry_minutes=3):
+    now_utc = now or datetime.now(dt.UTC)
+    expiry_delta = dt.timedelta(minutes=max(1, int(expiry_minutes)))
     conn = get_db_connection()
     try:
         conn.autocommit = False
@@ -1291,6 +1408,12 @@ def process_checkin_random_drop_claim(message_id, discord_user_id):
                 conn.commit()
                 return {"status": drop["status"], "drop": drop}
 
+            posted_at = drop.get("posted_at")
+            if posted_at is not None and now_utc >= (posted_at + expiry_delta):
+                closed_drop = _settle_checkin_random_drop(cur, drop, now_utc)
+                conn.commit()
+                return {"status": closed_drop.get("status", "expired"), "drop": closed_drop}
+
             cur.execute(
                 """
                 SELECT 1
@@ -1303,70 +1426,20 @@ def process_checkin_random_drop_claim(message_id, discord_user_id):
                 conn.commit()
                 return {"status": "already_claimed", "drop": drop}
 
-            claims_count = int(drop["claims_count"])
-            if claims_count >= drop["max_claims"]:
-                cur.execute(
-                    """
-                    UPDATE checkin_random_drops
-                    SET
-                        status = 'completed',
-                        completed_at = COALESCE(completed_at, NOW()),
-                        updated_at = NOW()
-                    WHERE id = %s;
-                    """,
-                    (drop["id"],),
-                )
-                drop["status"] = "completed"
-                if drop["completed_at"] is None:
-                    drop["completed_at"] = datetime.now(dt.UTC)
-                conn.commit()
-                return {"status": "completed", "drop": drop}
-
-            row = _get_or_create_checkin_row(cur, discord_user_id)
-            balance = Decimal(row[1] or 0)
-            total_earned = Decimal(row[5] or 0)
-            total_withdrawn = Decimal(row[6] or 0)
-            reward = Decimal(str(drop["reward_amount"])).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-            new_balance = (balance + reward).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-            new_total_earned = (total_earned + reward).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-
-            cur.execute(
-                """
-                UPDATE user_checkins
-                SET
-                    balance = %s,
-                    total_earned = %s,
-                    updated_at = NOW()
-                WHERE discord_user_id = %s;
-                """,
-                (new_balance, new_total_earned, str(discord_user_id)),
-            )
             cur.execute(
                 """
                 INSERT INTO checkin_random_drop_claims (drop_id, discord_user_id, claimed_amount)
                 VALUES (%s, %s, %s);
                 """,
-                (drop["id"], str(discord_user_id), reward),
+                (drop["id"], str(discord_user_id), Decimal("0.00")),
             )
 
             refreshed_claims = _get_checkin_random_drop_claims(cur, drop["id"])
             new_claim_count = len(refreshed_claims)
-            new_status = "active"
-            completed_at = None
-            if new_claim_count >= drop["max_claims"]:
-                new_status = "completed"
-                completed_at = datetime.now(dt.UTC)
-                cur.execute(
-                    """
-                    UPDATE checkin_random_drops
-                    SET
-                        status = 'completed',
-                        completed_at = %s,
-                        updated_at = NOW()
-                    WHERE id = %s;
-                    """,
-                    (completed_at, drop["id"]),
-                )
+            pool_amount = Decimal(str(drop.get("reward_amount", 0))).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            estimated_share = Decimal("0.00")
+            if new_claim_count > 0:
+                estimated_share = (pool_amount / Decimal(new_claim_count)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
 
             cur.execute(
                 """
@@ -1393,13 +1466,10 @@ def process_checkin_random_drop_claim(message_id, discord_user_id):
             return {
                 "status": "claimed",
                 "claim_position": new_claim_count,
-                "balance": float(new_balance),
-                "reward_amount": float(reward),
-                "total_earned": float(new_total_earned),
-                "total_withdrawn": float(total_withdrawn),
+                "estimated_share": float(estimated_share),
+                "pool_amount": float(pool_amount),
                 "drop": updated_drop,
-                "completed": new_status == "completed",
-                "completed_at": completed_at,
+                "completed": False,
             }
     except Exception as e:
         conn.rollback()

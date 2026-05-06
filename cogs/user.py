@@ -50,6 +50,7 @@ VAULT_RANDOM_DROP_CHANNEL_ID = int(os.getenv("VAULT_RANDOM_DROP_CHANNEL_ID", "10
 VAULT_RANDOM_DROP_ANNOUNCE_ROLE_ID = int(os.getenv("VAULT_RANDOM_DROP_ANNOUNCE_ROLE_ID", "1441158750386917526"))
 VAULT_RANDOM_DROP_REWARD_AMOUNT = float(os.getenv("VAULT_RANDOM_DROP_REWARD_AMOUNT", "1.50"))
 VAULT_RANDOM_DROP_MAX_CLAIMS = int(os.getenv("VAULT_RANDOM_DROP_MAX_CLAIMS", "3"))
+VAULT_RANDOM_DROP_EXPIRY_MINUTES = int(os.getenv("VAULT_RANDOM_DROP_EXPIRY_MINUTES", "3"))
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "0"))
 CHECKIN_MIN_WITHDRAW_AMOUNT = float(os.getenv("CHECKIN_MIN_WITHDRAW_AMOUNT", "1.0"))
 CHECKIN_DAILY_WITHDRAW_LIMIT = float(os.getenv("CHECKIN_DAILY_WITHDRAW_LIMIT", "25.0"))
@@ -243,7 +244,12 @@ class User(commands.Cog):
                 await interaction.response.send_message("❌ This vault drop is no longer claimable.", ephemeral=True)
                 return
 
-            result = process_checkin_random_drop_claim(source_message.id, interaction.user.id)
+            result = process_checkin_random_drop_claim(
+                source_message.id,
+                interaction.user.id,
+                now=datetime.now(dt.UTC),
+                expiry_minutes=VAULT_RANDOM_DROP_EXPIRY_MINUTES,
+            )
             if result is None:
                 await interaction.response.send_message(
                     "❌ Failed to claim this vault drop. Please try again in a moment.",
@@ -255,18 +261,15 @@ class User(commands.Cog):
             if status == "claimed":
                 drop = result.get("drop")
                 updated_embed = self.cog._build_vault_random_drop_embed(drop)
-                if result.get("completed"):
-                    await interaction.response.edit_message(embed=updated_embed, view=None)
-                else:
-                    await interaction.response.edit_message(embed=updated_embed, view=self)
+                await interaction.response.edit_message(embed=updated_embed, view=self)
 
-                reward_amount = float(result.get("reward_amount", 0.0))
-                balance = float(result.get("balance", 0.0))
+                estimated_share = float(result.get("estimated_share", 0.0))
+                pool_amount = float(result.get("pool_amount", 0.0))
                 claim_position = int(result.get("claim_position", 0))
                 await interaction.followup.send(
                     (
-                        f"✅ You claimed **${reward_amount:,.2f}** from today’s FTS Vault drop. "
-                        f"You locked in spot **#{claim_position}** and your new balance is **${balance:,.2f}**."
+                        f"✅ You entered today’s FTS Vault drop pool at spot **#{claim_position}**. "
+                        f"Current estimate is **${estimated_share:,.2f}** each from **${pool_amount:,.2f}** total."
                     ),
                     ephemeral=True,
                 )
@@ -328,15 +331,21 @@ class User(commands.Cog):
 
     def _build_vault_random_drop_embed(self, drop):
         claims = list(drop.get("claims", []))
-        reward_amount = float(drop.get("reward_amount", VAULT_RANDOM_DROP_REWARD_AMOUNT))
-        max_claims = int(drop.get("max_claims", VAULT_RANDOM_DROP_MAX_CLAIMS))
+        pool_amount = float(drop.get("reward_amount", VAULT_RANDOM_DROP_REWARD_AMOUNT))
         status = str(drop.get("status", "scheduled"))
         drop_date = drop.get("drop_date")
         if isinstance(drop_date, datetime):
             drop_date = drop_date.date()
 
-        closes_at = datetime.combine(drop_date + dt.timedelta(days=1), dt.time.min, tzinfo=dt.UTC)
-        claims_remaining = max(max_claims - len(claims), 0)
+        posted_at = drop.get("posted_at")
+        closes_at = None
+        if posted_at is not None:
+            closes_at = posted_at + dt.timedelta(minutes=max(1, VAULT_RANDOM_DROP_EXPIRY_MINUTES))
+
+        entrant_count = len(claims)
+        estimated_share = 0.0
+        if entrant_count > 0:
+            estimated_share = float(pool_amount / entrant_count)
 
         if status == "completed":
             title = "🎁 FTS Vault Random Drop Claimed"
@@ -349,15 +358,23 @@ class User(commands.Cog):
             color = discord.Color.gold()
 
         description_lines = [
-            f"The first **{max_claims}** eligible users to click the button each receive **${reward_amount:,.2f}** in their FTS Vault.",
-            f"Claims filled: **{len(claims)}/{max_claims}**",
+            f"Everyone who claims during the **{VAULT_RANDOM_DROP_EXPIRY_MINUTES}-minute** window splits **${pool_amount:,.2f}** equally.",
+            f"Current entrants: **{entrant_count}**",
         ]
         if status == "active":
-            description_lines.append(f"Claim window closes at UTC rollover: <t:{int(closes_at.timestamp())}:R>")
+            if closes_at is not None:
+                description_lines.append(f"Claim window closes in **{VAULT_RANDOM_DROP_EXPIRY_MINUTES} minutes**: <t:{int(closes_at.timestamp())}:R>")
+            else:
+                description_lines.append(f"Claim window lasts **{VAULT_RANDOM_DROP_EXPIRY_MINUTES} minutes** from drop post time.")
+            if entrant_count > 0:
+                description_lines.append(f"Current estimated split: **${estimated_share:,.2f}** per entrant")
         elif status == "completed":
-            description_lines.append("All claim slots are filled and the vault credit has been applied.")
+            if entrant_count > 0:
+                description_lines.append("The pool has been settled and paid into each entrant's FTS Vault balance.")
+            else:
+                description_lines.append("No entrants claimed this drop before the timer ended.")
         elif status == "expired":
-            description_lines.append("This drop expired at UTC rollover before all claim slots were filled.")
+            description_lines.append(f"This drop expired after **{VAULT_RANDOM_DROP_EXPIRY_MINUTES} minutes** with no entrants.")
 
         embed = discord.Embed(
             title=title,
@@ -365,22 +382,28 @@ class User(commands.Cog):
             color=color,
         )
 
-        slot_markers = ["🥇", "🥈", "🥉"]
-        winners_lines = []
-        for index in range(max_claims):
-            marker = slot_markers[index] if index < len(slot_markers) else f"#{index + 1}"
-            if index < len(claims):
-                claim = claims[index]
-                winners_lines.append(
-                    f"{marker} <@{claim['discord_user_id']}> claimed **${float(claim['claimed_amount']):,.2f}**"
+        entrant_lines = []
+        for index, claim in enumerate(claims, start=1):
+            if status == "completed":
+                entrant_lines.append(
+                    f"#{index} <@{claim['discord_user_id']}> received **${float(claim['claimed_amount']):,.2f}**"
                 )
             else:
-                winners_lines.append(f"{marker} Open")
+                entrant_lines.append(f"#{index} <@{claim['discord_user_id']}> entered")
 
-        embed.add_field(name="Claim Board", value="\n".join(winners_lines), inline=False)
-        embed.add_field(name="Remaining Spots", value=f"**{claims_remaining}**", inline=True)
+        if not entrant_lines:
+            entrant_lines = ["No entrants yet"]
+
+        max_lines = 20
+        if len(entrant_lines) > max_lines:
+            hidden_count = len(entrant_lines) - max_lines
+            entrant_lines = entrant_lines[:max_lines] + [f"...and {hidden_count} more"]
+
+        embed.add_field(name="Entrants", value="\n".join(entrant_lines), inline=False)
+        embed.add_field(name="Pool", value=f"**${pool_amount:,.2f}**", inline=True)
+        embed.add_field(name="Entrant Count", value=f"**{entrant_count}**", inline=True)
         embed.add_field(name="Channel", value=f"<#{VAULT_RANDOM_DROP_CHANNEL_ID}>", inline=True)
-        embed.set_footer(text="One random vault drop is scheduled per UTC day")
+        embed.set_footer(text=f"One random vault drop is scheduled per UTC day • Expires in {VAULT_RANDOM_DROP_EXPIRY_MINUTES} minutes")
         return embed
 
     async def _finalize_vault_random_drop_message(self, drop):
@@ -765,7 +788,7 @@ class User(commands.Cog):
                 "• **/balance** (view your FTS Vault stats)\n"
                 "• **/withdraw** (withdraw all or a chosen amount from your FTS Vault to your Roobet ID)\n"
                 f"• **/coinflip** (must be used in <#{COINFLIP_COMMAND_CHANNEL_ID}>)\n\n"
-                f"🎁 **Random Drop:** First **{VAULT_RANDOM_DROP_MAX_CLAIMS}** claims in <#{VAULT_RANDOM_DROP_CHANNEL_ID}> each get **${VAULT_RANDOM_DROP_REWARD_AMOUNT:,.2f}**\n\n"
+                f"🎁 **Random Drop:** Claims in <#{VAULT_RANDOM_DROP_CHANNEL_ID}> split a **${VAULT_RANDOM_DROP_REWARD_AMOUNT:,.2f}** pool over **{VAULT_RANDOM_DROP_EXPIRY_MINUTES} minutes**\n\n"
                 "💵 **All amounts displayed are in USD.**\n\n"
                 f"🔄 **Next Refresh:** <t:{int(next_refresh.timestamp())}:R>"
             ),
@@ -811,7 +834,10 @@ class User(commands.Cog):
             return
 
         now_utc = datetime.now(dt.UTC)
-        expired_drops = expire_stale_checkin_random_drops(now=now_utc)
+        expired_drops = expire_stale_checkin_random_drops(
+            now=now_utc,
+            expiry_minutes=VAULT_RANDOM_DROP_EXPIRY_MINUTES,
+        )
         for expired_drop in expired_drops:
             await self._finalize_vault_random_drop_message(expired_drop)
 
@@ -837,6 +863,7 @@ class User(commands.Cog):
     async def before_manage_daily_vault_random_drop(self):
         await self.bot.wait_until_ready()
 
+    @app_commands.guilds(discord.Object(id=GUILD_ID))
     @app_commands.command(name="flashdrop", description="Owner-only: immediately post today's scheduled FTS Vault random drop")
     async def flashdrop(self, interaction: discord.Interaction):
         if interaction.user.id != BOT_OWNER_ID:
@@ -851,7 +878,10 @@ class User(commands.Cog):
             return
 
         now_utc = datetime.now(dt.UTC)
-        expired_drops = expire_stale_checkin_random_drops(now=now_utc)
+        expired_drops = expire_stale_checkin_random_drops(
+            now=now_utc,
+            expiry_minutes=VAULT_RANDOM_DROP_EXPIRY_MINUTES,
+        )
         for expired_drop in expired_drops:
             await self._finalize_vault_random_drop_message(expired_drop)
 
