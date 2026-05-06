@@ -1171,8 +1171,9 @@ def get_or_create_daily_checkin_random_drop(now=None, reward_amount=1.50, max_cl
             )
             row = cur.fetchone()
             if row:
+                drop = _serialize_checkin_random_drop(cur, row)
                 conn.commit()
-                return _serialize_checkin_random_drop(cur, row)
+                return drop
 
             scheduled_seconds = secrets.randbelow(24 * 60 * 60)
             scheduled_for = datetime.combine(today, dt.time.min, tzinfo=dt.UTC) + dt.timedelta(seconds=scheduled_seconds)
@@ -1204,14 +1205,19 @@ def get_or_create_daily_checkin_random_drop(now=None, reward_amount=1.50, max_cl
                 (today, scheduled_for, reward_dec, int(max_claims)),
             )
             row = cur.fetchone()
+            drop = _serialize_checkin_random_drop(cur, row)
             conn.commit()
-            return _serialize_checkin_random_drop(cur, row)
+            return drop
     except Exception as e:
         conn.rollback()
         logger.error(f"Error creating daily check-in random drop for {today}: {e}")
         return None
     finally:
-        conn.autocommit = True
+        try:
+            conn.autocommit = True
+        except Exception:
+            conn.rollback()
+            conn.autocommit = True
         release_db_connection(conn)
 
 
@@ -1282,14 +1288,19 @@ def mark_checkin_random_drop_posted(drop_id, channel_id, message_id):
                 (str(channel_id), str(message_id), int(drop_id)),
             )
             row = cur.fetchone()
+            drop = _serialize_checkin_random_drop(cur, row)
             conn.commit()
-            return _serialize_checkin_random_drop(cur, row)
+            return drop
     except Exception as e:
         conn.rollback()
         logger.error(f"Error marking check-in random drop {drop_id} as posted: {e}")
         return None
     finally:
-        conn.autocommit = True
+        try:
+            conn.autocommit = True
+        except Exception:
+            conn.rollback()
+            conn.autocommit = True
         release_db_connection(conn)
 
 
