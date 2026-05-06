@@ -1,6 +1,6 @@
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 from db import (
     get_db_connection,
     release_db_connection,
@@ -17,10 +17,169 @@ import asyncio
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
+ROLE_ASSIGNMENT_CHANNEL_ID = 1440843895360590028
+ROLE_ASSIGNMENT_MESSAGE_KEY = "role_assignment_menu_message_id"
+
+ROLE_MENU_OPTIONS = [
+    ("X Notis", 1441147596491063377),
+    ("Kick Notis", 1441148710024118332),
+    ("Giveaway Merchants", 1441158750386917526),
+    ("Milti Leaderboard Warriors", 1441159759389528264),
+    ("Slot Challenge Warriors", 1441160392830222497),
+    ("Big Wins", 1441161426671636661),
+]
+
+
+class RoleAssignmentSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label=name, value=str(role_id))
+            for name, role_id in ROLE_MENU_OPTIONS
+        ]
+        super().__init__(
+            placeholder="Select a role to add or remove",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="role_assignment_select_v1",
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        if not isinstance(view, RoleAssignmentView):
+            await interaction.response.send_message("❌ Role menu is not configured correctly.", ephemeral=True)
+            return
+        await view.handle_selection(interaction, self.values[0])
+
+
+class RoleAssignmentView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(RoleAssignmentSelect())
+        self._last_action_at = {}
+
+    async def handle_selection(self, interaction: discord.Interaction, selected_role_id: str):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("❌ This menu can only be used inside the server.", ephemeral=True)
+            return
+
+        now = datetime.now(dt.UTC)
+        last_action_at = self._last_action_at.get(interaction.user.id)
+        if last_action_at is not None and (now - last_action_at).total_seconds() < 2:
+            await interaction.response.send_message("⏳ Slow down a bit and try again in a couple seconds.", ephemeral=True)
+            return
+        self._last_action_at[interaction.user.id] = now
+
+        try:
+            role_id = int(selected_role_id)
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid role selection.", ephemeral=True)
+            return
+
+        role = interaction.guild.get_role(role_id)
+        if role is None:
+            await interaction.response.send_message("❌ That role no longer exists.", ephemeral=True)
+            return
+
+        member = interaction.user
+        has_role = role in member.roles
+
+        try:
+            if has_role:
+                await member.remove_roles(role, reason="Self-role menu removal")
+                await interaction.response.send_message(f"✅ Removed role: **{role.name}**", ephemeral=True)
+            else:
+                await member.add_roles(role, reason="Self-role menu assignment")
+                await interaction.response.send_message(f"✅ Added role: **{role.name}**", ephemeral=True)
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ I don't have permission to manage that role. Check role hierarchy and permissions.",
+                ephemeral=True,
+            )
+        except Exception as e:
+            logger.error(f"Failed to toggle role {role_id} for user {member.id}: {e}")
+            await interaction.response.send_message("❌ Failed to update your role. Please try again.", ephemeral=True)
+
 
 class Admin(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.role_assignment_view = RoleAssignmentView()
+        self.bot.add_view(self.role_assignment_view)
+        self.ensure_role_assignment_panel.start()
+
+    async def _build_role_assignment_embed(self):
+        lines = [
+            "Use the dropdown below to toggle your roles.",
+            "Selecting a role adds it if you do not have it, or removes it if you already have it.",
+            "",
+            "Available roles:",
+        ]
+        for name, role_id in ROLE_MENU_OPTIONS:
+            lines.append(f"• {name}: <@&{role_id}>")
+
+        embed = discord.Embed(
+            title="Role Assignment",
+            description="\n".join(lines),
+            color=discord.Color.blurple(),
+        )
+        embed.set_footer(text="Role menu is persistent and managed automatically")
+        return embed
+
+    async def _post_role_assignment_panel(self, channel: discord.TextChannel):
+        embed = await self._build_role_assignment_embed()
+        message = await channel.send(embed=embed, view=self.role_assignment_view)
+        save_setting_value(ROLE_ASSIGNMENT_MESSAGE_KEY, str(message.id))
+        logger.info(f"Posted role assignment panel in channel {channel.id} as message {message.id}")
+
+    async def _channel_has_any_messages(self, channel: discord.TextChannel) -> bool:
+        async for _ in channel.history(limit=1):
+            return True
+        return False
+
+    async def _ensure_role_assignment_panel(self):
+        channel = self.bot.get_channel(ROLE_ASSIGNMENT_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(ROLE_ASSIGNMENT_CHANNEL_ID)
+            except Exception as e:
+                logger.error(f"Failed to fetch role assignment channel {ROLE_ASSIGNMENT_CHANNEL_ID}: {e}")
+                return
+
+        if not isinstance(channel, discord.TextChannel):
+            logger.error(f"Configured role assignment channel {ROLE_ASSIGNMENT_CHANNEL_ID} is not a text channel")
+            return
+
+        saved_message_id = get_setting_value(ROLE_ASSIGNMENT_MESSAGE_KEY, default=None)
+        if saved_message_id:
+            try:
+                await channel.fetch_message(int(saved_message_id))
+                return
+            except discord.NotFound:
+                logger.info("Tracked role assignment panel was deleted. Will repost only if channel is empty.")
+            except Exception as e:
+                logger.error(f"Failed to fetch tracked role assignment panel: {e}")
+                return
+
+        if await self._channel_has_any_messages(channel):
+            logger.info("Role assignment panel missing but channel is not empty. Skipping repost.")
+            return
+
+        try:
+            await self._post_role_assignment_panel(channel)
+        except Exception as e:
+            logger.error(f"Failed to post role assignment panel: {e}")
+
+    @tasks.loop(minutes=1)
+    async def ensure_role_assignment_panel(self):
+        await self._ensure_role_assignment_panel()
+
+    @ensure_role_assignment_panel.before_loop
+    async def before_ensure_role_assignment_panel(self):
+        await self.bot.wait_until_ready()
+
+    def cog_unload(self):
+        self.ensure_role_assignment_panel.cancel()
 
     @app_commands.command(name="status", description="Check bot status (admin only)")
     @app_commands.default_permissions(administrator=True)
@@ -34,6 +193,13 @@ class Admin(commands.Cog):
         await interaction.response.send_message(
             f"Bot Status:\n- Database: {db_status}", ephemeral=True
         )
+
+    @app_commands.command(name="ensurerolepanel", description="Ensure the role assignment panel exists (admin only)")
+    @app_commands.default_permissions(administrator=True)
+    async def ensure_role_panel_cmd(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await self._ensure_role_assignment_panel()
+        await interaction.followup.send("✅ Role panel check completed.", ephemeral=True)
 
     @app_commands.command(name="editcheckinbalance", description="Add or remove check-in balance for a user (admin only)")
     @app_commands.default_permissions(administrator=True)
