@@ -24,7 +24,7 @@ ROLE_MENU_OPTIONS = [
     ("X Notis", 1441147596491063377),
     ("Kick Notis", 1441148710024118332),
     ("Giveaway Merchants", 1441158750386917526),
-    ("Milti Leaderboard Warriors", 1441159759389528264),
+    ("Multi Leaderboard Warriors", 1441159759389528264),
     ("Slot Challenge Warriors", 1441160392830222497),
     ("Big Wins", 1441161426671636661),
 ]
@@ -65,7 +65,7 @@ class RoleAssignmentView(discord.ui.View):
 
         now = datetime.now(dt.UTC)
         last_action_at = self._last_action_at.get(interaction.user.id)
-        if last_action_at is not None and (now - last_action_at).total_seconds() < 2:
+        if last_action_at is not None and (now - last_action_at).total_seconds() < 1:
             await interaction.response.send_message("⏳ Slow down a bit and try again in a couple seconds.", ephemeral=True)
             return
         self._last_action_at[interaction.user.id] = now
