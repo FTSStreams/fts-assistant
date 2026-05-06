@@ -668,7 +668,7 @@ def swap_roovsflip_queue_positions(position_1, position_2):
             )
             found_positions = {row[0] for row in cur.fetchall()}
 
-            if position_1 not in found_positions and position_2 not in found_positions:
+            if position_1 not in found_positions and position_2 not in found_positions: 
                 return False, "Neither position currently has a game to swap."
             if position_1 not in found_positions:
                 return False, f"Position {position_1} is empty."
@@ -964,6 +964,450 @@ def _ensure_checkin_tables(cur):
         );
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS checkin_random_drops (
+            id BIGSERIAL PRIMARY KEY,
+            drop_date DATE NOT NULL UNIQUE,
+            scheduled_for TIMESTAMPTZ NOT NULL,
+            reward_amount NUMERIC(12, 2) NOT NULL DEFAULT 1.50,
+            max_claims INTEGER NOT NULL DEFAULT 3,
+            status TEXT NOT NULL DEFAULT 'scheduled',
+            message_channel_id BIGINT,
+            message_id BIGINT,
+            posted_at TIMESTAMPTZ,
+            completed_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS checkin_random_drop_claims (
+            id BIGSERIAL PRIMARY KEY,
+            drop_id BIGINT NOT NULL REFERENCES checkin_random_drops(id) ON DELETE CASCADE,
+            discord_user_id BIGINT NOT NULL,
+            claimed_amount NUMERIC(12, 2) NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE(drop_id, discord_user_id)
+        );
+        """
+    )
+
+
+def _get_checkin_random_drop_claims(cur, drop_id):
+    cur.execute(
+        """
+        SELECT discord_user_id, claimed_amount, created_at
+        FROM checkin_random_drop_claims
+        WHERE drop_id = %s
+        ORDER BY created_at ASC, id ASC;
+        """,
+        (int(drop_id),),
+    )
+    claims = []
+    for discord_user_id, claimed_amount, created_at in cur.fetchall():
+        claims.append(
+            {
+                "discord_user_id": int(discord_user_id),
+                "claimed_amount": float(Decimal(claimed_amount or 0)),
+                "created_at": created_at,
+            }
+        )
+    return claims
+
+
+def _serialize_checkin_random_drop(cur, row):
+    if not row:
+        return None
+
+    drop = {
+        "id": int(row[0]),
+        "drop_date": row[1],
+        "scheduled_for": row[2],
+        "reward_amount": float(Decimal(row[3] or 0)),
+        "max_claims": int(row[4] or 0),
+        "status": row[5],
+        "message_channel_id": int(row[6]) if row[6] is not None else None,
+        "message_id": int(row[7]) if row[7] is not None else None,
+        "posted_at": row[8],
+        "completed_at": row[9],
+        "created_at": row[10],
+        "updated_at": row[11],
+    }
+    drop["claims"] = _get_checkin_random_drop_claims(cur, drop["id"])
+    drop["claims_count"] = len(drop["claims"])
+    return drop
+
+
+def get_or_create_daily_checkin_random_drop(now=None, reward_amount=1.50, max_claims=3):
+    now_utc = now or datetime.now(dt.UTC)
+    today = now_utc.date()
+    conn = get_db_connection()
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    drop_date,
+                    scheduled_for,
+                    reward_amount,
+                    max_claims,
+                    status,
+                    message_channel_id,
+                    message_id,
+                    posted_at,
+                    completed_at,
+                    created_at,
+                    updated_at
+                FROM checkin_random_drops
+                WHERE drop_date = %s
+                FOR UPDATE;
+                """,
+                (today,),
+            )
+            row = cur.fetchone()
+            if row:
+                conn.commit()
+                return _serialize_checkin_random_drop(cur, row)
+
+            scheduled_seconds = secrets.randbelow(24 * 60 * 60)
+            scheduled_for = datetime.combine(today, dt.time.min, tzinfo=dt.UTC) + dt.timedelta(seconds=scheduled_seconds)
+            reward_dec = Decimal(str(reward_amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            cur.execute(
+                """
+                INSERT INTO checkin_random_drops (
+                    drop_date,
+                    scheduled_for,
+                    reward_amount,
+                    max_claims,
+                    status
+                )
+                VALUES (%s, %s, %s, %s, 'scheduled')
+                RETURNING
+                    id,
+                    drop_date,
+                    scheduled_for,
+                    reward_amount,
+                    max_claims,
+                    status,
+                    message_channel_id,
+                    message_id,
+                    posted_at,
+                    completed_at,
+                    created_at,
+                    updated_at;
+                """,
+                (today, scheduled_for, reward_dec, int(max_claims)),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return _serialize_checkin_random_drop(cur, row)
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error creating daily check-in random drop for {today}: {e}")
+        return None
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
+
+
+def get_checkin_random_drop_by_message(message_id):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    drop_date,
+                    scheduled_for,
+                    reward_amount,
+                    max_claims,
+                    status,
+                    message_channel_id,
+                    message_id,
+                    posted_at,
+                    completed_at,
+                    created_at,
+                    updated_at
+                FROM checkin_random_drops
+                WHERE message_id = %s;
+                """,
+                (str(message_id),),
+            )
+            row = cur.fetchone()
+            return _serialize_checkin_random_drop(cur, row)
+    except Exception as e:
+        logger.error(f"Error loading check-in random drop for message {message_id}: {e}")
+        return None
+    finally:
+        release_db_connection(conn)
+
+
+def mark_checkin_random_drop_posted(drop_id, channel_id, message_id):
+    conn = get_db_connection()
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            cur.execute(
+                """
+                UPDATE checkin_random_drops
+                SET
+                    status = 'active',
+                    message_channel_id = %s,
+                    message_id = %s,
+                    posted_at = COALESCE(posted_at, NOW()),
+                    updated_at = NOW()
+                WHERE id = %s
+                RETURNING
+                    id,
+                    drop_date,
+                    scheduled_for,
+                    reward_amount,
+                    max_claims,
+                    status,
+                    message_channel_id,
+                    message_id,
+                    posted_at,
+                    completed_at,
+                    created_at,
+                    updated_at;
+                """,
+                (str(channel_id), str(message_id), int(drop_id)),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return _serialize_checkin_random_drop(cur, row)
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error marking check-in random drop {drop_id} as posted: {e}")
+        return None
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
+
+
+def expire_stale_checkin_random_drops(now=None):
+    now_utc = now or datetime.now(dt.UTC)
+    today = now_utc.date()
+    conn = get_db_connection()
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    drop_date,
+                    scheduled_for,
+                    reward_amount,
+                    max_claims,
+                    status,
+                    message_channel_id,
+                    message_id,
+                    posted_at,
+                    completed_at,
+                    created_at,
+                    updated_at
+                FROM checkin_random_drops
+                WHERE drop_date < %s
+                  AND status IN ('scheduled', 'active')
+                FOR UPDATE;
+                """,
+                (today,),
+            )
+            rows = cur.fetchall()
+            expired_drops = []
+            for row in rows:
+                expired_drop = _serialize_checkin_random_drop(cur, row)
+                cur.execute(
+                    """
+                    UPDATE checkin_random_drops
+                    SET
+                        status = 'expired',
+                        completed_at = COALESCE(completed_at, NOW()),
+                        updated_at = NOW()
+                    WHERE id = %s;
+                    """,
+                    (expired_drop["id"],),
+                )
+                expired_drop["status"] = "expired"
+                if expired_drop["completed_at"] is None:
+                    expired_drop["completed_at"] = now_utc
+                expired_drops.append(expired_drop)
+            conn.commit()
+            return expired_drops
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error expiring stale check-in random drops before {today}: {e}")
+        return []
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
+
+
+def process_checkin_random_drop_claim(message_id, discord_user_id):
+    conn = get_db_connection()
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    drop_date,
+                    scheduled_for,
+                    reward_amount,
+                    max_claims,
+                    status,
+                    message_channel_id,
+                    message_id,
+                    posted_at,
+                    completed_at,
+                    created_at,
+                    updated_at
+                FROM checkin_random_drops
+                WHERE message_id = %s
+                FOR UPDATE;
+                """,
+                (str(message_id),),
+            )
+            row = cur.fetchone()
+            if not row:
+                conn.commit()
+                return {"status": "not_found"}
+
+            drop = _serialize_checkin_random_drop(cur, row)
+            if drop["status"] != "active":
+                conn.commit()
+                return {"status": drop["status"], "drop": drop}
+
+            cur.execute(
+                """
+                SELECT 1
+                FROM checkin_random_drop_claims
+                WHERE drop_id = %s AND discord_user_id = %s;
+                """,
+                (drop["id"], str(discord_user_id)),
+            )
+            if cur.fetchone():
+                conn.commit()
+                return {"status": "already_claimed", "drop": drop}
+
+            claims_count = int(drop["claims_count"])
+            if claims_count >= drop["max_claims"]:
+                cur.execute(
+                    """
+                    UPDATE checkin_random_drops
+                    SET
+                        status = 'completed',
+                        completed_at = COALESCE(completed_at, NOW()),
+                        updated_at = NOW()
+                    WHERE id = %s;
+                    """,
+                    (drop["id"],),
+                )
+                drop["status"] = "completed"
+                if drop["completed_at"] is None:
+                    drop["completed_at"] = datetime.now(dt.UTC)
+                conn.commit()
+                return {"status": "completed", "drop": drop}
+
+            row = _get_or_create_checkin_row(cur, discord_user_id)
+            balance = Decimal(row[1] or 0)
+            total_earned = Decimal(row[5] or 0)
+            total_withdrawn = Decimal(row[6] or 0)
+            reward = Decimal(str(drop["reward_amount"])).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            new_balance = (balance + reward).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            new_total_earned = (total_earned + reward).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+            cur.execute(
+                """
+                UPDATE user_checkins
+                SET
+                    balance = %s,
+                    total_earned = %s,
+                    updated_at = NOW()
+                WHERE discord_user_id = %s;
+                """,
+                (new_balance, new_total_earned, str(discord_user_id)),
+            )
+            cur.execute(
+                """
+                INSERT INTO checkin_random_drop_claims (drop_id, discord_user_id, claimed_amount)
+                VALUES (%s, %s, %s);
+                """,
+                (drop["id"], str(discord_user_id), reward),
+            )
+
+            refreshed_claims = _get_checkin_random_drop_claims(cur, drop["id"])
+            new_claim_count = len(refreshed_claims)
+            new_status = "active"
+            completed_at = None
+            if new_claim_count >= drop["max_claims"]:
+                new_status = "completed"
+                completed_at = datetime.now(dt.UTC)
+                cur.execute(
+                    """
+                    UPDATE checkin_random_drops
+                    SET
+                        status = 'completed',
+                        completed_at = %s,
+                        updated_at = NOW()
+                    WHERE id = %s;
+                    """,
+                    (completed_at, drop["id"]),
+                )
+
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    drop_date,
+                    scheduled_for,
+                    reward_amount,
+                    max_claims,
+                    status,
+                    message_channel_id,
+                    message_id,
+                    posted_at,
+                    completed_at,
+                    created_at,
+                    updated_at
+                FROM checkin_random_drops
+                WHERE id = %s;
+                """,
+                (drop["id"],),
+            )
+            updated_drop = _serialize_checkin_random_drop(cur, cur.fetchone())
+            conn.commit()
+            return {
+                "status": "claimed",
+                "claim_position": new_claim_count,
+                "balance": float(new_balance),
+                "reward_amount": float(reward),
+                "total_earned": float(new_total_earned),
+                "total_withdrawn": float(total_withdrawn),
+                "drop": updated_drop,
+                "completed": new_status == "completed",
+                "completed_at": completed_at,
+            }
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error processing check-in random drop claim for {discord_user_id}: {e}")
+        return None
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
 
 
 def _get_or_create_checkin_row(cur, discord_user_id):
