@@ -1119,6 +1119,7 @@ class RooVsFlip(commands.Cog):
             event_start = get_roovsflip_event_start()
             game_data = await self.fetch_all_game_data(queue, event_start)
             participants = self.build_participant_list(queue, game_data)
+            await self.post_progress_alerts(queue, participants, event_start)
             embed = self.build_embed(queue, participants, event_start)
 
             channel = (
