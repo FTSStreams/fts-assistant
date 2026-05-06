@@ -2,16 +2,21 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from utils import get_current_week_range, fetch_weighted_wager, send_tip
-from db import get_leaderboard_message_id, save_leaderboard_message_id, save_tip_log, get_db_connection, release_db_connection
+from db import get_leaderboard_message_id, save_leaderboard_message_id, save_tip_log, get_db_connection, release_db_connection, get_setting_value, save_setting_value
 import os
 import logging
 from datetime import datetime
 import datetime as dt
 import asyncio
+import json
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
 MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID"))  # No default, must be set in env
+WEEKLY_MULTIPLIER_LEADERBOARD_CHANNEL_ID = int(os.getenv("WEEKLY_MULTIPLIER_LEADERBOARD_CHANNEL_ID", "1352322188102991932"))
+WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID = int(os.getenv("WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID", "1439815024565817434"))
+WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID = int(os.getenv("WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID", "1440843895360590028"))
+WEEKLY_MULTIPLIER_ALERT_STATE_KEY = "weekly_multiplier_leaderboard_alert_state"
 if not MULTI_LEADERBOARD_CHANNEL_ID:
     raise RuntimeError("MULTI_LEADERBOARD_CHANNEL_ID environment variable must be set!")
 PRIZE_DISTRIBUTION = [25, 15, 10]  # Weekly prizes: $25, $15, $10
@@ -31,6 +36,188 @@ class MultiLeaderboard(commands.Cog):
         if len(username) > 3:
             return username[:3] + "•••"
         return "•••"
+
+    @staticmethod
+    def _rank_label(rank):
+        return {1: "1st", 2: "2nd", 3: "3rd"}.get(rank, f"#{rank}")
+
+    @staticmethod
+    def _rank_medal(rank):
+        return {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, "🏅")
+
+    @staticmethod
+    def _snapshot_identity(entry):
+        uid = entry.get("uid")
+        if uid is not None and str(uid).strip():
+            return str(uid)
+
+        username = str(entry.get("username") or "").strip().lower()
+        return f"user:{username}" if username else None
+
+    def _load_leaderboard_alert_state(self, week_key):
+        raw_state = get_setting_value(WEEKLY_MULTIPLIER_ALERT_STATE_KEY, default=None)
+        if not raw_state:
+            return {"week_key": week_key, "entries": []}
+
+        try:
+            parsed = json.loads(raw_state)
+        except (TypeError, json.JSONDecodeError):
+            logger.warning("[MultiLeaderboard] Invalid leaderboard alert state JSON; resetting state.")
+            return {"week_key": week_key, "entries": []}
+
+        if not isinstance(parsed, dict) or parsed.get("week_key") != week_key:
+            return {"week_key": week_key, "entries": []}
+
+        entries = parsed.get("entries")
+        if not isinstance(entries, list):
+            entries = []
+
+        return {"week_key": week_key, "entries": entries}
+
+    def _save_leaderboard_alert_state(self, state):
+        save_setting_value(
+            WEEKLY_MULTIPLIER_ALERT_STATE_KEY,
+            json.dumps(state, separators=(",", ":")),
+        )
+
+    def _build_leaderboard_snapshot(self, multi_data):
+        snapshot = []
+        for i in range(min(3, len(multi_data))):
+            entry = multi_data[i]
+            highest_multiplier = entry.get("highestMultiplier") or {}
+            snapshot.append({
+                "rank": i + 1,
+                "identity": self._snapshot_identity(entry),
+                "uid": entry.get("uid"),
+                "username": entry.get("username", "Unknown"),
+                "multiplier": float(highest_multiplier.get("multiplier", 0) or 0),
+                "game": highest_multiplier.get("gameTitle", "Unknown"),
+                "wagered": float(highest_multiplier.get("wagered", 0) or 0),
+                "payout": float(highest_multiplier.get("payout", 0) or 0),
+            })
+        return snapshot
+
+    def _detect_leaderboard_changes(self, previous_entries, current_entries):
+        previous_by_rank = {
+            int(entry.get("rank")): entry
+            for entry in previous_entries
+            if isinstance(entry, dict) and entry.get("rank") is not None
+        }
+        previous_rank_by_identity = {
+            entry.get("identity"): int(entry.get("rank"))
+            for entry in previous_entries
+            if isinstance(entry, dict) and entry.get("identity")
+        }
+
+        changes = []
+        for current_entry in current_entries:
+            current_rank = int(current_entry["rank"])
+            current_identity = current_entry.get("identity")
+            previous_entry = previous_by_rank.get(current_rank)
+            previous_identity = previous_entry.get("identity") if previous_entry else None
+
+            if current_identity != previous_identity:
+                changes.append({
+                    "rank": current_rank,
+                    "current_entry": current_entry,
+                    "previous_rank": previous_rank_by_identity.get(current_identity),
+                    "previous_entry": previous_entry,
+                })
+
+        return changes
+
+    def _build_weekly_leaderboard_change_embed(self, previous_entries, current_entries, week_start_ts, week_end_ts):
+        prev_by_rank = {int(e["rank"]): e for e in previous_entries if isinstance(e, dict) and e.get("rank")}
+        curr_by_rank = {int(e["rank"]): e for e in current_entries if isinstance(e, dict) and e.get("rank")}
+        curr_identities = {e.get("identity") for e in current_entries if isinstance(e, dict) and e.get("identity")}
+
+        # Find which ranks changed identity
+        changed_ranks = [
+            rank for rank in [1, 2, 3]
+            if rank in curr_by_rank and curr_by_rank[rank].get("identity") != (prev_by_rank[rank].get("identity") if rank in prev_by_rank else None)
+        ]
+        if not changed_ranks:
+            return None
+
+        primary_rank = changed_ranks[0]
+        primary_curr = curr_by_rank[primary_rank]
+        primary_prev = prev_by_rank.get(primary_rank)
+        primary_identity = primary_curr.get("identity")
+
+        was_on_board = any(
+            isinstance(e, dict) and e.get("identity") == primary_identity
+            for e in previous_entries
+        )
+
+        # Determine header line
+        if not primary_prev:
+            header = "📈 A new leaderboard position has been claimed."
+        elif not was_on_board:
+            old_holder_still_in = primary_prev.get("identity") in curr_identities
+            if old_holder_still_in:
+                header = "🚨 Leaderboard change detected."
+            else:
+                header = "📈 A new user entered the leaderboard."
+        else:
+            header = "🚨 Leaderboard change detected."
+
+        # Primary entry block
+        username = self._mask_public_username(primary_curr.get("username", "Unknown"))
+        medal = self._rank_medal(primary_rank)
+        place = self._rank_label(primary_rank)
+        primary_label = f"New {place}" if primary_prev else place
+        entry_block = (
+            f"{medal} **{primary_label}: @{username}**\n"
+            f"💥 **Multiplier:** x{primary_curr.get('multiplier', 0):,.2f}\n"
+            f"🎰 **Game:** {primary_curr.get('game', 'Unknown')}\n"
+            f"💰 **Bet:** ${primary_curr.get('wagered', 0):,.2f} | **Payout:** ${primary_curr.get('payout', 0):,.2f}"
+        )
+
+        # Displaced / dropped users
+        displaced_lines = []
+        dropped_lines = []
+        for rank in changed_ranks:
+            prev_e = prev_by_rank.get(rank)
+            if not prev_e:
+                continue
+            prev_id = prev_e.get("identity")
+            if prev_id == primary_identity:
+                continue
+            prev_uname = self._mask_public_username(prev_e.get("username", "Unknown"))
+            survivor = next(
+                (e for e in current_entries if isinstance(e, dict) and e.get("identity") == prev_id),
+                None,
+            )
+            if survivor:
+                displaced_lines.append(
+                    f"• @{prev_uname} moved from {self._rank_label(rank)} to {self._rank_label(int(survivor['rank']))}"
+                )
+            else:
+                dropped_lines.append(
+                    f"• @{prev_uname} dropped out of {self._rank_label(rank)} place"
+                )
+
+        description = (
+            f"**Week Period:** <t:{week_start_ts}:F> → <t:{week_end_ts}:F>\n\n"
+            f"{header}\n\n"
+            f"{entry_block}"
+        )
+        if displaced_lines:
+            description += "\n\n⬇️ **Position Changes:**\n" + "\n".join(displaced_lines)
+        if dropped_lines:
+            description += "\n\n⬇️ **Replaced:**\n" + "\n".join(dropped_lines)
+        description += (
+            f"\n\n📍 **Track this week's multiplier leaderboard:** <#{WEEKLY_MULTIPLIER_LEADERBOARD_CHANNEL_ID}>\n"
+            f"🎭 **Claim the Weekly Multiplier role:** <#{WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID}>"
+        )
+
+        embed = discord.Embed(
+            title="🏆 Weekly Multiplier Leaderboard Update",
+            description=description,
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text="AutoTip Engine Live • Leaderboard Change Detected")
+        return embed
 
     def _build_weekly_payout_embed(self, title, winners_data, week_start_ts=None, week_end_ts=None, week_key=None):
         winners_text = "***Winners:***\n\n"
@@ -52,13 +239,15 @@ class MultiLeaderboard(commands.Cog):
             description = (
                 f"**Week Period:** <t:{week_start_ts}:F> → <t:{week_end_ts}:F>\n\n"
                 f"{winners_text}"
-                "Track this week's multiplier leaderboard -> <#1352322188102991932>"
+                f"📍 **Track this week's multiplier leaderboard:** <#{WEEKLY_MULTIPLIER_LEADERBOARD_CHANNEL_ID}>\n"
+                f"🎭 **Claim the Weekly Multiplier role:** <#{WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID}>"
             )
         else:
             description = (
                 f"**Week of {week_key}**\n\n"
                 f"{winners_text}"
-                "Track this week's multiplier leaderboard -> <#1352322188102991932>"
+                f"📍 **Track this week's multiplier leaderboard:** <#{WEEKLY_MULTIPLIER_LEADERBOARD_CHANNEL_ID}>\n"
+                f"🎭 **Claim the Weekly Multiplier role:** <#{WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID}>"
             )
 
         embed = discord.Embed(
@@ -86,6 +275,9 @@ class MultiLeaderboard(commands.Cog):
         
         end_of_week = start_of_week + dt.timedelta(days=6)
         end_date = end_of_week.replace(hour=23, minute=59, second=59, microsecond=999999).isoformat()
+        week_start_ts = int(datetime.fromisoformat(start_date.replace('Z', '+00:00')).timestamp())
+        week_end_ts = int(datetime.fromisoformat(end_date.replace('Z', '+00:00')).timestamp())
+        week_key = datetime.fromisoformat(start_date.replace('Z', '+00:00')).date().isoformat()
         
         logger.info(f"[MultiLeaderboard] Fetching weekly data from {start_date} to {end_date}")
         
@@ -99,12 +291,15 @@ class MultiLeaderboard(commands.Cog):
         # Filter and sort by highestMultiplier
         multi_data = [entry for entry in weekly_weighted_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
         multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
+        current_snapshot = self._build_leaderboard_snapshot(multi_data)
+        alert_state = self._load_leaderboard_alert_state(week_key)
+        leaderboard_changes = self._detect_leaderboard_changes(alert_state.get("entries", []), current_snapshot)
         embed = discord.Embed(
             title="🏆 **Weekly Top Multipliers Leaderboard** 🏆",
             description=(
                 f"🗓️ **Competition Period:**\n"
-                f"From: <t:{int(datetime.fromisoformat(start_date.replace('Z', '+00:00')).timestamp())}:F>\n"
-                f"To: <t:{int(datetime.fromisoformat(end_date.replace('Z', '+00:00')).timestamp())}:F>\n\n"
+                f"From: <t:{week_start_ts}:F>\n"
+                f"To: <t:{week_end_ts}:F>\n\n"
                 f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"
                 "This leaderboard ranks users by their highest single multiplier hit this week.\n"
                 "💵 **All amounts displayed are in USD.**\n\n"
@@ -146,6 +341,19 @@ class MultiLeaderboard(commands.Cog):
                 ),
                 inline=False
             )
+
+        channel_lines = []
+        if WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID:
+            channel_lines.append(
+                f"📍 **Track payout logs:** <#{WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID}>"
+            )
+        if WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID:
+            channel_lines.append(
+                f"🎭 **Claim the Weekly Multiplier role:** <#{WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID}>"
+            )
+        if channel_lines:
+            embed.description += "\n" + "\n".join(channel_lines)
+
         embed.set_footer(text="AutoTip Engine • Auto-pays at midnight UTC every Friday.")
         
         # Prepare JSON data for export (weekly format)
@@ -225,6 +433,32 @@ class MultiLeaderboard(commands.Cog):
                 logger.info("[MultiLeaderboard] New leaderboard message sent.")
             except discord.errors.Forbidden:
                 logger.error("Bot lacks permission to send messages in MultiLeaderboard channel.")
+
+        if leaderboard_changes and WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID:
+            logs_channel = self.bot.get_channel(WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID)
+            if logs_channel:
+                try:
+                    change_embed = self._build_weekly_leaderboard_change_embed(
+                        alert_state.get("entries", []),
+                        current_snapshot,
+                        week_start_ts,
+                        week_end_ts,
+                    )
+                    await logs_channel.send(embed=change_embed)
+                    logger.info(
+                        f"[MultiLeaderboard] Posted {len(leaderboard_changes)} leaderboard change(s) to logs channel"
+                    )
+                except discord.errors.Forbidden:
+                    logger.error("Bot lacks permission to send messages in weekly multiplier logs channel.")
+            else:
+                logger.warning(
+                    f"[MultiLeaderboard] Logs channel {WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID} not found for leaderboard changes"
+                )
+
+        self._save_leaderboard_alert_state({
+            "week_key": week_key,
+            "entries": current_snapshot,
+        })
 
     @tasks.loop(minutes=5)  # Check every 5 minutes for weekly payout
     async def weekly_payout_check(self):
@@ -493,7 +727,7 @@ class MultiLeaderboard(commands.Cog):
 
             # Send summary to logs channel if we processed payouts in this run.
             if winners_processed > 0:
-                logs_channel_id = int(os.getenv("WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID", "0"))  # New env var for weekly multiplier payouts
+                logs_channel_id = WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID
                 if logs_channel_id:
                     logs_channel = self.bot.get_channel(logs_channel_id)
                     if logs_channel:
