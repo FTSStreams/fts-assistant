@@ -372,6 +372,10 @@ class RooVsFlip(commands.Cog):
         winner_count = len([participant for participant in participants if participant["is_winner"]])
         ping = f"<@&{ROO_VS_FLIP_PING_ROLE_ID}>" if ROO_VS_FLIP_PING_ROLE_ID else None
         completed_ts = int(datetime.now(dt.UTC).timestamp())
+        posted_winner_count = sum(
+            1 for user_state in state["users"].values()
+            if isinstance(user_state, dict) and user_state.get("completion_posted")
+        )
 
         for participant in participants:
             if participant.get("completions", 0) <= 0:
@@ -383,11 +387,17 @@ class RooVsFlip(commands.Cog):
                 {"announced_games": [], "completion_posted": False},
             )
             announced_games = set(user_state.get("announced_games", []))
+            should_post_completion = participant.get("is_winner") and not user_state.get("completion_posted")
 
             for game in queue:
                 gid = game["game_identifier"]
                 game_info = participant.get("games", {}).get(gid)
                 if not game_info or not game_info.get("met") or gid in announced_games:
+                    continue
+
+                if should_post_completion:
+                    announced_games.add(gid)
+                    state_changed = True
                     continue
 
                 embed = self.build_progress_alert_embed(
@@ -404,15 +414,17 @@ class RooVsFlip(commands.Cog):
 
             user_state["announced_games"] = sorted(announced_games)
 
-            if participant.get("is_winner") and not user_state.get("completion_posted"):
+            if should_post_completion:
+                completion_winner_count = min(winner_count, posted_winner_count + 1)
                 completion_embed = self.build_completion_alert_embed(
                     participant,
                     queue,
-                    winner_count,
+                    completion_winner_count,
                     completed_ts,
                 )
                 await history_channel.send(content=ping, embed=completion_embed)
                 user_state["completion_posted"] = True
+                posted_winner_count = completion_winner_count
                 state_changed = True
 
         if state_changed:
