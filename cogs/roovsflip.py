@@ -325,7 +325,7 @@ class RooVsFlip(commands.Cog):
             f"✅ {game['game_name']} {game.get('emoji', '🎮')}: x{float(game_info['multi']):,.2f} / x{req_display}\n"
             f"🕒 <t:{completed_ts}:F>\n"
             f"{self.build_prize_summary(winner_count)}\n\n"
-            f"👀 Track this month's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
+            f"📍 Track this month's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
             f"🎭 Claim the Roo Vs Flip Degens role: <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
         )
         return discord.Embed(
@@ -353,7 +353,7 @@ class RooVsFlip(commands.Cog):
             "✅ Completed Games\n"
             + "\n".join(completed_lines)
             + "\n\n"
-            f"👀 Track this month's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
+            f"📍 Track this month's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
             f"🎭 Claim the Roo Vs Flip Degens role: <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
         )
         return discord.Embed(
@@ -526,6 +526,11 @@ class RooVsFlip(commands.Cog):
             "\n**Legend:** ✅ requirement met"
             " | ❌ played but below requirement"
             " | ⏳ no data yet"
+        )
+
+        desc += (
+            f"\n\n📍 **Track completion and payout logs:** <#{ROO_VS_FLIP_HISTORY_CHANNEL_ID}>"
+            f"\n🎭 **Claim the Roo Vs Flip Degens role:** <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
         )
 
         # Safety: Discord embed description limit is 4096 chars
@@ -738,6 +743,11 @@ class RooVsFlip(commands.Cog):
                 display = (uname[:-3] + "•••") if len(uname) > 3 else "•••"
                 desc += f"👑 {display} — ${prize_splits[i]:,.2f}\n"
                 desc += f"   {self.format_winner_game_multis(winner, queue)}\n"
+
+        desc += (
+            f"\n📍 **Track completion and payout logs:** <#{ROO_VS_FLIP_HISTORY_CHANNEL_ID}>\n"
+            f"🎭 **Claim the Roo Vs Flip Degens role:** <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
+        )
 
         result_embed.description = desc
         result_embed.set_footer(text="AutoTip Engine Live • Payouts Sent Successfully")
@@ -1226,6 +1236,11 @@ class RooVsFlip(commands.Cog):
                     display = (uname[:-3] + "•••") if len(uname) > 3 else "•••"
                     desc += f"👑 {display} — ${prize_splits[i]:,.2f}\n"
                     desc += f"   {self.format_winner_game_multis(winner, queue)}\n"
+
+            desc += (
+                f"\n📍 **Track completion and payout logs:** <#{ROO_VS_FLIP_HISTORY_CHANNEL_ID}>\n"
+                f"🎭 **Claim the Roo Vs Flip Degens role:** <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
+            )
 
             result_embed.description = desc
             result_embed.set_footer(text="AutoTip Engine Live • Preview Only (No Payout Sent)")
