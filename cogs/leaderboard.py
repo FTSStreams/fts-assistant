@@ -259,9 +259,8 @@ class Leaderboard(commands.Cog):
                 
                 if current_rank:
                     rank_emoji = current_rank["emoji"]
-                    rank_name = current_rank["tier"]
                     leaderboard_lines.append(
-                        f"{position_marker} — ***__{username}__*** — **Milestone Rank:** {rank_name} {rank_emoji}\n"
+                        f"{position_marker} — ***__{username}__*** — {rank_emoji}\n"
                         f"⚖️ **Weighted Wagered:** `${weighted_wagered:,.2f}`\n"
                         f"💰 **Total Wagered:** `${total_wagered:,.2f}`\n"
                         f"💸 **Milestone Tips Earned ({current_year}-{current_month:02d}):** `${monthly_tips:.2f}`\n"
@@ -269,7 +268,7 @@ class Leaderboard(commands.Cog):
                     )
                 else:
                     leaderboard_lines.append(
-                        f"{position_marker} — ***__{username}__*** — **Milestone Rank:** No Rank Yet\n"
+                        f"{position_marker} — ***__{username}__***\n"
                         f"⚖️ **Weighted Wagered:** `${weighted_wagered:,.2f}`\n"
                         f"💰 **Total Wagered:** `${total_wagered:,.2f}`\n"
                         f"💸 **Milestone Tips Earned ({current_year}-{current_month:02d}):** `$0.00`\n"
@@ -277,7 +276,7 @@ class Leaderboard(commands.Cog):
                     )
             else:
                 leaderboard_lines.append(
-                    f"{position_marker} — ***__N/A__*** — **Milestone Rank:** N/A\n"
+                    f"{position_marker} — ***__N/A__***\n"
                     f"⚖️ **Weighted Wagered:** `$0.00`\n"
                     f"💰 **Total Wagered:** `$0.00`\n"
                     f"💸 **Milestone Tips Earned ({current_year}-{current_month:02d}):** `$0.00`\n"
@@ -303,7 +302,7 @@ class Leaderboard(commands.Cog):
             ),
             color=discord.Color.gold()
         )
-        
+
         # Update Discord message
         message_id = get_leaderboard_message_id(key="leaderboard_message_id")
         logger.info(f"[Leaderboard] Retrieved leaderboard message ID: {message_id}")
