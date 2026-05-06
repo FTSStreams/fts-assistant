@@ -126,98 +126,100 @@ class MultiLeaderboard(commands.Cog):
 
         return changes
 
-    def _build_weekly_leaderboard_change_embed(self, previous_entries, current_entries, week_start_ts, week_end_ts):
+    def _build_weekly_leaderboard_change_embeds(self, previous_entries, current_entries, week_start_ts, week_end_ts):
+        """Returns a list of embeds, one per changed rank."""
         prev_by_rank = {int(e["rank"]): e for e in previous_entries if isinstance(e, dict) and e.get("rank")}
         curr_by_rank = {int(e["rank"]): e for e in current_entries if isinstance(e, dict) and e.get("rank")}
         curr_identities = {e.get("identity") for e in current_entries if isinstance(e, dict) and e.get("identity")}
 
-        # Find which ranks changed identity
         changed_ranks = [
             rank for rank in [1, 2, 3]
             if rank in curr_by_rank and curr_by_rank[rank].get("identity") != (prev_by_rank[rank].get("identity") if rank in prev_by_rank else None)
         ]
         if not changed_ranks:
-            return None
+            return []
 
-        primary_rank = changed_ranks[0]
-        primary_curr = curr_by_rank[primary_rank]
-        primary_prev = prev_by_rank.get(primary_rank)
-        primary_identity = primary_curr.get("identity")
-
-        was_on_board = any(
-            isinstance(e, dict) and e.get("identity") == primary_identity
+        # Build previous-identity -> new rank mapping for displacement lines
+        prev_rank_by_identity = {
+            e.get("identity"): int(e["rank"])
             for e in previous_entries
-        )
+            if isinstance(e, dict) and e.get("identity") and e.get("rank")
+        }
 
-        # Determine header line
-        if not primary_prev:
-            header = "📈 A new leaderboard position has been claimed."
-        elif not was_on_board:
-            old_holder_still_in = primary_prev.get("identity") in curr_identities
-            if old_holder_still_in:
+        embeds = []
+        for primary_rank in changed_ranks:
+            primary_curr = curr_by_rank[primary_rank]
+            primary_prev = prev_by_rank.get(primary_rank)
+            primary_identity = primary_curr.get("identity")
+
+            was_on_board = primary_identity in prev_rank_by_identity
+
+            if not primary_prev:
+                header = "📈 A new leaderboard position has been claimed."
+            elif not was_on_board:
+                old_holder_still_in = primary_prev.get("identity") in curr_identities
+                if old_holder_still_in:
+                    header = "🚨 Leaderboard change detected."
+                else:
+                    header = "📈 A new user entered the leaderboard."
+            else:
                 header = "🚨 Leaderboard change detected."
-            else:
-                header = "📈 A new user entered the leaderboard."
-        else:
-            header = "🚨 Leaderboard change detected."
 
-        # Primary entry block
-        username = self._mask_public_username(primary_curr.get("username", "Unknown"))
-        medal = self._rank_medal(primary_rank)
-        place = self._rank_label(primary_rank)
-        primary_label = f"New {place}" if primary_prev else place
-        entry_block = (
-            f"{medal} **{primary_label}: @{username}**\n"
-            f"💥 **Multiplier:** x{primary_curr.get('multiplier', 0):,.2f}\n"
-            f"🎰 **Game:** {primary_curr.get('game', 'Unknown')}\n"
-            f"💰 **Bet:** ${primary_curr.get('wagered', 0):,.2f} | **Payout:** ${primary_curr.get('payout', 0):,.2f}"
-        )
-
-        # Displaced / dropped users
-        displaced_lines = []
-        dropped_lines = []
-        for rank in changed_ranks:
-            prev_e = prev_by_rank.get(rank)
-            if not prev_e:
-                continue
-            prev_id = prev_e.get("identity")
-            if prev_id == primary_identity:
-                continue
-            prev_uname = self._mask_public_username(prev_e.get("username", "Unknown"))
-            survivor = next(
-                (e for e in current_entries if isinstance(e, dict) and e.get("identity") == prev_id),
-                None,
+            username = self._mask_public_username(primary_curr.get("username", "Unknown"))
+            medal = self._rank_medal(primary_rank)
+            place = self._rank_label(primary_rank)
+            primary_label = f"New {place}" if primary_prev else place
+            entry_block = (
+                f"{medal} **{primary_label}: @{username}**\n"
+                f"💥 **Multiplier:** x{primary_curr.get('multiplier', 0):,.2f}\n"
+                f"🎰 **Game:** {primary_curr.get('game', 'Unknown')}\n"
+                f"💰 **Bet:** ${primary_curr.get('wagered', 0):,.2f} | **Payout:** ${primary_curr.get('payout', 0):,.2f}"
             )
-            if survivor:
-                displaced_lines.append(
-                    f"• @{prev_uname} moved from {self._rank_label(rank)} to {self._rank_label(int(survivor['rank']))}"
-                )
-            else:
-                dropped_lines.append(
-                    f"• @{prev_uname} dropped out of {self._rank_label(rank)} place"
-                )
 
-        description = (
-            f"**Week Period:** <t:{week_start_ts}:F> → <t:{week_end_ts}:F>\n\n"
-            f"{header}\n\n"
-            f"{entry_block}"
-        )
-        if displaced_lines:
-            description += "\n\n⬇️ **Position Changes:**\n" + "\n".join(displaced_lines)
-        if dropped_lines:
-            description += "\n\n⬇️ **Replaced:**\n" + "\n".join(dropped_lines)
-        description += (
-            f"\n\n📍 **Track this week's multiplier leaderboard:** <#{WEEKLY_MULTIPLIER_LEADERBOARD_CHANNEL_ID}>\n"
-            f"🎭 **Claim the Weekly Multiplier role:** <#{WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID}>"
-        )
+            # Only show displacement for the rank this embed is about
+            displaced_lines = []
+            dropped_lines = []
+            prev_e = primary_prev
+            if prev_e:
+                prev_id = prev_e.get("identity")
+                if prev_id and prev_id != primary_identity:
+                    prev_uname = self._mask_public_username(prev_e.get("username", "Unknown"))
+                    survivor = next(
+                        (e for e in current_entries if isinstance(e, dict) and e.get("identity") == prev_id),
+                        None,
+                    )
+                    if survivor:
+                        displaced_lines.append(
+                            f"• @{prev_uname} moved from {self._rank_label(primary_rank)} to {self._rank_label(int(survivor['rank']))}"
+                        )
+                    else:
+                        dropped_lines.append(
+                            f"• @{prev_uname} dropped out of {self._rank_label(primary_rank)} place"
+                        )
 
-        embed = discord.Embed(
-            title="🏆 Weekly Multiplier Leaderboard Update",
-            description=description,
-            color=discord.Color.gold(),
-        )
-        embed.set_footer(text="AutoTip Engine Live • Leaderboard Change Detected")
-        return embed
+            description = (
+                f"**Week Period:** <t:{week_start_ts}:F> → <t:{week_end_ts}:F>\n\n"
+                f"{header}\n\n"
+                f"{entry_block}"
+            )
+            if displaced_lines:
+                description += "\n\n⬇️ **Position Changes:**\n" + "\n".join(displaced_lines)
+            if dropped_lines:
+                description += "\n\n⬇️ **Replaced:**\n" + "\n".join(dropped_lines)
+            description += (
+                f"\n\n📍 **Track this week's multiplier leaderboard:** <#{WEEKLY_MULTIPLIER_LEADERBOARD_CHANNEL_ID}>\n"
+                f"🎭 **Claim the Weekly Multiplier role:** <#{WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID}>"
+            )
+
+            embed = discord.Embed(
+                title="🏆 Weekly Multiplier Leaderboard Update",
+                description=description,
+                color=discord.Color.gold(),
+            )
+            embed.set_footer(text="AutoTip Engine Live • Leaderboard Change Detected")
+            embeds.append(embed)
+
+        return embeds
 
     def _build_weekly_payout_embed(self, title, winners_data, week_start_ts=None, week_end_ts=None, week_key=None):
         winners_text = "***Winners:***\n\n"
@@ -438,15 +440,16 @@ class MultiLeaderboard(commands.Cog):
             logs_channel = self.bot.get_channel(WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID)
             if logs_channel:
                 try:
-                    change_embed = self._build_weekly_leaderboard_change_embed(
+                    change_embeds = self._build_weekly_leaderboard_change_embeds(
                         alert_state.get("entries", []),
                         current_snapshot,
                         week_start_ts,
                         week_end_ts,
                     )
-                    await logs_channel.send(embed=change_embed)
+                    for change_embed in change_embeds:
+                        await logs_channel.send(embed=change_embed)
                     logger.info(
-                        f"[MultiLeaderboard] Posted {len(leaderboard_changes)} leaderboard change(s) to logs channel"
+                        f"[MultiLeaderboard] Posted {len(change_embeds)} leaderboard change embed(s) to logs channel"
                     )
                 except discord.errors.Forbidden:
                     logger.error("Bot lacks permission to send messages in weekly multiplier logs channel.")
