@@ -27,6 +27,7 @@ ROLE_MENU_OPTIONS = [
     ("Multi Leaderboard Warriors", 1441159759389528264),
     ("Slot Challenge Warriors", 1441160392830222497),
     ("Big Wins", 1441161426671636661),
+    ("Roo Vs Flip Degens", 1501438806895759482),
 ]
 
 

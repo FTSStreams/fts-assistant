@@ -20,7 +20,10 @@ from db import (
     get_leaderboard_message_id,
     save_leaderboard_message_id,
     save_tip_log,
+    get_setting_value,
+    save_setting_value,
 )
+import json
 import os
 import logging
 from datetime import datetime, timezone
@@ -33,7 +36,9 @@ GUILD_ID = int(os.getenv("GUILD_ID"))
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID"))
 ROO_VS_FLIP_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_CHANNEL_ID", "0"))
 ROO_VS_FLIP_HISTORY_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_HISTORY_CHANNEL_ID", "0"))
-ROO_VS_FLIP_PING_ROLE_ID = os.getenv("ROO_VS_FLIP_PING_ROLE_ID")
+ROO_VS_FLIP_PING_ROLE_ID = 1501438806895759482
+ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID = 1440843895360590028
+ROO_VS_FLIP_ALERT_STATE_KEY = "roovsflip_alert_state"
 
 PRIZE_POOL = 250.00
 MAX_QUEUE_SIZE = 5
@@ -252,6 +257,167 @@ class RooVsFlip(commands.Cog):
                 parts.append(f"{emoji_str} n/a")
         return " | ".join(parts)
 
+    @staticmethod
+    def mask_username(username):
+        if not isinstance(username, str) or not username:
+            return "•••"
+        return username[:-3] + "•••" if len(username) > 3 else "•••"
+
+    @staticmethod
+    def format_req_multi(value):
+        return f"{float(value):,.2f}".rstrip("0").rstrip(".")
+
+    def build_prize_summary(self, winner_count):
+        prize_splits = self.compute_prize_split(winner_count)
+        prize_each = prize_splits[0] if prize_splits else 0.0
+        winner_label = "winner" if winner_count == 1 else "winners"
+        return f"💰 Prize Pool: ${PRIZE_POOL:,.2f} • {winner_count} {winner_label} • ${prize_each:,.2f} each"
+
+    def _load_alert_state(self, event_start):
+        raw_state = get_setting_value(ROO_VS_FLIP_ALERT_STATE_KEY, default=None)
+        if not raw_state:
+            return {"event_start": event_start, "users": {}}
+
+        try:
+            parsed = json.loads(raw_state)
+        except (TypeError, json.JSONDecodeError):
+            logger.warning("[RooVsFlip] Invalid alert state JSON; resetting state.")
+            return {"event_start": event_start, "users": {}}
+
+        if not isinstance(parsed, dict) or parsed.get("event_start") != event_start:
+            return {"event_start": event_start, "users": {}}
+
+        users = parsed.get("users")
+        if not isinstance(users, dict):
+            users = {}
+
+        return {"event_start": event_start, "users": users}
+
+    def _save_alert_state(self, state):
+        save_setting_value(
+            ROO_VS_FLIP_ALERT_STATE_KEY,
+            json.dumps(state, separators=(",", ":")),
+        )
+
+    async def _get_history_channel(self):
+        if not ROO_VS_FLIP_HISTORY_CHANNEL_ID:
+            return None
+
+        channel = self.bot.get_channel(ROO_VS_FLIP_HISTORY_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(ROO_VS_FLIP_HISTORY_CHANNEL_ID)
+            except Exception as e:
+                logger.error(f"[RooVsFlip] Failed to fetch history channel: {e}")
+                return None
+
+        if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+            logger.error("[RooVsFlip] History channel is not a text channel/thread.")
+            return None
+
+        return channel
+
+    def build_progress_alert_embed(self, participant, game, game_info, winner_count, completed_ts, total_games):
+        masked_username = self.mask_username(participant.get("username"))
+        req_display = self.format_req_multi(game["req_multi"])
+        description = (
+            f"👑 {masked_username} • {participant['completions']}/{total_games} complete\n"
+            f"✅ {game['game_name']} {game.get('emoji', '🎮')}: x{float(game_info['multi']):,.2f} / x{req_display}\n"
+            f"🕒 <t:{completed_ts}:F>\n"
+            f"{self.build_prize_summary(winner_count)}\n\n"
+            f"📍 Track this month's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
+            f"🎭 Claim the Roo Vs Flip Degens role: <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
+        )
+        return discord.Embed(
+            title="🎯 Roo Vs Flip Progress",
+            description=description,
+            color=discord.Color.gold(),
+        )
+
+    def build_completion_alert_embed(self, participant, queue, winner_count, completed_ts):
+        masked_username = self.mask_username(participant.get("username"))
+        completed_lines = []
+        for game in queue:
+            gid = game["game_identifier"]
+            game_info = participant.get("games", {}).get(gid, {})
+            req_display = self.format_req_multi(game["req_multi"])
+            multi_display = float(game_info.get("multi", 0.0))
+            completed_lines.append(
+                f"{game['game_name']} {game.get('emoji', '🎮')}: x{multi_display:,.2f} / x{req_display}"
+            )
+
+        description = (
+            f"👑 {masked_username} • {participant['completions']}/{len(queue)} complete\n"
+            f"🕒 <t:{completed_ts}:F>\n"
+            f"{self.build_prize_summary(winner_count)}\n\n"
+            "✅ Completed Games\n"
+            + "\n".join(completed_lines)
+            + "\n\n"
+            f"📍 Track this month's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
+            f"🎭 Claim the Roo Vs Flip Degens role: <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
+        )
+        return discord.Embed(
+            title="🏁 Roo Vs Flip Completion Alert",
+            description=description,
+            color=discord.Color.gold(),
+        )
+
+    async def post_progress_alerts(self, queue, participants, event_start):
+        history_channel = await self._get_history_channel()
+        if history_channel is None:
+            return
+
+        state = self._load_alert_state(event_start)
+        state_changed = False
+        winner_count = len([participant for participant in participants if participant["is_winner"]])
+        ping = f"<@&{ROO_VS_FLIP_PING_ROLE_ID}>" if ROO_VS_FLIP_PING_ROLE_ID else None
+        completed_ts = int(datetime.now(dt.UTC).timestamp())
+
+        for participant in participants:
+            if participant.get("completions", 0) <= 0:
+                continue
+
+            user_key = str(participant["uid"])
+            user_state = state["users"].setdefault(
+                user_key,
+                {"announced_games": [], "completion_posted": False},
+            )
+            announced_games = set(user_state.get("announced_games", []))
+
+            for game in queue:
+                gid = game["game_identifier"]
+                game_info = participant.get("games", {}).get(gid)
+                if not game_info or not game_info.get("met") or gid in announced_games:
+                    continue
+
+                embed = self.build_progress_alert_embed(
+                    participant,
+                    game,
+                    game_info,
+                    winner_count,
+                    completed_ts,
+                    len(queue),
+                )
+                await history_channel.send(content=ping, embed=embed)
+                announced_games.add(gid)
+                state_changed = True
+
+            user_state["announced_games"] = sorted(announced_games)
+
+            if participant.get("is_winner") and not user_state.get("completion_posted"):
+                completion_embed = self.build_completion_alert_embed(
+                    participant,
+                    queue,
+                    winner_count,
+                    completed_ts,
+                )
+                await history_channel.send(content=ping, embed=completion_embed)
+                user_state["completion_posted"] = True
+                state_changed = True
+
+        if state_changed:
+            self._save_alert_state(state)
+
     # ─── Embed builder ────────────────────────────────────────────────────────
 
     def build_embed(self, queue, participants, event_start_str):
@@ -407,6 +573,7 @@ class RooVsFlip(commands.Cog):
         event_start = get_roovsflip_event_start()
         game_data = await self.fetch_all_game_data(queue, event_start)
         participants = self.build_participant_list(queue, game_data)
+        await self.post_progress_alerts(queue, participants, event_start)
         embed = self.build_embed(queue, participants, event_start)
         await self.post_or_edit_embed(embed)
 
