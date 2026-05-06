@@ -352,7 +352,7 @@ class MultiLeaderboard(commands.Cog):
                 f"🎭 **Claim the Weekly Multiplier role:** <#{WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID}>"
             )
         if channel_lines:
-            embed.description += "\n" + "\n".join(channel_lines)
+            embed.add_field(name="\u200b", value="\n".join(channel_lines), inline=False)
 
         embed.set_footer(text="AutoTip Engine • Auto-pays at midnight UTC every Friday.")
         
