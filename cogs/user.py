@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from discord import ui
-from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager
+from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager, fetch_user_game_stats
 from db import (
     get_db_connection,
     release_db_connection,
@@ -48,6 +48,7 @@ CHECKIN_COMMAND_CHANNEL_ID = int(os.getenv("CHECKIN_COMMAND_CHANNEL_ID", "103631
 COINFLIP_COMMAND_CHANNEL_ID = int(os.getenv("COINFLIP_COMMAND_CHANNEL_ID", "1501341349780131942"))
 VAULT_RANDOM_DROP_CHANNEL_ID = int(os.getenv("VAULT_RANDOM_DROP_CHANNEL_ID", "1036310766300700752"))
 VAULT_RANDOM_DROP_ANNOUNCE_ROLE_ID = int(os.getenv("VAULT_RANDOM_DROP_ANNOUNCE_ROLE_ID", "1441158750386917526"))
+VAULT_ROLE_CLAIM_CHANNEL_ID = int(os.getenv("VAULT_ROLE_CLAIM_CHANNEL_ID", "1440843895360590028"))
 VAULT_RANDOM_DROP_REWARD_AMOUNT = float(os.getenv("VAULT_RANDOM_DROP_REWARD_AMOUNT", "1.50"))
 VAULT_RANDOM_DROP_MAX_CLAIMS = int(os.getenv("VAULT_RANDOM_DROP_MAX_CLAIMS", "3"))
 VAULT_RANDOM_DROP_EXPIRY_MINUTES = int(os.getenv("VAULT_RANDOM_DROP_EXPIRY_MINUTES", "3"))
@@ -363,11 +364,13 @@ class User(commands.Cog):
         ]
         if status == "active":
             if closes_at is not None:
-                description_lines.append(f"Claim window closes in **{VAULT_RANDOM_DROP_EXPIRY_MINUTES} minutes**: <t:{int(closes_at.timestamp())}:R>")
+                description_lines.append(
+                    f"Claim window closes: <t:{int(closes_at.timestamp())}:R>"
+                )
             else:
                 description_lines.append(f"Claim window lasts **{VAULT_RANDOM_DROP_EXPIRY_MINUTES} minutes** from drop post time.")
             if entrant_count > 0:
-                description_lines.append(f"Current estimated split: **${estimated_share:,.2f}** per entrant")
+                description_lines.append(f"Current estimated split: **${estimated_share:,.2f}** per entry")
         elif status == "completed":
             if entrant_count > 0:
                 description_lines.append("The pool has been settled and paid into each entrant's FTS Vault balance.")
@@ -402,7 +405,14 @@ class User(commands.Cog):
         embed.add_field(name="Entrants", value="\n".join(entrant_lines), inline=False)
         embed.add_field(name="Pool", value=f"**${pool_amount:,.2f}**", inline=True)
         embed.add_field(name="Entrant Count", value=f"**{entrant_count}**", inline=True)
-        embed.add_field(name="Channel", value=f"<#{VAULT_RANDOM_DROP_CHANNEL_ID}>", inline=True)
+        embed.add_field(
+            name="\u200b",
+            value=(
+                f"📍 Track vault leaderboard: <#{CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID}>\n"
+                f"🎭 Claim the Giveaway Merchant role: <#{VAULT_ROLE_CLAIM_CHANNEL_ID}>"
+            ),
+            inline=False,
+        )
         embed.set_footer(text=f"One random vault drop is scheduled per UTC day • Expires in {VAULT_RANDOM_DROP_EXPIRY_MINUTES} minutes")
         return embed
 
@@ -2054,6 +2064,90 @@ class User(commands.Cog):
         embed.set_footer(text=f"🕒 Generated on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
         await interaction.followup.send(embed=embed, ephemeral=True)
         await self._send_mywager_staff_notification(interaction, username, embed)
+
+    @app_commands.command(name="gamestats", description="Check a user's current-month wager for a specific game identifier")
+    @app_commands.describe(
+        username="Roobet username to look up",
+        game_identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)",
+    )
+    async def gamestats(self, interaction: discord.Interaction, username: str, game_identifier: str):
+        await interaction.response.defer(ephemeral=True)
+
+        if not re.match(r'^[a-zA-Z0-9_]+$', username):
+            await interaction.followup.send(
+                "❌ Username can only contain letters, numbers, and underscores.",
+                ephemeral=True,
+            )
+            return
+
+        if len(username) > 50:
+            await interaction.followup.send("❌ Username is too long (max 50 characters).", ephemeral=True)
+            return
+
+        if not re.match(r'^[a-zA-Z0-9:_-]+$', game_identifier):
+            await interaction.followup.send(
+                "❌ Game identifier can only contain letters, numbers, colons, underscores, and hyphens.",
+                ephemeral=True,
+            )
+            return
+
+        if len(game_identifier) > 120:
+            await interaction.followup.send("❌ Game identifier is too long (max 120 characters).", ephemeral=True)
+            return
+
+        roobet_uid, canonical_username = await self._resolve_roobet_uid_by_username(username)
+        if not roobet_uid:
+            await interaction.followup.send(
+                f"❌ No user found with username '{username}' in current data.",
+                ephemeral=True,
+            )
+            return
+
+        start_date, end_date = get_current_month_range()
+        try:
+            user_game_data = await asyncio.to_thread(
+                fetch_user_game_stats,
+                roobet_uid,
+                game_identifier,
+                start_date,
+                end_date,
+            )
+        except Exception as e:
+            logger.error(f"/gamestats failed for {canonical_username} ({roobet_uid}) on {game_identifier}: {e}")
+            await interaction.followup.send("❌ Failed to fetch game stats. Please try again shortly.", ephemeral=True)
+            return
+
+        if not user_game_data:
+            await interaction.followup.send(
+                (
+                    f"❌ No current-month wagers found for **{canonical_username}** "
+                    f"on `{game_identifier}`."
+                ),
+                ephemeral=True,
+            )
+            return
+
+        wagered = user_game_data.get("wagered", 0)
+        weighted_wagered = user_game_data.get("weightedWagered", 0)
+        wagered = float(wagered) if isinstance(wagered, (int, float)) else 0.0
+        weighted_wagered = float(weighted_wagered) if isinstance(weighted_wagered, (int, float)) else 0.0
+
+        month_label = datetime.now(dt.UTC).strftime("%B %Y")
+        embed = discord.Embed(
+            title="🎮 Game Wager Breakdown",
+            color=discord.Color.blurple(),
+            description=(
+                f"**User:** {canonical_username}\n"
+                f"**Game Identifier:** `{game_identifier}`\n"
+                f"**Period:** {month_label} (current month)"
+            ),
+        )
+        embed.add_field(name="💵 Total Wager", value=f"**${wagered:,.2f}**", inline=True)
+        embed.add_field(name="⚖️ Weighted Wager", value=f"**${weighted_wagered:,.2f}**", inline=True)
+        embed.add_field(name="🆔 Roobet UID", value=f"`{roobet_uid}`", inline=False)
+        embed.set_footer(text="Source: Roobet affiliate stats API")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="stats", description="Display monthly and all-time wager totals (admin only)")
     @app_commands.default_permissions(administrator=True)

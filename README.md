@@ -116,7 +116,7 @@ FTS Assistant is a **professional-grade Discord bot** designed for gambling comm
 | Command | Description | Access |
 |---------|-------------|--------|
 | `/challenge_results` | View active challenge leaderboards | Public |
-| `/gamestats <identifier> [username]` | Game-specific user statistics | Public |
+| `/gamestats <username> <identifier>` | Game-specific user statistics (current month) | Public |
 
 ---
 
