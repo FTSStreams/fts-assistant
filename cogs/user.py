@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from discord import ui
-from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager
+from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager, get_month_range
 from db import (
     get_db_connection,
     release_db_connection,
@@ -2065,26 +2065,36 @@ class User(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
         await self._send_mywager_staff_notification(interaction, username, embed)
 
-    @app_commands.command(name="gamestats", description="Check a user's current-month wager for a specific game identifier")
+    @app_commands.command(name="gamestats", description="Check game wager stats by user (optional) for a specific month/year")
     @app_commands.describe(
-        username="Roobet username to look up",
         game_identifier="Game identifier (e.g. pragmatic:vs10bbbbrnd)",
+        username="Optional Roobet username to filter by",
+        month="Optional month number (1-12). Defaults to current month",
+        year="Optional year (e.g. 2026). Defaults to current year",
     )
-    async def gamestats(self, interaction: discord.Interaction, username: str, game_identifier: str):
+    async def gamestats(
+        self,
+        interaction: discord.Interaction,
+        game_identifier: str,
+        username: str = None,
+        month: int = None,
+        year: int = None,
+    ):
         await interaction.response.defer(ephemeral=True)
 
         game_identifier = game_identifier.strip()
 
-        if not re.match(r'^[a-zA-Z0-9_]+$', username):
-            await interaction.followup.send(
-                "❌ Username can only contain letters, numbers, and underscores.",
-                ephemeral=True,
-            )
-            return
+        if username:
+            if not re.match(r'^[a-zA-Z0-9_]+$', username):
+                await interaction.followup.send(
+                    "❌ Username can only contain letters, numbers, and underscores.",
+                    ephemeral=True,
+                )
+                return
 
-        if len(username) > 50:
-            await interaction.followup.send("❌ Username is too long (max 50 characters).", ephemeral=True)
-            return
+            if len(username) > 50:
+                await interaction.followup.send("❌ Username is too long (max 50 characters).", ephemeral=True)
+                return
 
         if not re.match(r'^[a-zA-Z0-9:_-]+$', game_identifier):
             await interaction.followup.send(
@@ -2097,15 +2107,26 @@ class User(commands.Cog):
             await interaction.followup.send("❌ Game identifier is too long (max 120 characters).", ephemeral=True)
             return
 
-        roobet_uid, canonical_username = await self._resolve_roobet_uid_by_username(username)
-        if not roobet_uid:
+        now_utc = datetime.now(dt.UTC)
+        selected_month = month if month is not None else now_utc.month
+        selected_year = year if year is not None else now_utc.year
+
+        if selected_month < 1 or selected_month > 12:
+            await interaction.followup.send("❌ Month must be between 1 and 12.", ephemeral=True)
+            return
+
+        if selected_year < 2020 or selected_year > 2100:
+            await interaction.followup.send("❌ Year must be between 2020 and 2100.", ephemeral=True)
+            return
+
+        if (selected_year, selected_month) > (now_utc.year, now_utc.month):
             await interaction.followup.send(
-                f"❌ No user found with username '{username}' in current data.",
+                "❌ Month/year cannot be in the future.",
                 ephemeral=True,
             )
             return
 
-        start_date, end_date = get_current_month_range()
+        start_date, end_date = get_month_range(selected_year, selected_month)
         try:
             game_entries = await asyncio.to_thread(
                 fetch_weighted_wager,
@@ -2114,8 +2135,53 @@ class User(commands.Cog):
                 game_identifier,
             )
         except Exception as e:
-            logger.error(f"/gamestats failed for {canonical_username} ({roobet_uid}) on {game_identifier}: {e}")
+            target_label = username if username else "ALL_USERS"
+            logger.error(f"/gamestats failed for {target_label} on {game_identifier}: {e}")
             await interaction.followup.send("❌ Failed to fetch game stats. Please try again shortly.", ephemeral=True)
+            return
+
+        month_label = datetime(selected_year, selected_month, 1).strftime("%B %Y")
+
+        if not username:
+            total_wager = sum(
+                float(entry.get("wagered", 0))
+                for entry in game_entries
+                if isinstance(entry.get("wagered"), (int, float))
+            )
+            total_weighted_wager = sum(
+                float(entry.get("weightedWagered", 0))
+                for entry in game_entries
+                if isinstance(entry.get("weightedWagered"), (int, float))
+            )
+
+            if not game_entries:
+                await interaction.followup.send(
+                    f"❌ No wagers found for `{game_identifier}` in **{month_label}**.",
+                    ephemeral=True,
+                )
+                return
+
+            embed = discord.Embed(
+                title="🎮 Game Wager Breakdown (All Players)",
+                color=discord.Color.blurple(),
+                description=(
+                    f"**Game Identifier:** `{game_identifier}`\n"
+                    f"**Period:** {month_label}"
+                ),
+            )
+            embed.add_field(name="💵 Total Wager (All)", value=f"**${total_wager:,.2f}**", inline=True)
+            embed.add_field(name="⚖️ Weighted Wager (All)", value=f"**${total_weighted_wager:,.2f}**", inline=True)
+            embed.add_field(name="👥 Players", value=f"**{len(game_entries)}**", inline=True)
+            embed.set_footer(text="Source: Roobet affiliate stats API")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        roobet_uid, canonical_username = await self._resolve_roobet_uid_by_username(username)
+        if not roobet_uid:
+            await interaction.followup.send(
+                f"❌ No user found with username '{username}' in current data.",
+                ephemeral=True,
+            )
             return
 
         user_game_data = next(
@@ -2153,7 +2219,6 @@ class User(commands.Cog):
         wagered = float(wagered) if isinstance(wagered, (int, float)) else 0.0
         weighted_wagered = float(weighted_wagered) if isinstance(weighted_wagered, (int, float)) else 0.0
 
-        month_label = datetime.now(dt.UTC).strftime("%B %Y")
         embed = discord.Embed(
             title="🎮 Game Wager Breakdown",
             color=discord.Color.blurple(),
