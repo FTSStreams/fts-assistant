@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from discord import ui
-from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager, fetch_user_game_stats
+from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager
 from db import (
     get_db_connection,
     release_db_connection,
@@ -2073,6 +2073,8 @@ class User(commands.Cog):
     async def gamestats(self, interaction: discord.Interaction, username: str, game_identifier: str):
         await interaction.response.defer(ephemeral=True)
 
+        game_identifier = game_identifier.strip()
+
         if not re.match(r'^[a-zA-Z0-9_]+$', username):
             await interaction.followup.send(
                 "❌ Username can only contain letters, numbers, and underscores.",
@@ -2105,23 +2107,42 @@ class User(commands.Cog):
 
         start_date, end_date = get_current_month_range()
         try:
-            user_game_data = await asyncio.to_thread(
-                fetch_user_game_stats,
-                roobet_uid,
-                game_identifier,
+            game_entries = await asyncio.to_thread(
+                fetch_weighted_wager,
                 start_date,
                 end_date,
+                game_identifier,
             )
         except Exception as e:
             logger.error(f"/gamestats failed for {canonical_username} ({roobet_uid}) on {game_identifier}: {e}")
             await interaction.followup.send("❌ Failed to fetch game stats. Please try again shortly.", ephemeral=True)
             return
 
+        user_game_data = next(
+            (entry for entry in game_entries if str(entry.get("uid")) == str(roobet_uid)),
+            None,
+        )
         if not user_game_data:
+            user_game_data = next(
+                (
+                    entry
+                    for entry in game_entries
+                    if str(entry.get("username", "")).lower() == canonical_username.lower()
+                ),
+                None,
+            )
+
+        if not user_game_data:
+            player_count = len(game_entries) if isinstance(game_entries, list) else 0
+            extra = (
+                f" ({player_count} player entries found for this game this month)."
+                if player_count > 0
+                else "."
+            )
             await interaction.followup.send(
                 (
                     f"❌ No current-month wagers found for **{canonical_username}** "
-                    f"on `{game_identifier}`."
+                    f"on `{game_identifier}`{extra}"
                 ),
                 ephemeral=True,
             )
