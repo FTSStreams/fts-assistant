@@ -2,16 +2,18 @@ import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 from utils import send_tip, get_current_month_range
-from db import get_db_connection, release_db_connection, save_tip_log, load_sent_tips, save_tip, get_leaderboard_message_id, save_leaderboard_message_id
+from db import get_db_connection, release_db_connection, save_tip_log, load_sent_tips, save_tip, get_leaderboard_message_id, save_leaderboard_message_id, get_setting_value
 import os
 import logging
 from datetime import datetime
 import datetime as dt
 import asyncio
 from milestones_config import MILESTONES
+from collections import deque
 
 logger = logging.getLogger(__name__)
 MILESTONE_PRIZES_CHANNEL_ID = 1362517492651790416
+MILESTONE_BLOCKED_USER_IDS_KEY = "milestone_blocked_user_ids"
 
 # Environment variable validation with proper error handling
 try:
@@ -43,6 +45,91 @@ class Milestones(commands.Cog):
         """Helper to get DataManager cog"""
         return self.bot.get_cog('DataManager')
 
+    @staticmethod
+    def _normalize_roobet_username(username):
+        if not isinstance(username, str):
+            return ""
+        cleaned = username.strip()
+        if cleaned.startswith("@"):
+            cleaned = cleaned[1:]
+        return cleaned.lower()
+
+    def _load_blocked_identities(self):
+        raw_value = get_setting_value(MILESTONE_BLOCKED_USER_IDS_KEY, default="{}")
+        usernames = set()
+        uids = set()
+
+        try:
+            import json
+
+            parsed = json.loads(raw_value)
+            if isinstance(parsed, dict):
+                usernames = {
+                    self._normalize_roobet_username(entry)
+                    for entry in parsed.get("usernames", [])
+                    if self._normalize_roobet_username(entry)
+                }
+                uids = {
+                    str(entry).strip()
+                    for entry in parsed.get("uids", [])
+                    if str(entry).strip()
+                }
+                return {"usernames": usernames, "uids": uids}
+
+            if isinstance(parsed, list):
+                # Legacy format fallback.
+                uids = {str(entry).strip() for entry in parsed if str(entry).strip()}
+                return {"usernames": set(), "uids": uids}
+        except Exception:
+            pass
+
+        # Legacy CSV fallback.
+        tokens = {entry.strip() for entry in str(raw_value).split(",") if entry and entry.strip()}
+        return {"usernames": set(), "uids": tokens}
+
+    def is_user_blocked_from_milestones(self, user_id, username=None):
+        identities = self._load_blocked_identities()
+        blocked_uids = identities.get("uids", set())
+        blocked_usernames = identities.get("usernames", set())
+
+        uid_match = str(user_id) in blocked_uids if user_id is not None else False
+        username_match = self._normalize_roobet_username(username) in blocked_usernames if username else False
+        return uid_match or username_match
+
+    def purge_user_from_tip_queue(self, roobet_username=None, roobet_uid=None):
+        """Remove queued milestone tips for a specific Roobet user and return removed count."""
+        username_key = self._normalize_roobet_username(roobet_username)
+        uid_key = str(roobet_uid).strip() if roobet_uid is not None and str(roobet_uid).strip() else ""
+
+        if not username_key and not uid_key:
+            return 0
+
+        original_items = list(self.tip_queue._queue)
+        kept_items = []
+        removed_count = 0
+
+        for item in original_items:
+            queued_user_id = str(item[0]) if isinstance(item, tuple) and len(item) > 0 else ""
+            queued_username = self._normalize_roobet_username(item[1]) if isinstance(item, tuple) and len(item) > 1 else ""
+
+            uid_match = uid_key and queued_user_id == uid_key
+            username_match = username_key and queued_username == username_key
+
+            if uid_match or username_match:
+                removed_count += 1
+            else:
+                kept_items.append(item)
+
+        if removed_count <= 0:
+            return 0
+
+        self.tip_queue._queue = deque(kept_items)
+        self.tip_queue._unfinished_tasks = max(0, self.tip_queue._unfinished_tasks - removed_count)
+        if self.tip_queue._unfinished_tasks == 0:
+            self.tip_queue._finished.set()
+
+        return removed_count
+
     async def cog_load(self):
         self.process_tip_queue_task = asyncio.create_task(self.process_tip_queue())
 
@@ -69,6 +156,11 @@ class Milestones(commands.Cog):
             
             try:
                 user_id, username, milestone, month, year = await self.tip_queue.get()
+                if self.is_user_blocked_from_milestones(user_id, username):
+                    logger.info(
+                        f"[Milestones] Skipping blocked user {username} ({user_id}) for {milestone['tier']}"
+                    )
+                    continue
                 logger.info(f"[Milestones] Processing tip for {username} - {milestone['tier']} (month={month}, year={year})")
                 bot_user_id = os.getenv("ROOBET_USER_ID")
                 tip_response = await send_tip(bot_user_id, username, user_id, milestone["tip"])
@@ -145,6 +237,9 @@ class Milestones(commands.Cog):
         for entry in weighted_wager_data:
             user_id = entry.get("uid")
             username = entry.get("username", "Unknown")
+            if self.is_user_blocked_from_milestones(user_id, username):
+                logger.info(f"[Milestones] Skipping queue for blocked user {username} ({user_id})")
+                continue
             weighted_wagered = entry.get("weightedWagered", 0)
             if not isinstance(weighted_wagered, (int, float)) or weighted_wagered < 0:
                 continue

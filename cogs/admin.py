@@ -14,11 +14,13 @@ import os
 from datetime import datetime
 import datetime as dt
 import asyncio
+import json
 
 logger = logging.getLogger(__name__)
 GUILD_ID = int(os.getenv("GUILD_ID"))
 ROLE_ASSIGNMENT_CHANNEL_ID = 1440843895360590028
 ROLE_ASSIGNMENT_MESSAGE_KEY = "role_assignment_menu_message_id"
+MILESTONE_BLOCKED_USER_IDS_KEY = "milestone_blocked_user_ids"
 
 ROLE_MENU_OPTIONS = [
     ("Wager Leaderboard Grinders", 1501622029848150178),
@@ -182,6 +184,199 @@ class Admin(commands.Cog):
 
     def cog_unload(self):
         self.ensure_role_assignment_panel.cancel()
+
+    @staticmethod
+    def _normalize_roobet_username(username: str):
+        if not isinstance(username, str):
+            return ""
+        cleaned = username.strip()
+        if cleaned.startswith("@"):
+            cleaned = cleaned[1:]
+        return cleaned.lower()
+
+    def _load_milestone_blocked_identities(self):
+        raw_value = get_setting_value(MILESTONE_BLOCKED_USER_IDS_KEY, default="{}")
+        usernames = set()
+        uids = set()
+
+        try:
+            parsed = json.loads(raw_value)
+            if isinstance(parsed, dict):
+                usernames = {
+                    self._normalize_roobet_username(entry)
+                    for entry in parsed.get("usernames", [])
+                    if self._normalize_roobet_username(entry)
+                }
+                uids = {
+                    str(entry).strip()
+                    for entry in parsed.get("uids", [])
+                    if str(entry).strip()
+                }
+                return {"usernames": usernames, "uids": uids}
+
+            if isinstance(parsed, list):
+                # Legacy format fallback.
+                uids = {str(entry).strip() for entry in parsed if str(entry).strip()}
+                return {"usernames": set(), "uids": uids}
+        except Exception:
+            pass
+
+        # Legacy CSV fallback.
+        tokens = {entry.strip() for entry in str(raw_value).split(",") if entry and entry.strip()}
+        return {"usernames": set(), "uids": tokens}
+
+    def _save_milestone_blocked_identities(self, identities):
+        usernames = sorted({
+            self._normalize_roobet_username(entry)
+            for entry in identities.get("usernames", set())
+            if self._normalize_roobet_username(entry)
+        })
+        uids = sorted({
+            str(entry).strip()
+            for entry in identities.get("uids", set())
+            if str(entry).strip()
+        })
+        save_setting_value(
+            MILESTONE_BLOCKED_USER_IDS_KEY,
+            json.dumps({"usernames": usernames, "uids": uids}),
+        )
+
+    @app_commands.command(
+        name="blockmilestoneuser",
+        description="Block a Roobet user from milestone payouts and purge queued milestone tips (admin only)",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        roobet_username="Roobet username to block (for example: macmacman)",
+        roobet_uid="Optional Roobet UID for exact matching",
+        reason="Optional note for logs",
+    )
+    async def block_milestone_user(
+        self,
+        interaction: discord.Interaction,
+        roobet_username: str,
+        roobet_uid: str = None,
+        reason: str = None,
+    ):
+        await interaction.response.defer(ephemeral=True)
+
+        normalized_username = self._normalize_roobet_username(roobet_username)
+        normalized_uid = str(roobet_uid).strip() if isinstance(roobet_uid, str) and roobet_uid.strip() else None
+
+        if not normalized_username:
+            await interaction.followup.send(
+                "❌ Please provide a valid Roobet username.",
+                ephemeral=True,
+            )
+            return
+
+        blocked_identities = self._load_milestone_blocked_identities()
+        usernames = blocked_identities.get("usernames", set())
+        uids = blocked_identities.get("uids", set())
+
+        already_blocked = normalized_username in usernames or (normalized_uid in uids if normalized_uid else False)
+
+        usernames.add(normalized_username)
+        if normalized_uid:
+            uids.add(normalized_uid)
+
+        self._save_milestone_blocked_identities({"usernames": usernames, "uids": uids})
+
+        purged_count = 0
+        milestones_cog = self.bot.get_cog("Milestones")
+        if milestones_cog and hasattr(milestones_cog, "purge_user_from_tip_queue"):
+            try:
+                purged_count = int(
+                    milestones_cog.purge_user_from_tip_queue(
+                        roobet_username=normalized_username,
+                        roobet_uid=normalized_uid,
+                    )
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to purge milestone queue for roobet_username={normalized_username}, "
+                    f"roobet_uid={normalized_uid}: {e}"
+                )
+
+        state_line = "already blocked" if already_blocked else "now blocked"
+        reason_line = f"\n📝 Reason: {reason.strip()}" if isinstance(reason, str) and reason.strip() else ""
+        uid_line = f"\n🆔 UID: `{normalized_uid}`" if normalized_uid else ""
+
+        await interaction.followup.send(
+            (
+                f"✅ Roobet user **{normalized_username}** is **{state_line}** for milestone payouts.\n"
+                f"🧹 Purged **{purged_count}** queued milestone tip(s) for this user."
+                f"{uid_line}\n"
+                "Future milestone queue cycles will skip this user until unblocked by Roobet identity."
+                f"{reason_line}"
+            ),
+            ephemeral=True,
+        )
+
+        logger.info(
+            f"[milestones] Admin {interaction.user} blocked roobet_username={normalized_username}, "
+            f"roobet_uid={normalized_uid}; purged={purged_count}; "
+            f"reason={reason.strip() if isinstance(reason, str) else ''}"
+        )
+
+    @app_commands.command(
+        name="unblockmilestoneuser",
+        description="Unblock a Roobet user from milestone payouts (admin only)",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        roobet_username="Roobet username to unblock",
+        roobet_uid="Optional Roobet UID to remove from blocklist",
+    )
+    async def unblock_milestone_user(
+        self,
+        interaction: discord.Interaction,
+        roobet_username: str,
+        roobet_uid: str = None,
+    ):
+        await interaction.response.defer(ephemeral=True)
+
+        normalized_username = self._normalize_roobet_username(roobet_username)
+        normalized_uid = str(roobet_uid).strip() if isinstance(roobet_uid, str) and roobet_uid.strip() else None
+
+        if not normalized_username and not normalized_uid:
+            await interaction.followup.send(
+                "❌ Provide a Roobet username or UID to unblock.",
+                ephemeral=True,
+            )
+            return
+
+        blocked_identities = self._load_milestone_blocked_identities()
+        usernames = blocked_identities.get("usernames", set())
+        uids = blocked_identities.get("uids", set())
+
+        had_username = normalized_username in usernames if normalized_username else False
+        had_uid = normalized_uid in uids if normalized_uid else False
+
+        if not had_username and not had_uid:
+            await interaction.followup.send(
+                "ℹ️ That Roobet identity is not currently blocked for milestone payouts.",
+                ephemeral=True,
+            )
+            return
+
+        if had_username:
+            usernames.remove(normalized_username)
+        if had_uid:
+            uids.remove(normalized_uid)
+
+        self._save_milestone_blocked_identities({"usernames": usernames, "uids": uids})
+
+        uid_line = f"\n🆔 UID removed: `{normalized_uid}`" if had_uid else ""
+
+        await interaction.followup.send(
+            f"✅ Roobet user **{normalized_username or normalized_uid}** has been unblocked for milestone payouts.{uid_line}",
+            ephemeral=True,
+        )
+        logger.info(
+            f"[milestones] Admin {interaction.user} unblocked roobet_username={normalized_username}, "
+            f"roobet_uid={normalized_uid}"
+        )
 
     @app_commands.command(name="status", description="Check bot status (admin only)")
     @app_commands.default_permissions(administrator=True)
