@@ -17,7 +17,7 @@ from db import (
 
 logger = logging.getLogger(__name__)
 
-GUILD_ID = int(os.getenv("GUILD_ID"))
+GUILD_ID = int(os.getenv("GUILD_ID", "1008041420738789536"))
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "0"))
 GTB_COMMAND_CHANNEL_ID = int(os.getenv("GTB_COMMAND_CHANNEL_ID", "1527380205759500369"))
 GTB_WINNER_LOG_CHANNEL_ID = int(os.getenv("GTB_WINNER_LOG_CHANNEL_ID", "1527380252672659467"))
@@ -40,14 +40,11 @@ class GuessTheBalance(commands.Cog):
             except Exception as e:
                 logger.error(f"Failed to fetch channel {channel_id}: {e}")
                 return None
-
         if not isinstance(channel, (discord.TextChannel, discord.Thread)):
-            logger.warning(f"Configured channel {channel_id} is not a text channel/thread")
             return None
         return channel
 
     def _build_gtb_game_embed(self, status: str, guesses_dict: dict = None):
-        """Build the GTB game embed showing rules, multipliers, prizes, and participants."""
         if guesses_dict is None:
             guesses_dict = {}
 
@@ -61,7 +58,6 @@ class GuessTheBalance(commands.Cog):
         now_utc = datetime.now(dt.UTC)
         timestamp = int(now_utc.timestamp())
 
-        # Sort guesses by amount (highest to lowest)
         sorted_guesses = sorted(guesses_dict.items(), key=lambda x: x[1], reverse=True)
         participants_text = "\n".join([f"{username} - ${amount:,}" for username, amount in sorted_guesses])
 
@@ -93,7 +89,6 @@ class GuessTheBalance(commands.Cog):
         return embed
 
     def _get_multiplier(self, difference: int):
-        """Get multiplier based on how close the guess is."""
         if difference <= 10:
             return 2.0
         elif difference <= 25:
@@ -104,13 +99,12 @@ class GuessTheBalance(commands.Cog):
             return 1.0
 
     def _calculate_prize(self, base_prize: float, multiplier: float):
-        """Calculate final prize with multiplier, round down to 2 decimals."""
         final = base_prize * multiplier
         return int(final * 100) / 100
 
-    @app_commands.guilds(discord.Object(id=GUILD_ID))
     @app_commands.command(name="gtbopen", description="Open a new GTB game (owner only)")
-    async def gtb_open(self, interaction: discord.Interaction):
+    @app_commands.guilds(GUILD_ID)
+    async def gtbopen(self, interaction: discord.Interaction):
         if interaction.user.id != BOT_OWNER_ID:
             await interaction.response.send_message("❌ Only the owner can open a GTB game.", ephemeral=True)
             return
@@ -131,10 +125,9 @@ class GuessTheBalance(commands.Cog):
 
         logger.info(f"[GTB] Game opened by {interaction.user}")
 
-    @app_commands.guilds(discord.Object(id=GUILD_ID))
-    @app_commands.command(name="gtbguess", description="Submit your guess for the balance")
-    @app_commands.describe(amount="Your guess amount (integer)")
-    async def gtb_guess(self, interaction: discord.Interaction, amount: int):
+    @app_commands.command(name="gtbguess", description="Submit your guess")
+    @app_commands.guilds(GUILD_ID)
+    async def gtbguess(self, interaction: discord.Interaction, amount: int):
         if interaction.channel_id != GTB_COMMAND_CHANNEL_ID:
             await interaction.response.send_message(
                 f"❌ /gtbguess can only be used in <#{GTB_COMMAND_CHANNEL_ID}>.",
@@ -143,20 +136,14 @@ class GuessTheBalance(commands.Cog):
             return
 
         if amount <= 0:
-            await interaction.response.send_message(
-                "❌ Please provide a valid positive integer amount.",
-                ephemeral=True,
-            )
+            await interaction.response.send_message("❌ Please provide a valid positive integer amount.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
 
         game_state = get_gtb_game_state()
         if game_state is None or game_state.get("status") != "open":
-            await interaction.followup.send(
-                "❌ No active GTB game is currently open.",
-                ephemeral=True,
-            )
+            await interaction.followup.send("❌ No active GTB game is currently open.", ephemeral=True)
             return
 
         username = interaction.user.display_name
@@ -165,7 +152,6 @@ class GuessTheBalance(commands.Cog):
         guesses = get_gtb_guesses()
         embed = self._build_gtb_game_embed("open", guesses)
 
-        # Update the game message if we have its ID
         if self.game_message_id:
             try:
                 channel = await self._get_text_channel(GTB_COMMAND_CHANNEL_ID)
@@ -175,15 +161,12 @@ class GuessTheBalance(commands.Cog):
             except Exception as e:
                 logger.error(f"[GTB] Failed to update game message: {e}")
 
-        await interaction.followup.send(
-            f"✅ Your guess of **${amount:,}** has been recorded!",
-            ephemeral=True,
-        )
+        await interaction.followup.send(f"✅ Your guess of **${amount:,}** has been recorded!", ephemeral=True)
         logger.info(f"[GTB] {username} (ID: {interaction.user.id}) guessed ${amount}")
 
-    @app_commands.guilds(discord.Object(id=GUILD_ID))
     @app_commands.command(name="gtbclose", description="Close the game (owner only)")
-    async def gtb_close(self, interaction: discord.Interaction):
+    @app_commands.guilds(GUILD_ID)
+    async def gtbclose(self, interaction: discord.Interaction):
         if interaction.user.id != BOT_OWNER_ID:
             await interaction.response.send_message("❌ Only the owner can close a GTB game.", ephemeral=True)
             return
@@ -192,10 +175,7 @@ class GuessTheBalance(commands.Cog):
 
         game_state = get_gtb_game_state()
         if game_state is None or game_state.get("status") != "open":
-            await interaction.followup.send(
-                "❌ No active GTB game is currently open.",
-                ephemeral=True,
-            )
+            await interaction.followup.send("❌ No active GTB game is currently open.", ephemeral=True)
             return
 
         guesses = get_gtb_guesses()
@@ -203,7 +183,6 @@ class GuessTheBalance(commands.Cog):
 
         embed = self._build_gtb_game_embed("closed", guesses)
 
-        # Update the game message
         if self.game_message_id:
             try:
                 channel = await self._get_text_channel(GTB_COMMAND_CHANNEL_ID)
@@ -216,10 +195,9 @@ class GuessTheBalance(commands.Cog):
         await interaction.followup.send("✅ GTB game closed.", ephemeral=True)
         logger.info("[GTB] Game closed")
 
-    @app_commands.guilds(discord.Object(id=GUILD_ID))
     @app_commands.command(name="gtbresult", description="Post results and award prizes (owner only)")
-    @app_commands.describe(balance="The final balance amount")
-    async def gtb_result(self, interaction: discord.Interaction, balance: int):
+    @app_commands.guilds(GUILD_ID)
+    async def gtbresult(self, interaction: discord.Interaction, balance: int):
         if interaction.user.id != BOT_OWNER_ID:
             await interaction.response.send_message("❌ Only the owner can post GTB results.", ephemeral=True)
             return
@@ -228,34 +206,23 @@ class GuessTheBalance(commands.Cog):
 
         game_state = get_gtb_game_state()
         if game_state is None or game_state.get("status") != "closed":
-            await interaction.followup.send(
-                "❌ No closed GTB game found. Please close the game first.",
-                ephemeral=True,
-            )
+            await interaction.followup.send("❌ No closed GTB game found. Please close the game first.", ephemeral=True)
             return
 
         guesses = get_gtb_guesses()
         if not guesses:
-            await interaction.followup.send(
-                "❌ No guesses recorded. Cannot post results.",
-                ephemeral=True,
-            )
+            await interaction.followup.send("❌ No guesses recorded. Cannot post results.", ephemeral=True)
             return
 
-        # Calculate differences and find winners
         guess_data = []
         for user_id, (username, guess_amount) in guesses.items():
             difference = abs(balance - guess_amount)
             multiplier = self._get_multiplier(difference)
             guess_data.append((user_id, username, guess_amount, difference, multiplier))
 
-        # Sort by difference (closest first)
         guess_data.sort(key=lambda x: x[3])
-
-        # Get top 3
         winners = guess_data[:3]
 
-        # Build results embed
         results_lines = []
         medals = ["🥇", "🥈", "🥉"]
         base_prizes = [GTB_FIRST_PRIZE, GTB_SECOND_PRIZE, GTB_THIRD_PRIZE]
@@ -270,8 +237,6 @@ class GuessTheBalance(commands.Cog):
                 f"Difference: ${difference} - {multiplier}x Multiplier - Wins ${final_prize:,.2f}"
             )
             winner_mention_ids.append(user_id)
-            
-            # Add funds to winner's vault
             add_funds_to_vault(user_id, final_prize)
 
         embed = discord.Embed(
@@ -289,24 +254,19 @@ class GuessTheBalance(commands.Cog):
         embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
         embed.set_footer(text="AutoTip Engine Live • Payouts added to vault")
 
-        # Post to winner log channel
         log_channel = await self._get_text_channel(GTB_WINNER_LOG_CHANNEL_ID)
         if log_channel:
-            # Build mentions string
             mentions = " ".join([f"<@{uid}>" for uid in winner_mention_ids])
             winner_message = f"🎉 Congratulations {mentions}!\n"
             await log_channel.send(winner_message, embed=embed)
 
-        # Clear game state
         clear_gtb_game()
         self.game_message_id = None
 
-        await interaction.followup.send(
-            f"✅ Results posted and prizes awarded to top 3 players.",
-            ephemeral=True,
-        )
+        await interaction.followup.send("✅ Results posted and prizes awarded to top 3 players.", ephemeral=True)
         logger.info(f"[GTB] Results posted. Final balance: ${balance}")
 
 
 async def setup(bot):
     await bot.add_cog(GuessTheBalance(bot))
+    logger.info("[GTB] Cog loaded successfully")
