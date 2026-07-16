@@ -58,7 +58,7 @@ class GuessTheBalance(commands.Cog):
         now_utc = datetime.now(dt.UTC)
         timestamp = int(now_utc.timestamp())
 
-        sorted_guesses = sorted(guesses_dict.items(), key=lambda x: x[1], reverse=True)
+        sorted_guesses = sorted(guesses_dict.values(), key=lambda x: x[1], reverse=True)
         participants_text = "\n".join([f"{username} - ${amount:,}" for username, amount in sorted_guesses])
 
         if not participants_text:
