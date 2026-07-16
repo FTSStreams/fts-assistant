@@ -354,27 +354,28 @@ class User(commands.Cog):
         masked_id = self._mask_roobet_id(roobet_id)
 
         if status_value == "success":
-            title = "🏦 FTS Vault Withdrawal Sent!"
+            title = "🏦 **FTS Vault Withdrawal Sent!** 🏦"
             footer_text = "AutoTip Engine Live • Payout Sent Successfully"
             color = discord.Color.green()
         elif status_value == "failed":
-            title = "🏦 FTS Vault Withdrawal Attempt"
+            title = "🏦 **FTS Vault Withdrawal Attempt** 🏦"
             footer_text = "AutoTip Engine Live • Withdrawal Not Sent"
             color = discord.Color.red()
         else:
-            title = "🏦 FTS Vault Withdrawal Pending Review"
+            title = "🏦 **FTS Vault Withdrawal Pending Review** 🏦"
             footer_text = "AutoTip Engine Live • Manual Review Needed"
             color = discord.Color.orange()
 
         embed = discord.Embed(
             title=title,
             description=(
-                f"**ID:** {masked_id}\n"
-                f"**Amount:** ${float(amount):,.2f} USD\n"
-                f"See FTS Vault Leaderboard -> <#{CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID}>"
+                f"🆔 **ID**: {masked_id}\n"
+                f"💸 **Withdrawn**: ${float(amount):,.2f} USD\n\n"
+                f"See FTS Vault Leaderboard -> 🏦︱fts-vault"
             ),
             color=color,
         )
+        embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
         embed.set_footer(text=footer_text)
         return embed
 
