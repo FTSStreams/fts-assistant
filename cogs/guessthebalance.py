@@ -32,8 +32,6 @@ class GuessTheBalance(commands.Cog):
         self.bot = bot
         self.game_message_id = None
 
-    gtb = app_commands.Group(name="gtb", description="Guess the Balance game commands")
-
     async def _get_text_channel(self, channel_id: int):
         channel = self.bot.get_channel(channel_id)
         if channel is None:
@@ -76,7 +74,7 @@ class GuessTheBalance(commands.Cog):
                 f"**Started:** <t:{timestamp}:f>\n\n"
                 f"**Game Status:** {status_text}\n\n"
                 f"**📜 Rules & Disclosure:**\n"
-                f"• Use /gtb guess [amount] to submit your prediction.\n"
+                f"• Use /gtbguess [amount] to submit your prediction.\n"
                 f"• 1 guess per player\n\n"
                 f"**Prize Multipliers:**\n"
                 f"📈 Within $10: 2x multiplier\n"
@@ -110,7 +108,8 @@ class GuessTheBalance(commands.Cog):
         final = base_prize * multiplier
         return int(final * 100) / 100
 
-    @gtb.command(name="open", description="Open a new GTB game (owner only)")
+    @app_commands.guilds(discord.Object(id=GUILD_ID))
+    @app_commands.command(name="gtbopen", description="Open a new GTB game (owner only)")
     async def gtb_open(self, interaction: discord.Interaction):
         if interaction.user.id != BOT_OWNER_ID:
             await interaction.response.send_message("❌ Only the owner can open a GTB game.", ephemeral=True)
@@ -118,7 +117,7 @@ class GuessTheBalance(commands.Cog):
 
         if interaction.channel_id != GTB_COMMAND_CHANNEL_ID:
             await interaction.response.send_message(
-                f"❌ /gtb open can only be used in <#{GTB_COMMAND_CHANNEL_ID}>.",
+                f"❌ /gtbopen can only be used in <#{GTB_COMMAND_CHANNEL_ID}>.",
                 ephemeral=True,
             )
             return
@@ -132,12 +131,13 @@ class GuessTheBalance(commands.Cog):
 
         logger.info(f"[GTB] Game opened by {interaction.user}")
 
-    @gtb.command(name="guess", description="Submit your guess")
+    @app_commands.guilds(discord.Object(id=GUILD_ID))
+    @app_commands.command(name="gtbguess", description="Submit your guess for the balance")
     @app_commands.describe(amount="Your guess amount (integer)")
     async def gtb_guess(self, interaction: discord.Interaction, amount: int):
         if interaction.channel_id != GTB_COMMAND_CHANNEL_ID:
             await interaction.response.send_message(
-                f"❌ /gtb guess can only be used in <#{GTB_COMMAND_CHANNEL_ID}>.",
+                f"❌ /gtbguess can only be used in <#{GTB_COMMAND_CHANNEL_ID}>.",
                 ephemeral=True,
             )
             return
@@ -181,7 +181,8 @@ class GuessTheBalance(commands.Cog):
         )
         logger.info(f"[GTB] {username} (ID: {interaction.user.id}) guessed ${amount}")
 
-    @gtb.command(name="close", description="Close the game (owner only)")
+    @app_commands.guilds(discord.Object(id=GUILD_ID))
+    @app_commands.command(name="gtbclose", description="Close the game (owner only)")
     async def gtb_close(self, interaction: discord.Interaction):
         if interaction.user.id != BOT_OWNER_ID:
             await interaction.response.send_message("❌ Only the owner can close a GTB game.", ephemeral=True)
@@ -215,7 +216,8 @@ class GuessTheBalance(commands.Cog):
         await interaction.followup.send("✅ GTB game closed.", ephemeral=True)
         logger.info("[GTB] Game closed")
 
-    @gtb.command(name="result", description="Post results and award prizes (owner only)")
+    @app_commands.guilds(discord.Object(id=GUILD_ID))
+    @app_commands.command(name="gtbresult", description="Post results and award prizes (owner only)")
     @app_commands.describe(balance="The final balance amount")
     async def gtb_result(self, interaction: discord.Interaction, balance: int):
         if interaction.user.id != BOT_OWNER_ID:
