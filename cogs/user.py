@@ -371,7 +371,7 @@ class User(commands.Cog):
             description=(
                 f"🆔 **ID**: {masked_id}\n"
                 f"💸 **Withdrawn**: ${float(amount):,.2f} USD\n\n"
-                f"See FTS Vault Leaderboard -> 🏦︱fts-vault"
+                f"See FTS Vault Leaderboard -> <#{CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID}>"
             ),
             color=color,
         )
