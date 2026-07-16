@@ -1492,11 +1492,6 @@ class User(commands.Cog):
                 withdrawal_id=withdrawal_id,
                 error_message=f"Roobet ID not found: {roobet_id}",
             )
-            await self._send_vault_withdraw_log(
-                roobet_id=roobet_id,
-                amount=withdraw_amount,
-                status="failed",
-            )
             await interaction.followup.send(
                 f"❌ No user found with Roobet ID '{roobet_id}' in current data. Your balance was restored.",
                 ephemeral=True,
@@ -1520,11 +1515,6 @@ class User(commands.Cog):
                 roobet_uid=roobet_uid,
                 roobet_username=canonical_username,
                 error_message=f"send_tip exception: {e}",
-            )
-            await self._send_vault_withdraw_log(
-                roobet_id=canonical_username,
-                amount=withdraw_amount,
-                status="unknown",
             )
             await interaction.followup.send(
                 "⚠️ Withdrawal status is uncertain due to a payout transport error. "
@@ -1584,11 +1574,6 @@ class User(commands.Cog):
                 roobet_username=canonical_username,
                 error_message=error_message,
             )
-            await self._send_vault_withdraw_log(
-                roobet_id=canonical_username,
-                amount=withdraw_amount,
-                status="failed",
-            )
             await interaction.followup.send(
                 f"❌ Withdrawal failed: {error_message}. Your check-in balance was restored.",
                 ephemeral=True,
@@ -1619,7 +1604,7 @@ class User(commands.Cog):
             await interaction.followup.send("❌ Limit must be greater than 0.", ephemeral=True)
             return
 
-        logs = get_checkin_withdrawal_logs(limit=limit)
+        logs = get_checkin_withdrawal_logs(limit=limit, statuses=("success",))
         if logs is None:
             await interaction.followup.send("❌ Failed to load historical withdrawal logs from the database.", ephemeral=True)
             return

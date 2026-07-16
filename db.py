@@ -2012,7 +2012,7 @@ def get_checkin_account_summary(discord_user_id):
         release_db_connection(conn)
 
 
-def get_checkin_withdrawal_logs(limit=None):
+def get_checkin_withdrawal_logs(limit=None, statuses=None):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
@@ -2021,9 +2021,16 @@ def get_checkin_withdrawal_logs(limit=None):
             query = """
                 SELECT roobet_username, amount, status, created_at, error_message
                 FROM checkin_withdrawals
-                ORDER BY created_at ASC
             """
             params = []
+
+            if statuses:
+                placeholders = ", ".join(["%s"] * len(statuses))
+                query += f" WHERE status IN ({placeholders})"
+                params.extend([str(status) for status in statuses])
+
+            query += " ORDER BY created_at ASC"
+
             if limit is not None:
                 query += " LIMIT %s"
                 params.append(int(limit))
