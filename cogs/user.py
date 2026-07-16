@@ -14,6 +14,7 @@ from db import (
     process_daily_checkin,
     reserve_checkin_withdrawal,
     finalize_checkin_withdrawal,
+    get_checkin_withdrawal_logs,
     get_checkin_account_summary,
     get_top_checkin_balances,
     get_leaderboard_message_id,
@@ -44,6 +45,7 @@ MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID", "13
 MYWAGER_ADMIN_NOTIFY_CHANNEL_ID = int(os.getenv("MYWAGER_ADMIN_NOTIFY_CHANNEL_ID", "1008041424941498445"))
 CHECKIN_ADMIN_LOG_CHANNEL_ID = int(os.getenv("CHECKIN_ADMIN_LOG_CHANNEL_ID", "1008041424941498445"))
 CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID = int(os.getenv("CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID", "1501283696928362497"))
+FTS_VAULT_WITHDRAW_LOG_CHANNEL_ID = int(os.getenv("FTS_VAULT_WITHDRAW_LOG_CHANNEL_ID", "1527368200910671882"))
 CHECKIN_COMMAND_CHANNEL_ID = int(os.getenv("CHECKIN_COMMAND_CHANNEL_ID", "1036310766300700752"))
 COINFLIP_COMMAND_CHANNEL_ID = int(os.getenv("COINFLIP_COMMAND_CHANNEL_ID", "1501341349780131942"))
 VAULT_RANDOM_DROP_CHANNEL_ID = int(os.getenv("VAULT_RANDOM_DROP_CHANNEL_ID", "1036310766300700752"))
@@ -329,6 +331,77 @@ class User(commands.Cog):
             logger.warning(f"Configured channel {channel_id} is not a text channel/thread")
             return None
         return channel
+
+    @staticmethod
+    def _mask_roobet_id(roobet_id: str):
+        if not roobet_id:
+            return "Unknown•••"
+        if len(roobet_id) <= 3:
+            return "•••"
+        return f"{roobet_id[:-3]}•••"
+
+    @staticmethod
+    def _extract_roobet_id_from_error(error_message: str):
+        if not error_message:
+            return None
+        match = re.search(r"Roobet ID not found:\s*([^\s]+)", error_message)
+        if match:
+            return match.group(1).strip()
+        return None
+
+    def _build_vault_withdraw_log_embed(self, roobet_id: str, amount: float, status: str):
+        status_value = str(status or "unknown").lower()
+        masked_id = self._mask_roobet_id(roobet_id)
+
+        if status_value == "success":
+            title = "🏦 FTS Vault Withdrawal Sent!"
+            footer_text = "AutoTip Engine Live • Payout Sent Successfully"
+            color = discord.Color.green()
+        elif status_value == "failed":
+            title = "🏦 FTS Vault Withdrawal Attempt"
+            footer_text = "AutoTip Engine Live • Withdrawal Not Sent"
+            color = discord.Color.red()
+        else:
+            title = "🏦 FTS Vault Withdrawal Pending Review"
+            footer_text = "AutoTip Engine Live • Manual Review Needed"
+            color = discord.Color.orange()
+
+        embed = discord.Embed(
+            title=title,
+            description=(
+                f"**ID:** {masked_id}\n"
+                f"**Amount:** ${float(amount):,.2f} USD\n"
+                f"See FTS Vault Leaderboard -> <#{CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID}>"
+            ),
+            color=color,
+        )
+        embed.set_footer(text=footer_text)
+        return embed
+
+    async def _send_vault_withdraw_log(
+        self,
+        roobet_id: str,
+        amount: float,
+        status: str,
+        *,
+        channel=None,
+    ):
+        destination = channel
+        if destination is None:
+            if FTS_VAULT_WITHDRAW_LOG_CHANNEL_ID <= 0:
+                return False
+            destination = await self._get_text_channel(FTS_VAULT_WITHDRAW_LOG_CHANNEL_ID)
+
+        if destination is None:
+            return False
+
+        try:
+            embed = self._build_vault_withdraw_log_embed(roobet_id=roobet_id, amount=amount, status=status)
+            await destination.send(embed=embed)
+            return True
+        except Exception as e:
+            logger.error(f"[check_in] Failed to send vault withdraw log embed: {e}")
+            return False
 
     def _build_vault_random_drop_embed(self, drop):
         claims = list(drop.get("claims", []))
@@ -1419,6 +1492,11 @@ class User(commands.Cog):
                 withdrawal_id=withdrawal_id,
                 error_message=f"Roobet ID not found: {roobet_id}",
             )
+            await self._send_vault_withdraw_log(
+                roobet_id=roobet_id,
+                amount=withdraw_amount,
+                status="failed",
+            )
             await interaction.followup.send(
                 f"❌ No user found with Roobet ID '{roobet_id}' in current data. Your balance was restored.",
                 ephemeral=True,
@@ -1442,6 +1520,11 @@ class User(commands.Cog):
                 roobet_uid=roobet_uid,
                 roobet_username=canonical_username,
                 error_message=f"send_tip exception: {e}",
+            )
+            await self._send_vault_withdraw_log(
+                roobet_id=canonical_username,
+                amount=withdraw_amount,
+                status="unknown",
             )
             await interaction.followup.send(
                 "⚠️ Withdrawal status is uncertain due to a payout transport error. "
@@ -1482,6 +1565,11 @@ class User(commands.Cog):
             embed.add_field(name="💼 Remaining Check-In Balance", value=f"**${remaining_balance:,.2f}**", inline=False)
             embed.set_footer(text=f"Processed on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
             await interaction.followup.send(embed=embed, ephemeral=True)
+            await self._send_vault_withdraw_log(
+                roobet_id=canonical_username,
+                amount=withdraw_amount,
+                status="success",
+            )
             logger.info(
                 f"[check_in] Withdrawal sent: discord_user_id={interaction.user.id}, roobet_uid={roobet_uid}, "
                 f"username={canonical_username}, amount={withdraw_amount:.2f}"
@@ -1496,6 +1584,11 @@ class User(commands.Cog):
                 roobet_username=canonical_username,
                 error_message=error_message,
             )
+            await self._send_vault_withdraw_log(
+                roobet_id=canonical_username,
+                amount=withdraw_amount,
+                status="failed",
+            )
             await interaction.followup.send(
                 f"❌ Withdrawal failed: {error_message}. Your check-in balance was restored.",
                 ephemeral=True,
@@ -1503,6 +1596,64 @@ class User(commands.Cog):
             logger.error(
                 f"[check_in] Withdrawal failed for discord_user_id={interaction.user.id}, roobet_id={roobet_id}: {error_message}"
             )
+
+    @app_commands.guilds(discord.Object(id=GUILD_ID))
+    @app_commands.command(name="loadftsvaultlogs", description="Owner-only: backfill FTS Vault withdrawal logs into the configured log channel")
+    @app_commands.describe(limit="Optional max historical logs to post (default: all)")
+    async def loadftsvaultlogs(self, interaction: discord.Interaction, limit: int = None):
+        if interaction.user.id != BOT_OWNER_ID:
+            await interaction.response.send_message("❌ You are not authorized to use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        if FTS_VAULT_WITHDRAW_LOG_CHANNEL_ID <= 0:
+            await interaction.followup.send("❌ FTS vault withdraw log channel is not configured.", ephemeral=True)
+            return
+
+        destination = await self._get_text_channel(FTS_VAULT_WITHDRAW_LOG_CHANNEL_ID)
+        if destination is None:
+            await interaction.followup.send("❌ FTS vault withdraw log channel is invalid or inaccessible.", ephemeral=True)
+            return
+
+        if limit is not None and limit <= 0:
+            await interaction.followup.send("❌ Limit must be greater than 0.", ephemeral=True)
+            return
+
+        logs = get_checkin_withdrawal_logs(limit=limit)
+        if logs is None:
+            await interaction.followup.send("❌ Failed to load historical withdrawal logs from the database.", ephemeral=True)
+            return
+
+        if not logs:
+            await interaction.followup.send("ℹ️ No historical withdrawal logs were found.", ephemeral=True)
+            return
+
+        posted = 0
+        failed = 0
+
+        for row in logs:
+            roobet_id = row.get("roobet_username")
+            if not roobet_id:
+                roobet_id = self._extract_roobet_id_from_error(row.get("error_message"))
+
+            was_posted = await self._send_vault_withdraw_log(
+                roobet_id=roobet_id,
+                amount=float(row.get("amount", 0.0)),
+                status=row.get("status", "unknown"),
+                channel=destination,
+            )
+
+            if was_posted:
+                posted += 1
+            else:
+                failed += 1
+
+        await interaction.followup.send(
+            f"✅ Backfill complete. Posted **{posted}** logs to <#{FTS_VAULT_WITHDRAW_LOG_CHANNEL_ID}>. "
+            f"Failed: **{failed}**.",
+            ephemeral=True,
+        )
 
     @app_commands.command(name="coinflip", description="Gamble your check-in balance on a coin flip")
     @app_commands.describe(wager_amount="Amount to wager")

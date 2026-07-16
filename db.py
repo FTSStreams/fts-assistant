@@ -2012,6 +2012,44 @@ def get_checkin_account_summary(discord_user_id):
         release_db_connection(conn)
 
 
+def get_checkin_withdrawal_logs(limit=None):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+
+            query = """
+                SELECT roobet_username, amount, status, created_at, error_message
+                FROM checkin_withdrawals
+                ORDER BY created_at ASC
+            """
+            params = []
+            if limit is not None:
+                query += " LIMIT %s"
+                params.append(int(limit))
+
+            cur.execute(query, tuple(params))
+            rows = cur.fetchall() or []
+
+            logs = []
+            for row in rows:
+                logs.append(
+                    {
+                        "roobet_username": row[0],
+                        "amount": float(Decimal(row[1] or 0)),
+                        "status": row[2],
+                        "created_at": row[3],
+                        "error_message": row[4],
+                    }
+                )
+            return logs
+    except Exception as e:
+        logger.error(f"Error loading check-in withdrawal logs: {e}")
+        return None
+    finally:
+        release_db_connection(conn)
+
+
 def process_coinflip_bet(discord_user_id, wager_amount, player_choice):
     conn = get_db_connection()
     try:
