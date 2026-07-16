@@ -39,6 +39,7 @@ COGS = [
     "cogs.slotchallenge",
     "cogs.giveaway",
     "cogs.bigwin",
+    "cogs.guessthebalance",
     "cogs.roovsflip",
 ]
 

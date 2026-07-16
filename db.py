@@ -2288,3 +2288,70 @@ def resolve_checkin_withdrawal_hold(discord_user_id, action, note=None):
     finally:
         conn.autocommit = True
         release_db_connection(conn)
+
+
+# ======================== GTB (Guess the Balance) Functions ========================
+
+_gtb_game_state = None
+_gtb_guesses = {}
+
+
+def set_gtb_game_state(status, guesses):
+    """Set the current GTB game state in memory."""
+    global _gtb_game_state, _gtb_guesses
+    _gtb_game_state = {"status": status}
+    _gtb_guesses = guesses.copy() if guesses else {}
+
+
+def get_gtb_game_state():
+    """Get the current GTB game state."""
+    global _gtb_game_state
+    return _gtb_game_state.copy() if _gtb_game_state else None
+
+
+def add_gtb_guess(user_id, username, amount):
+    """Add or update a user's GTB guess."""
+    global _gtb_guesses
+    _gtb_guesses[user_id] = (username, amount)
+
+
+def get_gtb_guesses():
+    """Get all current GTB guesses as dict {user_id: (username, amount)}."""
+    global _gtb_guesses
+    return _gtb_guesses.copy()
+
+
+def clear_gtb_game():
+    """Clear the GTB game state and guesses."""
+    global _gtb_game_state, _gtb_guesses
+    _gtb_game_state = None
+    _gtb_guesses = {}
+
+
+def add_funds_to_vault(discord_user_id, amount):
+    """Add funds to a user's FTS Vault balance."""
+    conn = get_db_connection()
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+
+            amount_dec = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+            cur.execute(
+                """
+                UPDATE user_checkins
+                SET balance = balance + %s, updated_at = NOW()
+                WHERE discord_user_id = %s;
+                """,
+                (amount_dec, str(discord_user_id)),
+            )
+
+            conn.commit()
+            logger.info(f"Added ${amount_dec} to vault for user {discord_user_id}")
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error adding funds to vault for {discord_user_id}: {e}")
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
