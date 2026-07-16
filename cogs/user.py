@@ -1597,7 +1597,6 @@ class User(commands.Cog):
                 f"[check_in] Withdrawal failed for discord_user_id={interaction.user.id}, roobet_id={roobet_id}: {error_message}"
             )
 
-    @app_commands.guilds(discord.Object(id=GUILD_ID))
     @app_commands.command(name="loadftsvaultlogs", description="Owner-only: backfill FTS Vault withdrawal logs into the configured log channel")
     @app_commands.describe(limit="Optional max historical logs to post (default: all)")
     async def loadftsvaultlogs(self, interaction: discord.Interaction, limit: int = None):
