@@ -306,3 +306,7 @@ class GuessTheBalance(commands.Cog):
             ephemeral=True,
         )
         logger.info(f"[GTB] Results posted. Final balance: ${balance}")
+
+
+async def setup(bot):
+    await bot.add_cog(GuessTheBalance(bot))
