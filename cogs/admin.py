@@ -31,6 +31,7 @@ ROLE_MENU_OPTIONS = [
     ("Big Wins", 1441161426671636661),
     ("X Notis", 1441147596491063377),
     ("Kick Notis", 1441148710024118332),
+    ("Emotional Support Viewers", 1527669193799893002),
 ]
 
 
@@ -157,7 +158,9 @@ class Admin(commands.Cog):
         saved_message_id = get_setting_value(ROLE_ASSIGNMENT_MESSAGE_KEY, default=None)
         if saved_message_id:
             try:
-                await channel.fetch_message(int(saved_message_id))
+                tracked_message = await channel.fetch_message(int(saved_message_id))
+                embed = await self._build_role_assignment_embed()
+                await tracked_message.edit(embed=embed, view=self.role_assignment_view)
                 return
             except discord.NotFound:
                 logger.info("Tracked role assignment panel was deleted. Will repost only if channel is empty.")

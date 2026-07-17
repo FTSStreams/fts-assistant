@@ -21,6 +21,7 @@ GUILD_ID = int(os.getenv("GUILD_ID", "1008041420738789536"))
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "0"))
 GTB_COMMAND_CHANNEL_ID = int(os.getenv("GTB_COMMAND_CHANNEL_ID", "1527380205759500369"))
 GTB_WINNER_LOG_CHANNEL_ID = int(os.getenv("GTB_WINNER_LOG_CHANNEL_ID", "1527380252672659467"))
+GTB_ROLE_CLAIM_CHANNEL_ID = int(os.getenv("GTB_ROLE_CLAIM_CHANNEL_ID", "1440843895360590028"))
 GTB_FIRST_PRIZE = float(os.getenv("GTB_FIRST_PRIZE", "3.00"))
 GTB_SECOND_PRIZE = float(os.getenv("GTB_SECOND_PRIZE", "2.00"))
 GTB_THIRD_PRIZE = float(os.getenv("GTB_THIRD_PRIZE", "1.00"))
@@ -81,7 +82,9 @@ class GuessTheBalance(commands.Cog):
                 f"🥈 2nd Place: ${GTB_SECOND_PRIZE:,.2f}\n"
                 f"🥉 3rd Place: ${GTB_THIRD_PRIZE:,.2f}\n\n"
                 f"**Participants (sorted highest to lowest):**\n"
-                f"{participants_text}"
+                f"{participants_text}\n\n"
+                f"📍 **Track Guess The Balance + Logs:** <#{GTB_WINNER_LOG_CHANNEL_ID}>\n"
+                f"🎭 **Claim the Emotional Support Viewer role:** <#{GTB_ROLE_CLAIM_CHANNEL_ID}>"
             ),
             color=discord.Color.blue(),
         )
@@ -243,7 +246,9 @@ class GuessTheBalance(commands.Cog):
                 f"**See FTS Vault Leaderboard:** <#{CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID}>\n\n"
                 f"**Claim Your Prize:**\n"
                 f"• /balance (view your FTS Vault stats)\n"
-                f"• /withdraw (withdraw all or a chosen amount from your FTS Vault to your Roobet ID)"
+                f"• /withdraw (withdraw all or a chosen amount from your FTS Vault to your Roobet ID)\n\n"
+                f"📍 **Track Guess The Balance + Logs:** <#{GTB_WINNER_LOG_CHANNEL_ID}>\n"
+                f"🎭 **Claim the Emotional Support Viewer role:** <#{GTB_ROLE_CLAIM_CHANNEL_ID}>"
             ),
             color=discord.Color.gold(),
         )
