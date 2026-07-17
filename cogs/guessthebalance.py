@@ -22,6 +22,7 @@ BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "0"))
 GTB_COMMAND_CHANNEL_ID = int(os.getenv("GTB_COMMAND_CHANNEL_ID", "1527380205759500369"))
 GTB_WINNER_LOG_CHANNEL_ID = int(os.getenv("GTB_WINNER_LOG_CHANNEL_ID", "1527380252672659467"))
 GTB_ROLE_CLAIM_CHANNEL_ID = int(os.getenv("GTB_ROLE_CLAIM_CHANNEL_ID", "1440843895360590028"))
+GTB_NOTIFY_ROLE_ID = int(os.getenv("GTB_NOTIFY_ROLE_ID", "1527669193799893002"))
 GTB_FIRST_PRIZE = float(os.getenv("GTB_FIRST_PRIZE", "3.00"))
 GTB_SECOND_PRIZE = float(os.getenv("GTB_SECOND_PRIZE", "2.00"))
 GTB_THIRD_PRIZE = float(os.getenv("GTB_THIRD_PRIZE", "1.00"))
@@ -122,7 +123,12 @@ class GuessTheBalance(commands.Cog):
 
         set_gtb_game_state("open", {})
         embed = self._build_gtb_game_embed("open", {})
-        message = await interaction.followup.send(embed=embed)
+        mention_text = f"<@&{GTB_NOTIFY_ROLE_ID}>"
+        message = await interaction.followup.send(
+            content=mention_text,
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(roles=True),
+        )
         self.game_message_id = message.id
 
         logger.info(f"[GTB] Game opened by {interaction.user}")
