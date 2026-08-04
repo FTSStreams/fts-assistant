@@ -40,7 +40,12 @@ ROO_VS_FLIP_PING_ROLE_ID = 1501438806895759482
 ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID = 1440843895360590028
 ROO_VS_FLIP_ALERT_STATE_KEY = "roovsflip_alert_state"
 
-PRIZE_POOL = 250.00
+PRIZE_POOL = float(os.getenv("ROO_VS_FLIP_PRIZE_POOL", "50.00"))
+RVF_CYCLE_DAYS = int(os.getenv("ROO_VS_FLIP_CYCLE_DAYS", "7"))
+RVF_PAYOUT_WEEKDAY = int(os.getenv("ROO_VS_FLIP_PAYOUT_WEEKDAY", "5"))  # Saturday (Mon=0)
+RVF_PAYOUT_HOUR_UTC = int(os.getenv("ROO_VS_FLIP_PAYOUT_HOUR_UTC", "0"))
+RVF_PAYOUT_WINDOW_START_MINUTE = int(os.getenv("ROO_VS_FLIP_PAYOUT_WINDOW_START_MINUTE", "15"))
+RVF_PAYOUT_WINDOW_END_MINUTE = int(os.getenv("ROO_VS_FLIP_PAYOUT_WINDOW_END_MINUTE", "59"))
 MAX_QUEUE_SIZE = 5
 EMBED_MAX_PARTICIPANTS = 8  # Keep description under Discord's 4096-char limit
 PAYOUT_DELAY_SECONDS = 30
@@ -51,7 +56,7 @@ class RooVsFlip(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.last_payout_month = None  # e.g. "2026-03" – prevents double-processing
+        self.last_payout_period = None  # e.g. "2026-08-08" – prevents double-processing
 
     async def cog_load(self):
         ensure_roovsflip_tables()
@@ -79,61 +84,53 @@ class RooVsFlip(commands.Cog):
         self.monthly_payout_check.cancel()
 
     async def recover_missed_payout_on_startup(self):
-        """Self-heal: if the current period has ended but wasn't paid, run payout once."""
+        """Self-heal: if the current cycle has ended but wasn't paid, run payout once."""
         now = datetime.now(dt.UTC)
         event_start = get_roovsflip_event_start()
         if not event_start:
             return
 
         period_end = self.compute_period_end(event_start)
+        period_key = self.compute_period_key(period_end)
         if now < period_end:
             logger.info("[RooVsFlip] Startup check: period still running, no recovery needed.")
             return
 
-        # Derive the payout month from the period end (the month just before it)
-        if period_end.month == 1:
-            payout_year, payout_month = period_end.year - 1, 12
-        else:
-            payout_year, payout_month = period_end.year, period_end.month - 1
-
-        month_key = f"{payout_year}-{payout_month:02d}"
-        if is_roovsflip_paid(payout_year, payout_month):
-            logger.info(f"[RooVsFlip] Startup check: {month_key} already finalized.")
-            self.last_payout_month = month_key
+        payout_year, payout_month = period_end.year, period_end.month
+        if is_roovsflip_paid(payout_year, payout_month, period_key=period_key):
+            logger.info(f"[RooVsFlip] Startup check: {period_key} already finalized.")
+            self.last_payout_period = period_key
             return
 
         logger.warning(
-            f"[RooVsFlip] Startup self-heal: month {month_key} not finalized, running payout."
+            f"[RooVsFlip] Startup self-heal: cycle {period_key} not finalized, running payout."
         )
-        await self.run_monthly_payout(payout_year, payout_month, automated=True)
-        if is_roovsflip_paid(payout_year, payout_month):
-            self.last_payout_month = month_key
+        await self.run_monthly_payout(
+            payout_year,
+            payout_month,
+            period_key=period_key,
+            automated=True,
+        )
+        if is_roovsflip_paid(payout_year, payout_month, period_key=period_key):
+            self.last_payout_period = period_key
 
     # ─── Period helpers ──────────────────────────────────────────────────────
 
     @staticmethod
     def compute_period_end(event_start_str):
         """
-        Return the UTC datetime when the current challenge period ends.
-
-        Rule:
-          - If the event started on the 1st of a month (normal monthly reset),
-            the period ends at the start of the *next* month.
-          - If the event started mid-month (first-ever launch), extend by an
-            extra month so the first period runs roughly 5-6 weeks instead of
-            just the remaining days of the launch month.
+        Return the UTC datetime when the current challenge cycle ends.
         """
         try:
             start = datetime.fromisoformat(event_start_str.replace("Z", "+00:00"))
         except Exception:
             start = datetime.now(dt.UTC)
+        return start + dt.timedelta(days=RVF_CYCLE_DAYS)
 
-        # Mid-month launch → skip forward two months; first-of-month → one month
-        months_ahead = 2 if start.day > 1 else 1
-        target_month = start.month + months_ahead
-        target_year = start.year + (target_month - 1) // 12
-        target_month = ((target_month - 1) % 12) + 1
-        return datetime(target_year, target_month, 1, tzinfo=dt.UTC)
+    @staticmethod
+    def compute_period_key(period_end):
+        """Stable key for one RVF cycle, based on the cycle end date (UTC)."""
+        return period_end.strftime("%Y-%m-%d")
 
     # ─── Prize helpers ────────────────────────────────────────────────────────
 
@@ -325,7 +322,7 @@ class RooVsFlip(commands.Cog):
             f"✅ {game['game_name']} {game.get('emoji', '🎮')}: x{float(game_info['multi']):,.2f} / x{req_display}\n"
             f"🕒 <t:{completed_ts}:F>\n"
             f"{self.build_prize_summary(winner_count)}\n\n"
-            f"📍 Track this month's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
+            f"📍 Track this cycle's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
             f"🎭 Claim the Roo Vs Flip Degens role: <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
         )
         return discord.Embed(
@@ -353,7 +350,7 @@ class RooVsFlip(commands.Cog):
             "✅ Completed Games\n"
             + "\n".join(completed_lines)
             + "\n\n"
-            f"📍 Track this month's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
+            f"📍 Track this cycle's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
             f"🎭 Claim the Roo Vs Flip Degens role: <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
         )
         return discord.Embed(
@@ -445,7 +442,7 @@ class RooVsFlip(commands.Cog):
         except Exception:
             start_ts = now_ts
 
-        # End of this challenge period (mid-month start → 2 months; 1st-of-month → 1 month)
+        # End of this challenge cycle.
         end_dt = self.compute_period_end(event_start_str)
         end_ts = int(end_dt.timestamp())
 
@@ -543,7 +540,7 @@ class RooVsFlip(commands.Cog):
             color=discord.Color.gold(),
         )
         embed.set_footer(
-            text="AutoTip Engine • Auto-pays automatically once the period ends."
+            text="AutoTip Engine • Auto-pays automatically once the cycle ends."
         )
         return embed
 
@@ -555,11 +552,16 @@ class RooVsFlip(commands.Cog):
         if not channel:
             logger.error("[RooVsFlip] ROO_VS_FLIP_CHANNEL_ID channel not found.")
             return
+        role_ping_content = (
+            f"<@&{ROO_VS_FLIP_PING_ROLE_ID}>"
+            if ROO_VS_FLIP_PING_ROLE_ID
+            else None
+        )
         message_id = get_leaderboard_message_id("roovsflip_embed_message_id")
         if message_id:
             try:
                 msg = await channel.fetch_message(message_id)
-                await msg.edit(embed=embed)
+                await msg.edit(content=role_ping_content, embed=embed)
                 logger.info("[RooVsFlip] Live embed updated.")
                 return
             except discord.errors.NotFound:
@@ -568,7 +570,7 @@ class RooVsFlip(commands.Cog):
                 logger.error("[RooVsFlip] Missing permissions to edit embed.")
                 return
         try:
-            msg = await channel.send(embed=embed)
+            msg = await channel.send(content=role_ping_content, embed=embed)
             save_leaderboard_message_id(msg.id, "roovsflip_embed_message_id")
             logger.info("[RooVsFlip] New live embed posted.")
         except discord.errors.Forbidden:
@@ -601,11 +603,19 @@ class RooVsFlip(commands.Cog):
     @tasks.loop(minutes=5)
     async def monthly_payout_check(self):
         """
-        Check for an overdue period every 5 minutes.
-        Pays out the finished event once and resets for the new month.
+        Check for an overdue cycle every 5 minutes.
+        Pays out the finished event once during the configured UTC payout window.
         """
         try:
             now = datetime.now(dt.UTC)
+            is_payout_day = now.weekday() == RVF_PAYOUT_WEEKDAY
+            is_payout_time = (
+                now.hour == RVF_PAYOUT_HOUR_UTC
+                and RVF_PAYOUT_WINDOW_START_MINUTE <= now.minute <= RVF_PAYOUT_WINDOW_END_MINUTE
+            )
+
+            if not (is_payout_day and is_payout_time):
+                return
 
             # Only proceed if the current period has actually ended.
             event_start = get_roovsflip_event_start()
@@ -616,26 +626,26 @@ class RooVsFlip(commands.Cog):
             if now < period_end:
                 return
 
-            # Determine which month just ended (the month before period_end).
-            if period_end.month == 1:
-                payout_year, payout_month = period_end.year - 1, 12
-            else:
-                payout_year, payout_month = period_end.year, period_end.month - 1
+            payout_year, payout_month = period_end.year, period_end.month
+            period_key = self.compute_period_key(period_end)
+            logger.info(f"[RooVsFlip] Payout window — checking cycle {period_key}")
 
-            month_key = f"{payout_year}-{payout_month:02d}"
-            logger.info(f"[RooVsFlip] Payout window — checking month {month_key}")
-
-            if self.last_payout_month == month_key:
+            if self.last_payout_period == period_key:
                 return
 
-            if is_roovsflip_paid(payout_year, payout_month):
-                logger.info(f"[RooVsFlip] {month_key} already in DB, skipping.")
-                self.last_payout_month = month_key
+            if is_roovsflip_paid(payout_year, payout_month, period_key=period_key):
+                logger.info(f"[RooVsFlip] {period_key} already in DB, skipping.")
+                self.last_payout_period = period_key
                 return
 
-            logger.info(f"[RooVsFlip] Running automated payout for {month_key}...")
-            await self.run_monthly_payout(payout_year, payout_month, automated=True)
-            self.last_payout_month = month_key
+            logger.info(f"[RooVsFlip] Running automated payout for {period_key}...")
+            await self.run_monthly_payout(
+                payout_year,
+                payout_month,
+                period_key=period_key,
+                automated=True,
+            )
+            self.last_payout_period = period_key
 
         except Exception as e:
             logger.error(f"[RooVsFlip] Error in monthly_payout_check: {e}", exc_info=True)
@@ -646,14 +656,14 @@ class RooVsFlip(commands.Cog):
 
     # ─── Payout logic ─────────────────────────────────────────────────────────
 
-    async def run_monthly_payout(self, payout_year, payout_month, automated=False):
+    async def run_monthly_payout(self, payout_year, payout_month, period_key=None, automated=False):
         """
         1. Fetch final API data using stored event_start.
         2. Identify full winners.
         3. Split prize pool and send tips.
         4. Post results embed to history channel.
         5. Record all payouts in DB.
-        6. Reset event_start to 1st of new month.
+        6. Reset event_start to the next cycle boundary.
         7. Clear embed message ID so a fresh board is posted next cycle.
         """
         history_channel = (
@@ -663,25 +673,23 @@ class RooVsFlip(commands.Cog):
         )
         queue = get_roovsflip_queue()
         event_start = get_roovsflip_event_start()
+        period_end = self.compute_period_end(event_start)
+        period_key = period_key or self.compute_period_key(period_end)
 
-        # ── Determine next event start from the paid-out month ───────────────
-        if payout_month == 12:
-            next_year, next_month = payout_year + 1, 1
-        else:
-            next_year, next_month = payout_year, payout_month + 1
-        new_start = datetime(next_year, next_month, 1, tzinfo=dt.UTC).isoformat()
+        # ── Determine next event start from current cycle end ───────────────
+        new_start = period_end.isoformat()
         now = datetime.now(dt.UTC)
 
         if not queue:
             logger.warning(
                 f"[RooVsFlip] No games in queue at payout for "
-                f"{payout_year}-{payout_month:02d} — skipping payout."
+                f"{period_key} — skipping payout."
             )
             record_roovsflip_payout(
-                payout_year, payout_month, "NO_GAMES", "NO_GAMES", 0.0
+                payout_year, payout_month, "NO_GAMES", "NO_GAMES", 0.0, period_key=period_key
             )
             record_roovsflip_payout(
-                payout_year, payout_month, "PAID_COMPLETE", "PAID_COMPLETE", 0.0
+                payout_year, payout_month, "PAID_COMPLETE", "PAID_COMPLETE", 0.0, period_key=period_key
             )
             set_roovsflip_event_start(new_start)
             return
@@ -694,7 +702,7 @@ class RooVsFlip(commands.Cog):
         prize_splits = self.compute_prize_split(winner_count)
 
         logger.info(
-            f"[RooVsFlip] {payout_year}-{payout_month:02d}: "
+            f"[RooVsFlip] {period_key}: "
             f"{winner_count} winner(s), prize ${prize_splits[0] if prize_splits else 0:.2f} each"
         )
 
@@ -732,7 +740,7 @@ class RooVsFlip(commands.Cog):
         if winner_count == 0:
             desc += (
                 "\n"
-                "❌ **No winners this month** — all queued games must be completed.\n"
+                "❌ **No winners this cycle** — all queued games must be completed.\n"
                 "💰 Prizepool does not carry over.\n"
             )
         else:
@@ -757,10 +765,10 @@ class RooVsFlip(commands.Cog):
         for i, winner in enumerate(winners):
             prize = prize_splits[i]
 
-            if is_roovsflip_winner_paid(payout_year, payout_month, winner["uid"]):
+            if is_roovsflip_winner_paid(payout_year, payout_month, winner["uid"], period_key=period_key):
                 logger.info(
                     f"[RooVsFlip] Winner {winner['username']} already recorded for "
-                    f"{payout_year}-{payout_month:02d}, skipping re-tip."
+                    f"{period_key}, skipping re-tip."
                 )
                 continue
 
@@ -785,7 +793,7 @@ class RooVsFlip(commands.Cog):
                     )
                     record_roovsflip_payout(
                         payout_year, payout_month,
-                        winner["uid"], winner["username"], prize,
+                        winner["uid"], winner["username"], prize, period_key=period_key,
                     )
                 else:
                     logger.error(
@@ -803,30 +811,30 @@ class RooVsFlip(commands.Cog):
         # If no winners, still mark month as processed
         if winner_count == 0:
             record_roovsflip_payout(
-                payout_year, payout_month, "NO_WINNERS", "NO_WINNERS", 0.0
+                payout_year, payout_month, "NO_WINNERS", "NO_WINNERS", 0.0, period_key=period_key
             )
             record_roovsflip_payout(
-                payout_year, payout_month, "PAID_COMPLETE", "PAID_COMPLETE", 0.0
+                payout_year, payout_month, "PAID_COMPLETE", "PAID_COMPLETE", 0.0, period_key=period_key
             )
         else:
             unpaid_winners = [
                 w["username"]
                 for w in winners
-                if not is_roovsflip_winner_paid(payout_year, payout_month, w["uid"])
+                if not is_roovsflip_winner_paid(payout_year, payout_month, w["uid"], period_key=period_key)
             ]
             if unpaid_winners:
                 logger.error(
-                    "[RooVsFlip] Month not finalized; unpaid winners remain: "
+                    "[RooVsFlip] Cycle not finalized; unpaid winners remain: "
                     + ", ".join(unpaid_winners)
                 )
                 if history_channel:
                     await history_channel.send(
-                        f"⚠️ Roo Vs Flip payout for **{payout_year}-{payout_month:02d}** "
+                        f"⚠️ Roo Vs Flip payout for **{period_key}** "
                         f"is incomplete. Unpaid winners: **{len(unpaid_winners)}**."
                     )
                 return
             record_roovsflip_payout(
-                payout_year, payout_month, "PAID_COMPLETE", "PAID_COMPLETE", 0.0
+                payout_year, payout_month, "PAID_COMPLETE", "PAID_COMPLETE", 0.0, period_key=period_key
             )
 
         # ── Post results to history channel ───────────────────────────────────
@@ -834,11 +842,11 @@ class RooVsFlip(commands.Cog):
             ping = f"<@&{ROO_VS_FLIP_PING_ROLE_ID}>" if ROO_VS_FLIP_PING_ROLE_ID else None
             await history_channel.send(content=ping, embed=result_embed)
 
-        # ── Copy draft queue to active for next month ──────────────────────────
+        # ── Copy draft queue to active for next cycle ──────────────────────────
         copy_roovsflip_draft_to_active()
         logger.info(f"[RooVsFlip] Draft queue copied to active queue.")
 
-        # ── Reset for new month ───────────────────────────────────────────────
+        # ── Reset for next cycle ──────────────────────────────────────────────
         set_roovsflip_event_start(new_start)
         # Setting to 0 makes get_leaderboard_message_id return 0 (falsy),
         # causing the next update cycle to post a fresh embed.
@@ -957,7 +965,7 @@ class RooVsFlip(commands.Cog):
 
     @rvf.command(
         name="queue",
-        description="View the active and next-month Roo Vs Flip queues.",
+        description="View the active and next-cycle Roo Vs Flip queues.",
     )
     async def view_queue(self, interaction: discord.Interaction):
         if interaction.user.id != BOT_OWNER_ID:
@@ -971,7 +979,7 @@ class RooVsFlip(commands.Cog):
         if not active_queue and not draft_queue:
             await interaction.response.send_message(
                 "📋 Queues are empty. Use `/rvf setgame` to bootstrap the active "
-                "queue, then `/rvf draftgame` for future months.",
+                "queue, then `/rvf draftgame` for future cycles.",
                 ephemeral=True,
             )
             return
@@ -989,8 +997,8 @@ class RooVsFlip(commands.Cog):
             f"📋 **Roo Vs Flip Queues** — Current tracking from {start_str}\n"
         ]
 
-        # Active (current month)
-        lines.append("**🟢 ACTIVE (This Month):**")
+        # Active (current cycle)
+        lines.append("**🟢 ACTIVE (This Cycle):**")
         if active_queue:
             for g in active_queue:
                 game_url = f"https://roobet.com/casino/game/{g['game_identifier']}"
@@ -1003,8 +1011,8 @@ class RooVsFlip(commands.Cog):
         else:
             lines.append("*(empty)*\n")
 
-        # Draft (next month)
-        lines.append("**🔵 DRAFT (Next Month):**")
+        # Draft (next cycle)
+        lines.append("**🔵 DRAFT (Next Cycle):**")
         if draft_queue:
             for g in draft_queue:
                 game_url = f"https://roobet.com/casino/game/{g['game_identifier']}"
@@ -1053,7 +1061,7 @@ class RooVsFlip(commands.Cog):
 
     @rvf.command(
         name="draftgame",
-        description="Queue a game into next month's Roo Vs Flip draft.",
+        description="Queue a game into the next-cycle Roo Vs Flip draft.",
     )
     @app_commands.describe(
         position="Queue slot (1–5)",
@@ -1071,7 +1079,7 @@ class RooVsFlip(commands.Cog):
         emoji: str,
         req_multi: float,
     ):
-        """Queue a game for next month's Roo Vs Flip event (draft queue)."""
+        """Queue a game for the next Roo Vs Flip cycle (draft queue)."""
         if interaction.user.id != BOT_OWNER_ID:
             await interaction.response.send_message(
                 "❌ You do not have permission to use this command.", ephemeral=True
@@ -1103,7 +1111,7 @@ class RooVsFlip(commands.Cog):
         set_roovsflip_draft_queue_slot(position, clean_name, game_identifier, emoji, req_multi)
         game_url = f"https://roobet.com/casino/game/{game_identifier}"
         await interaction.response.send_message(
-            f"✅ {emoji} [**{clean_name}**]({game_url}) queued at slot **{position}** for next month (req: **x{req_multi}**).",
+            f"✅ {emoji} [**{clean_name}**]({game_url}) queued at slot **{position}** for next cycle (req: **x{req_multi}**).",
             ephemeral=True,
         )
 
@@ -1144,15 +1152,20 @@ class RooVsFlip(commands.Cog):
                 return
 
             msg_id = get_leaderboard_message_id("roovsflip_embed_message_id")
+            role_ping_content = (
+                f"<@&{ROO_VS_FLIP_PING_ROLE_ID}>"
+                if ROO_VS_FLIP_PING_ROLE_ID
+                else None
+            )
             if msg_id and msg_id > 0:
                 try:
                     msg = await channel.fetch_message(msg_id)
-                    await msg.edit(embed=embed)
+                    await msg.edit(content=role_ping_content, embed=embed)
                 except discord.NotFound:
-                    msg = await channel.send(embed=embed)
+                    msg = await channel.send(content=role_ping_content, embed=embed)
                     save_leaderboard_message_id(msg.id, "roovsflip_embed_message_id")
             else:
-                msg = await channel.send(embed=embed)
+                msg = await channel.send(content=role_ping_content, embed=embed)
                 save_leaderboard_message_id(msg.id, "roovsflip_embed_message_id")
 
             await interaction.followup.send(
@@ -1169,7 +1182,7 @@ class RooVsFlip(commands.Cog):
         description="Preview the results embed as if Roo Vs Flip ended right now.",
     )
     async def temp_log_output(self, interaction: discord.Interaction):
-        """Build and post a preview of the monthly results to the history channel."""
+        """Build and post a preview of the cycle results to the history channel."""
         if interaction.user.id != BOT_OWNER_ID:
             await interaction.response.send_message(
                 "❌ You do not have permission to use this command.", ephemeral=True
@@ -1277,27 +1290,24 @@ class RooVsFlip(commands.Cog):
                 "❌ You do not have permission to use this command.", ephemeral=True
             )
             return
-        now = datetime.now(dt.UTC)
+        event_start = get_roovsflip_event_start()
+        period_end = self.compute_period_end(event_start)
+        target_year, target_month = period_end.year, period_end.month
+        period_key = self.compute_period_key(period_end)
 
-        # Match automated payout behavior: settle the previous month.
-        if now.month == 1:
-            target_year, target_month = now.year - 1, 12
-        else:
-            target_year, target_month = now.year, now.month - 1
-
-        if is_roovsflip_paid(target_year, target_month):
+        if is_roovsflip_paid(target_year, target_month, period_key=period_key):
             await interaction.response.send_message(
-                f"⚠️ Payout for **{target_year}-{target_month:02d}** has already been processed.",
+                f"⚠️ Payout for cycle **{period_key}** has already been processed.",
                 ephemeral=True,
             )
             return
         await interaction.response.send_message(
-            f"⏳ Running Roo Vs Flip payout for **{target_year}-{target_month:02d}** now…",
+            f"⏳ Running Roo Vs Flip payout for cycle **{period_key}** now…",
             ephemeral=True,
         )
-        await self.run_monthly_payout(target_year, target_month, automated=False)
+        await self.run_monthly_payout(target_year, target_month, period_key=period_key, automated=False)
         await interaction.followup.send(
-            "✅ Roo Vs Flip payout complete. Event has been reset for the new period.",
+            "✅ Roo Vs Flip payout complete. Event has been reset for the next cycle.",
             ephemeral=True,
         )
 

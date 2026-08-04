@@ -530,6 +530,7 @@ def ensure_roovsflip_tables():
                     id SERIAL PRIMARY KEY,
                     year INTEGER NOT NULL,
                     month INTEGER NOT NULL,
+                    period_key TEXT,
                     winner_uid TEXT NOT NULL,
                     winner_username TEXT NOT NULL,
                     prize_amount FLOAT NOT NULL,
@@ -537,6 +538,23 @@ def ensure_roovsflip_tables():
                     UNIQUE(year, month, winner_uid)
                 );
             """)
+            cur.execute(
+                "ALTER TABLE roovsflip_payouts "
+                "ADD COLUMN IF NOT EXISTS period_key TEXT;"
+            )
+            cur.execute(
+                "UPDATE roovsflip_payouts "
+                "SET period_key = CONCAT(year::TEXT, '-', LPAD(month::TEXT, 2, '0')) "
+                "WHERE period_key IS NULL;"
+            )
+            cur.execute(
+                "ALTER TABLE roovsflip_payouts "
+                "DROP CONSTRAINT IF EXISTS roovsflip_payouts_year_month_winner_uid_key;"
+            )
+            cur.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS roovsflip_payouts_period_winner_uid_idx "
+                "ON roovsflip_payouts (period_key, winner_uid);"
+            )
             cur.execute(
                 "ALTER TABLE roovsflip_queue "
                 "ADD COLUMN IF NOT EXISTS emoji TEXT DEFAULT '🎮';"
@@ -697,19 +715,29 @@ def swap_roovsflip_queue_positions(position_1, position_2):
         release_db_connection(conn)
 
 
-def is_roovsflip_paid(year, month):
-    """Return True only when the month has been fully finalized."""
+def is_roovsflip_paid(year, month, period_key=None):
+    """Return True when the given Roo Vs Flip period has been finalized."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT COUNT(*)
-                FROM roovsflip_payouts
-                WHERE year = %s AND month = %s AND winner_uid = 'PAID_COMPLETE';
-                """,
-                (year, month),
-            )
+            if period_key:
+                cur.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM roovsflip_payouts
+                    WHERE period_key = %s AND winner_uid = 'PAID_COMPLETE';
+                    """,
+                    (period_key,),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM roovsflip_payouts
+                    WHERE year = %s AND month = %s AND winner_uid = 'PAID_COMPLETE';
+                    """,
+                    (year, month),
+                )
             result = cur.fetchone()
             return (result[0] > 0) if result else False
     except Exception as e:
@@ -719,19 +747,29 @@ def is_roovsflip_paid(year, month):
         release_db_connection(conn)
 
 
-def is_roovsflip_winner_paid(year, month, winner_uid):
-    """Return True if this winner already has a payout row for the month."""
+def is_roovsflip_winner_paid(year, month, winner_uid, period_key=None):
+    """Return True if this winner already has a payout row for the period."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT COUNT(*)
-                FROM roovsflip_payouts
-                WHERE year = %s AND month = %s AND winner_uid = %s;
-                """,
-                (year, month, winner_uid),
-            )
+            if period_key:
+                cur.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM roovsflip_payouts
+                    WHERE period_key = %s AND winner_uid = %s;
+                    """,
+                    (period_key, winner_uid),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM roovsflip_payouts
+                    WHERE year = %s AND month = %s AND winner_uid = %s;
+                    """,
+                    (year, month, winner_uid),
+                )
             result = cur.fetchone()
             return (result[0] > 0) if result else False
     except Exception as e:
@@ -741,18 +779,19 @@ def is_roovsflip_winner_paid(year, month, winner_uid):
         release_db_connection(conn)
 
 
-def record_roovsflip_payout(year, month, winner_uid, winner_username, prize_amount):
-    """Record a single winner payout (or a sentinel 'NO_WINNERS' row)."""
+def record_roovsflip_payout(year, month, winner_uid, winner_username, prize_amount, period_key=None):
+    """Record a single winner payout (or a sentinel row) for a specific period."""
+    period_key = period_key or f"{year}-{month:02d}"
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO roovsflip_payouts (year, month, winner_uid, winner_username, prize_amount)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (year, month, winner_uid) DO NOTHING;
+                INSERT INTO roovsflip_payouts (year, month, period_key, winner_uid, winner_username, prize_amount)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT DO NOTHING;
                 """,
-                (year, month, winner_uid, winner_username, prize_amount),
+                (year, month, period_key, winner_uid, winner_username, prize_amount),
             )
             conn.commit()
     except Exception as e:
@@ -778,9 +817,12 @@ def get_roovsflip_event_start():
     finally:
         release_db_connection(conn)
 
-    # Missing setting: initialize once so future month-boundary checks are stable.
+    # Missing setting: initialize once so future cycle checks are stable.
     now = datetime.now(dt.UTC)
-    default_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    start_weekday = int(os.getenv("ROO_VS_FLIP_START_WEEKDAY", "5"))
+    days_since_start = (now.weekday() - start_weekday) % 7
+    cycle_start = now - dt.timedelta(days=days_since_start)
+    default_start = cycle_start.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     logger.warning(
         "[RooVsFlip] Missing roovsflip_event_start in settings; "
         f"initializing to {default_start}."

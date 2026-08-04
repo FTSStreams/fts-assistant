@@ -63,7 +63,8 @@ CHECKIN_MIN_GUILD_MEMBER_AGE_DAYS = int(os.getenv("CHECKIN_MIN_GUILD_MEMBER_AGE_
 COINFLIP_MIN_BET = float(os.getenv("COINFLIP_MIN_BET", "0.10"))
 COINFLIP_MAX_BET = float(os.getenv("COINFLIP_MAX_BET", "100.00"))
 ROO_VS_FLIP_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_CHANNEL_ID", "1486202172378189925"))
-ROO_VS_FLIP_PRIZE_POOL = 250.00
+ROO_VS_FLIP_PRIZE_POOL = float(os.getenv("ROO_VS_FLIP_PRIZE_POOL", "50.00"))
+ROO_VS_FLIP_CYCLE_DAYS = int(os.getenv("ROO_VS_FLIP_CYCLE_DAYS", "7"))
 MULTI_LEADERBOARD_PRIZES = [25, 15, 10]
 LEADERBOARD_HISTORY_URL = os.getenv(
     "LEADERBOARD_HISTORY_URL",
@@ -2000,11 +2001,7 @@ class User(commands.Cog):
                 participant_completion_counts = {}
 
                 event_start_dt = datetime.fromisoformat(str(event_start).replace("Z", "+00:00"))
-                months_ahead = 2 if event_start_dt.day > 1 else 1
-                target_month = event_start_dt.month + months_ahead
-                target_year = event_start_dt.year + (target_month - 1) // 12
-                target_month = ((target_month - 1) % 12) + 1
-                rvf_period_end = datetime(target_year, target_month, 1, tzinfo=dt.UTC)
+                rvf_period_end = event_start_dt + dt.timedelta(days=ROO_VS_FLIP_CYCLE_DAYS)
 
                 for game in rvf_queue:
                     game_identifier = game.get("game_identifier")
@@ -2081,20 +2078,17 @@ class User(commands.Cog):
                     milestone_paid_current_month = float((cur.fetchone() or [0])[0] or 0)
 
                     if rvf_period_end:
-                        if rvf_period_end.month == 1:
-                            payout_year = rvf_period_end.year - 1
-                            payout_month = 12
-                        else:
-                            payout_year = rvf_period_end.year
-                            payout_month = rvf_period_end.month - 1
+                        payout_year = rvf_period_end.year
+                        payout_month = rvf_period_end.month
+                        payout_period_key = rvf_period_end.strftime("%Y-%m-%d")
 
                         cur.execute(
                             """
                             SELECT COUNT(*)
                             FROM roovsflip_payouts
-                            WHERE year = %s AND month = %s AND winner_uid = %s;
+                            WHERE period_key = %s AND winner_uid = %s;
                             """,
-                            (payout_year, payout_month, str(roobet_uid))
+                            (payout_period_key, str(roobet_uid))
                         )
                         rvf_paid_for_cycle = int((cur.fetchone() or [0])[0] or 0) > 0
             finally:

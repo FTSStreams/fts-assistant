@@ -687,6 +687,8 @@ class DataManager(commands.Cog):
         queue = get_roovsflip_queue()
         draft_queue = get_roovsflip_draft_queue()
         event_start_str = get_roovsflip_event_start()
+        cycle_days = int(os.getenv("ROO_VS_FLIP_CYCLE_DAYS", "7"))
+        prize_pool = float(os.getenv("ROO_VS_FLIP_PRIZE_POOL", "50.00"))
 
         # Replicate RooVsFlip.compute_period_end logic
         def _compute_period_end(start_str):
@@ -694,11 +696,7 @@ class DataManager(commands.Cog):
                 start = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
             except Exception:
                 start = datetime.now(dt.UTC)
-            months_ahead = 2 if start.day > 1 else 1
-            target_month = start.month + months_ahead
-            target_year = start.year + (target_month - 1) // 12
-            target_month = ((target_month - 1) % 12) + 1
-            return datetime(target_year, target_month, 1, tzinfo=dt.UTC)
+            return start + dt.timedelta(days=cycle_days)
 
         period_end = _compute_period_end(event_start_str)
 
@@ -772,7 +770,7 @@ class DataManager(commands.Cog):
         participants.sort(key=lambda x: (-x["completions"], -x["avg_multi"], -x["max_multi"]))
 
         # Prize split
-        PRIZE_POOL = 250.0
+        PRIZE_POOL = prize_pool
         winners = [p for p in participants if p["is_winner"]]
         winner_count = len(winners)
         if winner_count > 0:
@@ -792,18 +790,24 @@ class DataManager(commands.Cog):
         try:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT year, month, winner_uid, winner_username, prize_amount, paid_at
+                    SELECT period_key, year, month, winner_uid, winner_username, prize_amount, paid_at
                     FROM roovsflip_payouts
                     WHERE winner_uid NOT IN ('PAID_COMPLETE', 'NO_WINNERS', 'NO_GAMES')
-                    ORDER BY year DESC, month DESC, prize_amount DESC;
+                    ORDER BY paid_at DESC, prize_amount DESC;
                 """)
                 rows = cur.fetchall()
 
             periods = {}
-            for year, month, uid, username, prize, paid_at in rows:
-                key = f"{year}-{month:02d}"
+            for period_key, year, month, uid, username, prize, paid_at in rows:
+                key = period_key or f"{year}-{month:02d}"
                 if key not in periods:
-                    periods[key] = {"year": year, "month": month, "period_key": key, "winners": [], "total_paid": 0.0}
+                    periods[key] = {
+                        "year": year,
+                        "month": month,
+                        "period_key": key,
+                        "winners": [],
+                        "total_paid": 0.0,
+                    }
                 periods[key]["winners"].append({
                     "username": username,
                     "uid": uid,
@@ -812,7 +816,7 @@ class DataManager(commands.Cog):
                 })
                 periods[key]["total_paid"] += float(prize)
 
-            payout_history = sorted(periods.values(), key=lambda x: (x["year"], x["month"]), reverse=True)
+            payout_history = sorted(periods.values(), key=lambda x: x.get("period_key", ""), reverse=True)
             for p in payout_history:
                 p["winner_count"] = len(p["winners"])
         except Exception as e:
