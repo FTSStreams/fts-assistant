@@ -41,6 +41,7 @@ COGS = [
     "cogs.bigwin",
     "cogs.guessthebalance",
     "cogs.roovsflip",
+    "cogs.welcome",
 ]
 
 @bot.event
