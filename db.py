@@ -2107,6 +2107,51 @@ def get_checkin_account_summary(discord_user_id):
         release_db_connection(conn)
 
 
+def get_checkin_withdrawal_logs(limit=None, statuses=None):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+
+            query = """
+                SELECT roobet_username, amount, status, created_at, error_message
+                FROM checkin_withdrawals
+            """
+            params = []
+
+            if statuses:
+                placeholders = ", ".join(["%s"] * len(statuses))
+                query += f" WHERE status IN ({placeholders})"
+                params.extend([str(status) for status in statuses])
+
+            query += " ORDER BY created_at ASC"
+
+            if limit is not None:
+                query += " LIMIT %s"
+                params.append(int(limit))
+
+            cur.execute(query, tuple(params))
+            rows = cur.fetchall() or []
+
+            logs = []
+            for row in rows:
+                logs.append(
+                    {
+                        "roobet_username": row[0],
+                        "amount": float(Decimal(row[1] or 0)),
+                        "status": row[2],
+                        "created_at": row[3],
+                        "error_message": row[4],
+                    }
+                )
+            return logs
+    except Exception as e:
+        logger.error(f"Error loading check-in withdrawal logs: {e}")
+        return None
+    finally:
+        release_db_connection(conn)
+
+
 def get_gtb_earnings(discord_user_id):
     """Get total GTB earnings for a user."""
     conn = get_db_connection()
