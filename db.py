@@ -2267,13 +2267,45 @@ def get_top_checkin_balances(limit=10):
 
             result = []
             for row in rows:
+                discord_user_id = int(row[0])
+                balance = float(Decimal(row[1] or 0))
+                streak_days = _get_effective_checkin_streak(int(row[2] or 0), row[5])
+                checkin_total_earned = float(Decimal(row[3] or 0))
+                total_withdrawn = float(Decimal(row[4] or 0))
+
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(claimed_amount), 0)
+                    FROM checkin_random_drop_claims
+                    WHERE discord_user_id = %s;
+                    """,
+                    (str(discord_user_id),),
+                )
+                flash_drop_earnings = float(Decimal(cur.fetchone()[0] or 0))
+
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(net_amount), 0)
+                    FROM checkin_coinflip_logs
+                    WHERE discord_user_id = %s;
+                    """,
+                    (str(discord_user_id),),
+                )
+                gamble_earnings = float(Decimal(cur.fetchone()[0] or 0))
+
+                checkin_earnings = checkin_total_earned - flash_drop_earnings
+                total_earnings = checkin_earnings + flash_drop_earnings + gamble_earnings
+
                 result.append(
                     {
-                        "discord_user_id": int(row[0]),
-                        "balance": float(Decimal(row[1] or 0)),
-                        "streak_days": _get_effective_checkin_streak(int(row[2] or 0), row[5]),
-                        "total_earned": float(Decimal(row[3] or 0)),
-                        "total_withdrawn": float(Decimal(row[4] or 0)),
+                        "discord_user_id": discord_user_id,
+                        "balance": balance,
+                        "streak_days": streak_days,
+                        "checkin_earnings": round(checkin_earnings, 2),
+                        "gamble_earnings": round(gamble_earnings, 2),
+                        "flash_drop_earnings": round(flash_drop_earnings, 2),
+                        "total_earnings": round(total_earnings, 2),
+                        "total_withdrawn": total_withdrawn,
                         "last_checkin_date": str(row[5]) if row[5] else None,
                     }
                 )

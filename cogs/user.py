@@ -897,20 +897,26 @@ class User(commands.Cog):
                 display_name = row.get("display_name") or f"User {row['discord_user_id']}"
                 balance = float(row.get("balance", 0.0))
                 streak_days = int(row.get("streak_days", 0))
-                total_earned = float(row.get("total_earned", 0.0))
+                checkin_earnings = float(row.get("checkin_earnings", 0.0))
+                gamble_earnings = float(row.get("gamble_earnings", 0.0))
+                flash_drop_earnings = float(row.get("flash_drop_earnings", 0.0))
+                total_earnings = float(row.get("total_earnings", 0.0))
                 total_withdrawn = float(row.get("total_withdrawn", 0.0))
                 embed.add_field(
                     name=f"{marker} — {display_name}",
                     value=(
-                        f"💼 **Balance:** `${balance:,.2f}`\n"
+                        f"💼 **Available Balance:** `${balance:,.2f}`\n"
                         f"🔥 **Streak:** `{streak_days}` day(s)\n"
-                        f"🧾 **Total Earned:** `${total_earned:,.2f}`\n"
+                        f"🧾 **Check-In Earnings:** `${checkin_earnings:,.2f}`\n"
+                        f"🎲 **Gamble Earnings:** `${gamble_earnings:,.2f}`\n"
+                        f"🎁 **Flash Drop Earnings:** `${flash_drop_earnings:,.2f}`\n"
+                        f"📊 **Total Earnings:** `${total_earnings:,.2f}`\n"
                         f"💸 **Total Withdrawn:** `${total_withdrawn:,.2f}`"
                     ),
                     inline=False,
                 )
 
-        embed.set_footer(text="Auto-refreshes every 15 minutes")
+        embed.set_footer(text="Total Earnings = Check-In + Flash Drop +/- Gamble | Auto-refreshes every 15 minutes")
         return embed
 
     @tasks.loop(minutes=1)
