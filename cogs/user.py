@@ -372,7 +372,8 @@ class User(commands.Cog):
             description=(
                 f"🆔 **ID**: {masked_id}\n"
                 f"💸 **Withdrawn**: ${float(amount):,.2f} USD\n\n"
-                f"See FTS Vault Leaderboard -> <#{CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID}>"
+                f"📍 **Track FTS Vault Leaderboard:** <#{CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID}>\n"
+                f"🎭 **Claim the Giveaway Hunter role:** <#{VAULT_ROLE_CLAIM_CHANNEL_ID}>"
             ),
             color=color,
         )
@@ -918,7 +919,7 @@ class User(commands.Cog):
                     inline=False,
                 )
 
-        embed.set_footer(text="Check-In = vault credits | Flash Drop = random drop claims | GTB = guess the balance wins | Gamble = coinflip PnL | Auto-refreshes every 15 minutes")
+        embed.set_footer(text="AutoTip Engine • /withdraw to receive your funds instantly")
         return embed
 
     @tasks.loop(minutes=1)
@@ -1404,7 +1405,7 @@ class User(commands.Cog):
         embed.add_field(name="💸 Total Withdrawn", value=f"**${total_withdrawn:,.2f}**", inline=True)
         embed.add_field(name="📅 Last Check-In Date", value=f"**{last_checkin_text}**", inline=True)
         embed.add_field(name="⏭️ Next Reset", value=f"<t:{int(next_reset.timestamp())}:R>", inline=False)
-        embed.set_footer(text="Total Earnings = Check-In + Flash Drop + GTB + Gamble PnL | Use /withdraw once your balance is at least $1.00")
+        embed.set_footer(text="AutoTip Engine • /withdraw to receive your funds instantly")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="withdraw", description="Withdraw check-in balance to a Roobet username (minimum $1.00)")
