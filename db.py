@@ -1561,6 +1561,16 @@ def _get_or_create_checkin_row(cur, discord_user_id):
     return cur.fetchone()
 
 
+def _get_effective_checkin_streak(streak_days, last_checkin_date, today=None):
+    if today is None:
+        today = datetime.now(dt.UTC).date()
+
+    yesterday = today - dt.timedelta(days=1)
+    if last_checkin_date in (today, yesterday):
+        return int(streak_days or 0)
+    return 0
+
+
 def process_daily_checkin(discord_user_id):
     conn = get_db_connection()
     try:
@@ -2026,7 +2036,7 @@ def get_checkin_account_summary(discord_user_id):
             row = _get_or_create_checkin_row(cur, discord_user_id)
             conn.commit()
 
-            streak_days = int(row[0] or 0)
+            stored_streak_days = int(row[0] or 0)
             balance = float(Decimal(row[1] or 0))
             last_checkin_date = row[2]
             total_earned = float(Decimal(row[5] or 0))
@@ -2034,6 +2044,7 @@ def get_checkin_account_summary(discord_user_id):
 
             today = datetime.now(dt.UTC).date()
             claimed_today = (last_checkin_date == today)
+            streak_days = _get_effective_checkin_streak(stored_streak_days, last_checkin_date, today=today)
             next_reward = min(1.00, round((streak_days + 1) * 0.01, 2))
 
             return {
@@ -2211,7 +2222,15 @@ def get_top_checkin_balances(limit=10):
                     last_checkin_date
                 FROM user_checkins
                 WHERE balance > 0
-                ORDER BY balance DESC, streak_days DESC, updated_at ASC
+                ORDER BY
+                    balance DESC,
+                    CASE
+                        WHEN last_checkin_date IS NOT NULL
+                             AND last_checkin_date >= ((NOW() AT TIME ZONE 'UTC')::date - 1)
+                        THEN streak_days
+                        ELSE 0
+                    END DESC,
+                    updated_at ASC
                 LIMIT %s;
                 """,
                 (int(limit),),
@@ -2225,7 +2244,7 @@ def get_top_checkin_balances(limit=10):
                     {
                         "discord_user_id": int(row[0]),
                         "balance": float(Decimal(row[1] or 0)),
-                        "streak_days": int(row[2] or 0),
+                        "streak_days": _get_effective_checkin_streak(int(row[2] or 0), row[5]),
                         "total_earned": float(Decimal(row[3] or 0)),
                         "total_withdrawn": float(Decimal(row[4] or 0)),
                         "last_checkin_date": str(row[5]) if row[5] else None,
