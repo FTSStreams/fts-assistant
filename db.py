@@ -2263,7 +2263,6 @@ def get_top_checkin_balances(limit=10):
                 (int(limit),),
             )
             rows = cur.fetchall()
-            conn.commit()
 
             result = []
             for row in rows:
@@ -2309,6 +2308,7 @@ def get_top_checkin_balances(limit=10):
                         "last_checkin_date": str(row[5]) if row[5] else None,
                     }
                 )
+            conn.commit()
             return result
     except Exception as e:
         conn.rollback()
