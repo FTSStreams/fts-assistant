@@ -237,12 +237,13 @@ class GuessTheBalance(commands.Cog):
             base_prize = base_prizes[idx]
             final_prize = self._calculate_prize(base_prize, multiplier)
             medal = medals[idx]
+            placement = idx + 1
             results_lines.append(
-                f"{medal} **{idx+1}{['st', 'nd', 'rd'][idx]} Place:** {username} (Guessed ${guess_amount:,}) - "
+                f"{medal} **{placement}{['st', 'nd', 'rd'][idx]} Place:** {username} (Guessed ${guess_amount:,}) - "
                 f"Difference: ${difference} - {multiplier}x Multiplier - Wins ${final_prize:,.2f}"
             )
             winner_mention_ids.append(user_id)
-            add_funds_to_vault(user_id, final_prize)
+            add_funds_to_vault(user_id, final_prize, gtb_placement=placement, gtb_display_name=username)
 
         embed = discord.Embed(
             title="🎯 **Guess the Balance - Results!**",

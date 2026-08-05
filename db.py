@@ -1036,6 +1036,18 @@ def _ensure_checkin_tables(cur):
         );
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gtb_payout_logs (
+            id BIGSERIAL PRIMARY KEY,
+            discord_user_id BIGINT NOT NULL,
+            display_name TEXT,
+            payout_amount NUMERIC(12, 2) NOT NULL,
+            placement INTEGER NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """
+    )
 
 
 def _get_checkin_random_drop_claims(cur, drop_id):
@@ -2055,6 +2067,8 @@ def get_checkin_account_summary(discord_user_id):
             )
             gamble_earnings = float(Decimal(cur.fetchone()[0] or 0))
 
+            gtb_earnings = get_gtb_earnings(discord_user_id)
+
             conn.commit()
 
             stored_streak_days = int(row[0] or 0)
@@ -2063,7 +2077,7 @@ def get_checkin_account_summary(discord_user_id):
             total_earned = float(Decimal(row[5] or 0))
             total_withdrawn = float(Decimal(row[6] or 0))
             checkin_earnings = total_earned - flash_drop_earnings
-            total_earnings = checkin_earnings + flash_drop_earnings + gamble_earnings
+            total_earnings = checkin_earnings + flash_drop_earnings + gamble_earnings + gtb_earnings
 
             today = datetime.now(dt.UTC).date()
             claimed_today = (last_checkin_date == today)
@@ -2081,6 +2095,7 @@ def get_checkin_account_summary(discord_user_id):
                 "checkin_earnings": round(checkin_earnings, 2),
                 "gamble_earnings": round(gamble_earnings, 2),
                 "flash_drop_earnings": round(flash_drop_earnings, 2),
+                "gtb_earnings": round(gtb_earnings, 2),
                 "total_earnings": round(total_earnings, 2),
             }
     except Exception as e:
@@ -2092,7 +2107,51 @@ def get_checkin_account_summary(discord_user_id):
         release_db_connection(conn)
 
 
-def get_checkin_withdrawal_logs(limit=None, statuses=None):
+def get_gtb_earnings(discord_user_id):
+    """Get total GTB earnings for a user."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(payout_amount), 0)
+                FROM gtb_payout_logs
+                WHERE discord_user_id = %s;
+                """,
+                (str(discord_user_id),),
+            )
+            result = cur.fetchone()
+            return float(Decimal(result[0] or 0))
+    except Exception as e:
+        logger.error(f"Error getting GTB earnings for {discord_user_id}: {e}")
+        return 0.0
+    finally:
+        release_db_connection(conn)
+
+
+def backfill_gtb_payouts(payouts):
+    """Backfill historical GTB payouts. Payouts is list of (discord_user_id, display_name, payout_amount, placement)."""
+    conn = get_db_connection()
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            for user_id, display_name, payout_amount, placement in payouts:
+                cur.execute(
+                    """
+                    INSERT INTO gtb_payout_logs (discord_user_id, display_name, payout_amount, placement)
+                    VALUES (%s, %s, %s, %s);
+                    """,
+                    (str(user_id), display_name, Decimal(str(payout_amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN), int(placement)),
+                )
+            conn.commit()
+            logger.info(f"Backfilled {len(payouts)} GTB payouts")
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error backfilling GTB payouts: {e}")
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
@@ -2292,8 +2351,18 @@ def get_top_checkin_balances(limit=10):
                 )
                 gamble_earnings = float(Decimal(cur.fetchone()[0] or 0))
 
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(payout_amount), 0)
+                    FROM gtb_payout_logs
+                    WHERE discord_user_id = %s;
+                    """,
+                    (str(discord_user_id),),
+                )
+                gtb_earnings = float(Decimal(cur.fetchone()[0] or 0))
+
                 checkin_earnings = checkin_total_earned - flash_drop_earnings
-                total_earnings = checkin_earnings + flash_drop_earnings + gamble_earnings
+                total_earnings = checkin_earnings + flash_drop_earnings + gamble_earnings + gtb_earnings
 
                 result.append(
                     {
@@ -2303,6 +2372,7 @@ def get_top_checkin_balances(limit=10):
                         "checkin_earnings": round(checkin_earnings, 2),
                         "gamble_earnings": round(gamble_earnings, 2),
                         "flash_drop_earnings": round(flash_drop_earnings, 2),
+                        "gtb_earnings": round(gtb_earnings, 2),
                         "total_earnings": round(total_earnings, 2),
                         "total_withdrawn": total_withdrawn,
                         "last_checkin_date": str(row[5]) if row[5] else None,
@@ -2448,8 +2518,8 @@ def clear_gtb_game():
     _gtb_guesses = {}
 
 
-def add_funds_to_vault(discord_user_id, amount):
-    """Add funds to a user's FTS Vault balance."""
+def add_funds_to_vault(discord_user_id, amount, gtb_placement=None, gtb_display_name=None):
+    """Add funds to a user's FTS Vault balance. Optionally log GTB payout."""
     conn = get_db_connection()
     try:
         conn.autocommit = False
@@ -2457,6 +2527,15 @@ def add_funds_to_vault(discord_user_id, amount):
             _ensure_checkin_tables(cur)
 
             amount_dec = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+            if gtb_placement is not None:
+                cur.execute(
+                    """
+                    INSERT INTO gtb_payout_logs (discord_user_id, display_name, payout_amount, placement)
+                    VALUES (%s, %s, %s, %s);
+                    """,
+                    (str(discord_user_id), gtb_display_name, amount_dec, int(gtb_placement)),
+                )
 
             cur.execute(
                 """

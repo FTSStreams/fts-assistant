@@ -900,6 +900,7 @@ class User(commands.Cog):
                 checkin_earnings = float(row.get("checkin_earnings", 0.0))
                 gamble_earnings = float(row.get("gamble_earnings", 0.0))
                 flash_drop_earnings = float(row.get("flash_drop_earnings", 0.0))
+                gtb_earnings = float(row.get("gtb_earnings", 0.0))
                 total_earnings = float(row.get("total_earnings", 0.0))
                 total_withdrawn = float(row.get("total_withdrawn", 0.0))
                 embed.add_field(
@@ -910,13 +911,14 @@ class User(commands.Cog):
                         f"🧾 **Check-In Earnings:** `${checkin_earnings:,.2f}`\n"
                         f"🎲 **Gamble Earnings:** `${gamble_earnings:,.2f}`\n"
                         f"🎁 **Flash Drop Earnings:** `${flash_drop_earnings:,.2f}`\n"
+                        f"🏦 **GTB Earnings:** `${gtb_earnings:,.2f}`\n"
                         f"📊 **Total Earnings:** `${total_earnings:,.2f}`\n"
                         f"💸 **Total Withdrawn:** `${total_withdrawn:,.2f}`"
                     ),
                     inline=False,
                 )
 
-        embed.set_footer(text="Total Earnings = Check-In + Flash Drop +/- Gamble | Auto-refreshes every 15 minutes")
+        embed.set_footer(text="Check-In = vault credits | Flash Drop = random drop claims | GTB = guess the balance wins | Gamble = coinflip PnL | Auto-refreshes every 15 minutes")
         return embed
 
     @tasks.loop(minutes=1)
@@ -1378,6 +1380,7 @@ class User(commands.Cog):
         checkin_earnings = float(summary.get("checkin_earnings", 0.0))
         gamble_earnings = float(summary.get("gamble_earnings", 0.0))
         flash_drop_earnings = float(summary.get("flash_drop_earnings", 0.0))
+        gtb_earnings = float(summary.get("gtb_earnings", 0.0))
         total_earnings = float(summary.get("total_earnings", 0.0))
         last_checkin_date = summary.get("last_checkin_date")
         claimed_today = bool(summary.get("claimed_today", False))
@@ -1396,11 +1399,12 @@ class User(commands.Cog):
         embed.add_field(name="🧾 Check-In Earnings", value=f"**${checkin_earnings:,.2f}**", inline=True)
         embed.add_field(name="🎲 Gamble Earnings", value=f"**${gamble_earnings:,.2f}**", inline=True)
         embed.add_field(name="🎁 Flash Drop Earnings", value=f"**${flash_drop_earnings:,.2f}**", inline=True)
+        embed.add_field(name="🏦 GTB Earnings", value=f"**${gtb_earnings:,.2f}**", inline=True)
         embed.add_field(name="📊 Total Earnings", value=f"**${total_earnings:,.2f}**", inline=True)
         embed.add_field(name="💸 Total Withdrawn", value=f"**${total_withdrawn:,.2f}**", inline=True)
         embed.add_field(name="📅 Last Check-In Date", value=f"**{last_checkin_text}**", inline=True)
         embed.add_field(name="⏭️ Next Reset", value=f"<t:{int(next_reset.timestamp())}:R>", inline=False)
-        embed.set_footer(text="Total Earnings = Check-In + Flash Drop +/- Gamble | Use /withdraw once your balance is at least $1.00")
+        embed.set_footer(text="Total Earnings = Check-In + Flash Drop + GTB + Gamble PnL | Use /withdraw once your balance is at least $1.00")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="withdraw", description="Withdraw check-in balance to a Roobet username (minimum $1.00)")
