@@ -51,6 +51,7 @@ COINFLIP_COMMAND_CHANNEL_ID = int(os.getenv("COINFLIP_COMMAND_CHANNEL_ID", "1501
 VAULT_RANDOM_DROP_CHANNEL_ID = int(os.getenv("VAULT_RANDOM_DROP_CHANNEL_ID", "1036310766300700752"))
 VAULT_RANDOM_DROP_ANNOUNCE_ROLE_ID = int(os.getenv("VAULT_RANDOM_DROP_ANNOUNCE_ROLE_ID", "1441158750386917526"))
 VAULT_ROLE_CLAIM_CHANNEL_ID = int(os.getenv("VAULT_ROLE_CLAIM_CHANNEL_ID", "1440843895360590028"))
+VAULT_ROLE_LABEL = f"<@&{VAULT_RANDOM_DROP_ANNOUNCE_ROLE_ID}>" if VAULT_RANDOM_DROP_ANNOUNCE_ROLE_ID > 0 else "Giveaway Hunter"
 VAULT_RANDOM_DROP_REWARD_AMOUNT = float(os.getenv("VAULT_RANDOM_DROP_REWARD_AMOUNT", "1.50"))
 VAULT_RANDOM_DROP_MAX_CLAIMS = int(os.getenv("VAULT_RANDOM_DROP_MAX_CLAIMS", "3"))
 VAULT_RANDOM_DROP_EXPIRY_MINUTES = int(os.getenv("VAULT_RANDOM_DROP_EXPIRY_MINUTES", "3"))
@@ -373,7 +374,7 @@ class User(commands.Cog):
                 f"🆔 **ID**: {masked_id}\n"
                 f"💸 **Withdrawn**: ${float(amount):,.2f} USD\n\n"
                 f"📍 **Track FTS Vault Leaderboard:** <#{CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID}>\n"
-                f"🎭 **Claim the Giveaway Hunter role:** <#{VAULT_ROLE_CLAIM_CHANNEL_ID}>"
+                f"🎭 **Claim the {VAULT_ROLE_LABEL} role:** <#{VAULT_ROLE_CLAIM_CHANNEL_ID}>"
             ),
             color=color,
         )
@@ -485,7 +486,7 @@ class User(commands.Cog):
             name="\u200b",
             value=(
                 f"📍 Track vault leaderboard: <#{CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID}>\n"
-                f"🎭 Claim the Giveaway Merchant role: <#{VAULT_ROLE_CLAIM_CHANNEL_ID}>"
+                f"🎭 Claim the {VAULT_ROLE_LABEL} role: <#{VAULT_ROLE_CLAIM_CHANNEL_ID}>"
             ),
             inline=False,
         )

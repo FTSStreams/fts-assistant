@@ -38,6 +38,7 @@ ROO_VS_FLIP_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_CHANNEL_ID", "0"))
 ROO_VS_FLIP_HISTORY_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_HISTORY_CHANNEL_ID", "0"))
 ROO_VS_FLIP_PING_ROLE_ID = 1501438806895759482
 ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID = 1440843895360590028
+ROO_VS_FLIP_ROLE_LABEL = f"<@&{ROO_VS_FLIP_PING_ROLE_ID}>"
 ROO_VS_FLIP_ALERT_STATE_KEY = "roovsflip_alert_state"
 
 PRIZE_POOL = float(os.getenv("ROO_VS_FLIP_PRIZE_POOL", "50.00"))
@@ -323,7 +324,7 @@ class RooVsFlip(commands.Cog):
             f"🕒 <t:{completed_ts}:F>\n"
             f"{self.build_prize_summary(winner_count)}\n\n"
             f"📍 Track this cycle's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
-            f"🎭 Claim the Roo Vs Flip Degens role: <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
+            f"🎭 Claim the {ROO_VS_FLIP_ROLE_LABEL} role: <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
         )
         return discord.Embed(
             title="🎯 Roo Vs Flip Progress",
@@ -351,7 +352,7 @@ class RooVsFlip(commands.Cog):
             + "\n".join(completed_lines)
             + "\n\n"
             f"📍 Track this cycle's Roo vs Flip challenge: <#{ROO_VS_FLIP_CHANNEL_ID}>\n"
-            f"🎭 Claim the Roo Vs Flip Degens role: <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
+            f"🎭 Claim the {ROO_VS_FLIP_ROLE_LABEL} role: <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
         )
         return discord.Embed(
             title="🏁 Roo Vs Flip Completion Alert",
@@ -527,7 +528,7 @@ class RooVsFlip(commands.Cog):
 
         desc += (
             f"\n\n📍 **Track completion and payout logs:** <#{ROO_VS_FLIP_HISTORY_CHANNEL_ID}>"
-            f"\n🎭 **Claim the Roo Vs Flip Degens role:** <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
+            f"\n🎭 **Claim the {ROO_VS_FLIP_ROLE_LABEL} role:** <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
         )
 
         # Safety: Discord embed description limit is 4096 chars
@@ -754,7 +755,7 @@ class RooVsFlip(commands.Cog):
 
         desc += (
             f"\n📍 **Track completion and payout logs:** <#{ROO_VS_FLIP_HISTORY_CHANNEL_ID}>\n"
-            f"🎭 **Claim the Roo Vs Flip Degens role:** <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
+            f"🎭 **Claim the {ROO_VS_FLIP_ROLE_LABEL} role:** <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
         )
 
         result_embed.description = desc
@@ -1252,7 +1253,7 @@ class RooVsFlip(commands.Cog):
 
             desc += (
                 f"\n📍 **Track completion and payout logs:** <#{ROO_VS_FLIP_HISTORY_CHANNEL_ID}>\n"
-                f"🎭 **Claim the Roo Vs Flip Degens role:** <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
+                f"🎭 **Claim the {ROO_VS_FLIP_ROLE_LABEL} role:** <#{ROO_VS_FLIP_ROLE_CLAIM_CHANNEL_ID}>"
             )
 
             result_embed.description = desc

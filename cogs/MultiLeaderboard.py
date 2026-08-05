@@ -16,6 +16,8 @@ MULTI_LEADERBOARD_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID"))  #
 WEEKLY_MULTIPLIER_LEADERBOARD_CHANNEL_ID = int(os.getenv("WEEKLY_MULTIPLIER_LEADERBOARD_CHANNEL_ID", "1352322188102991932"))
 WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID = int(os.getenv("WEEKLY_MULTIPLIER_LOGS_CHANNEL_ID", "1439815024565817434"))
 WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID = int(os.getenv("WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID", "1440843895360590028"))
+WEEKLY_MULTIPLIER_PING_ROLE_ID = os.getenv("WEEKLY_MULTIPLIER_PING_ROLE_ID", "1441159759389528264")
+WEEKLY_MULTIPLIER_ROLE_LABEL = f"<@&{WEEKLY_MULTIPLIER_PING_ROLE_ID}>" if WEEKLY_MULTIPLIER_PING_ROLE_ID else "Weekly Multiplier"
 WEEKLY_MULTIPLIER_ALERT_STATE_KEY = "weekly_multiplier_leaderboard_alert_state"
 if not MULTI_LEADERBOARD_CHANNEL_ID:
     raise RuntimeError("MULTI_LEADERBOARD_CHANNEL_ID environment variable must be set!")
@@ -208,7 +210,7 @@ class MultiLeaderboard(commands.Cog):
                 description += "\n\n⬇️ **Replaced:**\n" + "\n".join(dropped_lines)
             description += (
                 f"\n\n📍 **Track this week's multiplier leaderboard:** <#{WEEKLY_MULTIPLIER_LEADERBOARD_CHANNEL_ID}>\n"
-                f"🎭 **Claim the Weekly Multiplier role:** <#{WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID}>"
+                f"🎭 **Claim the {WEEKLY_MULTIPLIER_ROLE_LABEL} role:** <#{WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID}>"
             )
 
             embed = discord.Embed(
@@ -242,14 +244,14 @@ class MultiLeaderboard(commands.Cog):
                 f"**Week Period:** <t:{week_start_ts}:F> → <t:{week_end_ts}:F>\n\n"
                 f"{winners_text}"
                 f"📍 **Track this week's multiplier leaderboard:** <#{WEEKLY_MULTIPLIER_LEADERBOARD_CHANNEL_ID}>\n"
-                f"🎭 **Claim the Weekly Multiplier role:** <#{WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID}>"
+                f"🎭 **Claim the {WEEKLY_MULTIPLIER_ROLE_LABEL} role:** <#{WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID}>"
             )
         else:
             description = (
                 f"**Week of {week_key}**\n\n"
                 f"{winners_text}"
                 f"📍 **Track this week's multiplier leaderboard:** <#{WEEKLY_MULTIPLIER_LEADERBOARD_CHANNEL_ID}>\n"
-                f"🎭 **Claim the Weekly Multiplier role:** <#{WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID}>"
+                f"🎭 **Claim the {WEEKLY_MULTIPLIER_ROLE_LABEL} role:** <#{WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID}>"
             )
 
         embed = discord.Embed(
@@ -351,7 +353,7 @@ class MultiLeaderboard(commands.Cog):
             )
         if WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID:
             channel_lines.append(
-                f"🎭 **Claim the Weekly Multiplier role:** <#{WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID}>"
+                f"🎭 **Claim the {WEEKLY_MULTIPLIER_ROLE_LABEL} role:** <#{WEEKLY_MULTIPLIER_ROLE_CLAIM_CHANNEL_ID}>"
             )
         if channel_lines:
             embed.add_field(name="\u200b", value="\n".join(channel_lines), inline=False)

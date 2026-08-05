@@ -17,6 +17,7 @@ MONTHLY_GOAL_CHANNEL_ID = 1036310766300700752
 WAGER_LEADERBOARD_LOGS_CHANNEL_ID = int(os.getenv("WAGER_LEADERBOARD_LOGS_CHANNEL_ID", "1439815084078792774"))
 WAGER_LEADERBOARD_ROLE_CLAIM_CHANNEL_ID = int(os.getenv("WAGER_LEADERBOARD_ROLE_CLAIM_CHANNEL_ID", "1440843895360590028"))
 WAGER_LEADERBOARD_PING_ROLE_ID = int(os.getenv("WAGER_LEADERBOARD_PING_ROLE_ID", "1501622029848150178"))
+WAGER_LEADERBOARD_ROLE_LABEL = f"<@&{WAGER_LEADERBOARD_PING_ROLE_ID}>"
 PRIZE_DISTRIBUTION = [500, 300, 225, 175, 125, 75, 40, 30, 25, 5]
 GOAL_THRESHOLDS = [
     50000, 100000, 150000, 200000, 250000, 300000, 350000, 400000, 450000, 500000,
@@ -61,7 +62,7 @@ class Leaderboard(commands.Cog):
             "**Winners:**\n\n"
             + "\n\n".join(winners_lines)
             + f"\n\n📍 **View LB Logs:** <#{WAGER_LEADERBOARD_LOGS_CHANNEL_ID}>\n"
-            f"🎭 **Claim your Wager Leaderboard role:** <#{WAGER_LEADERBOARD_ROLE_CLAIM_CHANNEL_ID}>"
+            f"🎭 **Claim your {WAGER_LEADERBOARD_ROLE_LABEL} role:** <#{WAGER_LEADERBOARD_ROLE_CLAIM_CHANNEL_ID}>"
         )
 
         embed = discord.Embed(
@@ -298,7 +299,7 @@ class Leaderboard(commands.Cog):
                 "💵 **All amounts displayed are in USD.**\n\n"
                 + leaderboard_block
                 + f"\n\n📍 **View LB Logs:** <#{WAGER_LEADERBOARD_LOGS_CHANNEL_ID}>\n"
-                f"🎭 **Claim your Wager Leaderboard role:** <#{WAGER_LEADERBOARD_ROLE_CLAIM_CHANNEL_ID}>"
+                f"🎭 **Claim your {WAGER_LEADERBOARD_ROLE_LABEL} role:** <#{WAGER_LEADERBOARD_ROLE_CLAIM_CHANNEL_ID}>"
             ),
             color=discord.Color.gold()
         )

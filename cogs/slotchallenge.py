@@ -19,6 +19,8 @@ HISTORY_CHANNEL_ID = 1387301442598998016  # Consolidated history channel for all
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID"))
 ACTIVE_CHALLENGES_CHANNEL_ID = 1385820512529158226
 SLOT_CHALLENGE_ROLE_CLAIM_CHANNEL_ID = 1440843895360590028
+SLOT_CHALLENGE_PING_ROLE_ID = os.getenv("SLOT_CHALLENGE_PING_ROLE_ID")
+SLOT_CHALLENGE_ROLE_LABEL = f"<@&{SLOT_CHALLENGE_PING_ROLE_ID}>" if SLOT_CHALLENGE_PING_ROLE_ID else "Slot Challenge Warriors"
 
 class SlotChallenge(commands.Cog):
     challenge = app_commands.Group(name="challenge", description="Slot challenge management commands")
@@ -76,7 +78,7 @@ class SlotChallenge(commands.Cog):
                 description += f"💸 **Prize Sent:** ${challenge.get('prize', 0):.2f}\n\n"
                 description += (
                     f"📍 **Track active challenges:** <#{ACTIVE_CHALLENGES_CHANNEL_ID}>\n"
-                    f"🎭 **Claim the Slot Challenge Warriors role:** <#{SLOT_CHALLENGE_ROLE_CLAIM_CHANNEL_ID}>"
+                    f"🎭 **Claim the {SLOT_CHALLENGE_ROLE_LABEL} role:** <#{SLOT_CHALLENGE_ROLE_CLAIM_CHANNEL_ID}>"
                 )
                 
                 embed.description = description
@@ -84,8 +86,7 @@ class SlotChallenge(commands.Cog):
                 
                 # Send with role ping
                 if history_channel:
-                    ping_role_id = os.getenv("SLOT_CHALLENGE_PING_ROLE_ID")
-                    content = f"<@&{ping_role_id}>" if ping_role_id else None
+                    content = f"<@&{SLOT_CHALLENGE_PING_ROLE_ID}>" if SLOT_CHALLENGE_PING_ROLE_ID else None
                     await history_channel.send(content=content, embed=embed)
                 logger.info(f"Calling log_slot_challenge for COMPLETED: id={challenge['challenge_id']} game={challenge['game_name']} winner={winner['username']}")
                 # Use the actual completion time for logging
@@ -196,13 +197,12 @@ class SlotChallenge(commands.Cog):
 
             description += (
                 f"📍 **Track active challenges:** <#{ACTIVE_CHALLENGES_CHANNEL_ID}>\n"
-                f"🎭 **Claim the Slot Challenge Warriors role:** <#{SLOT_CHALLENGE_ROLE_CLAIM_CHANNEL_ID}>"
+                f"🎭 **Claim the {SLOT_CHALLENGE_ROLE_LABEL} role:** <#{SLOT_CHALLENGE_ROLE_CLAIM_CHANNEL_ID}>"
             )
             
             embed.description = description
             
-            ping_role_id = os.getenv("SLOT_CHALLENGE_PING_ROLE_ID")
-            content = f"<@&{ping_role_id}>" if ping_role_id else None
+            content = f"<@&{SLOT_CHALLENGE_PING_ROLE_ID}>" if SLOT_CHALLENGE_PING_ROLE_ID else None
             await history_channel.send(content=content, embed=embed)
         
         await interaction.response.send_message(f"Slot challenge set and announced. Challenge ID: {challenge_id}", ephemeral=True)
@@ -241,7 +241,7 @@ class SlotChallenge(commands.Cog):
             desc += f"🕒 **Start:** {start_str}\n\n"
         desc += (
             f"📍 **Track active, new, and completed challenges:** <#{HISTORY_CHANNEL_ID}>\n"
-            f"🎭 **Claim the Slot Challenge Warriors role:** <#{SLOT_CHALLENGE_ROLE_CLAIM_CHANNEL_ID}>"
+            f"🎭 **Claim the {SLOT_CHALLENGE_ROLE_LABEL} role:** <#{SLOT_CHALLENGE_ROLE_CLAIM_CHANNEL_ID}>"
         )
         embed = discord.Embed(
             title="🎰 **Active Slot Challenges** 🎰",
