@@ -1409,6 +1409,54 @@ class User(commands.Cog):
         embed.set_footer(text="AutoTip Engine • /withdraw to receive your funds instantly")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    @app_commands.command(name="admincheckbalance", description="Admin: View a user's check-in balance exactly as they would see it")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(user="User to inspect")
+    async def admincheckbalance(self, interaction: discord.Interaction, user: discord.Member):
+        await interaction.response.defer(ephemeral=True)
+
+        summary = get_checkin_account_summary(user.id)
+        if summary is None:
+            await interaction.followup.send("❌ Failed to load that user's check-in balance. Please try again shortly.", ephemeral=True)
+            return
+
+        now_utc = datetime.now(dt.UTC)
+        next_reset = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) + dt.timedelta(days=1)
+        streak_days = int(summary.get("streak_days", 0))
+        balance_amount = float(summary.get("balance", 0.0))
+        next_reward = float(summary.get("next_reward", 0.01))
+        total_withdrawn = float(summary.get("total_withdrawn", 0.0))
+        checkin_earnings = float(summary.get("checkin_earnings", 0.0))
+        gamble_earnings = float(summary.get("gamble_earnings", 0.0))
+        flash_drop_earnings = float(summary.get("flash_drop_earnings", 0.0))
+        gtb_earnings = float(summary.get("gtb_earnings", 0.0))
+        total_earnings = float(summary.get("total_earnings", 0.0))
+        last_checkin_date = summary.get("last_checkin_date")
+        claimed_today = bool(summary.get("claimed_today", False))
+
+        status_text = "✅ Claimed today" if claimed_today else "⏳ Not claimed today"
+        last_checkin_text = last_checkin_date if last_checkin_date else "Never"
+
+        embed = discord.Embed(
+            title="💼 Your Check-In Balance",
+            description=f"**Status:** {status_text}",
+            color=discord.Color.blurple(),
+        )
+        embed.add_field(name="💰 Available Balance", value=f"**${balance_amount:,.2f}**", inline=True)
+        embed.add_field(name="🔥 Streak", value=f"**{streak_days} days**", inline=True)
+        embed.add_field(name="📈 Next Check-In Reward", value=f"**${next_reward:,.2f}**", inline=True)
+        embed.add_field(name="🧾 Check-In Earnings", value=f"**${checkin_earnings:,.2f}**", inline=True)
+        embed.add_field(name="🎲 Gamble Earnings", value=f"**${gamble_earnings:,.2f}**", inline=True)
+        embed.add_field(name="🎁 Flash Drop Earnings", value=f"**${flash_drop_earnings:,.2f}**", inline=True)
+        embed.add_field(name="🏦 GTB Earnings", value=f"**${gtb_earnings:,.2f}**", inline=True)
+        embed.add_field(name="📊 Total Earnings", value=f"**${total_earnings:,.2f}**", inline=True)
+        embed.add_field(name="💸 Total Withdrawn", value=f"**${total_withdrawn:,.2f}**", inline=True)
+        embed.add_field(name="📅 Last Check-In Date", value=f"**{last_checkin_text}**", inline=True)
+        embed.add_field(name="⏭️ Next Reset", value=f"<t:{int(next_reset.timestamp())}:R>", inline=False)
+        embed.set_footer(text="AutoTip Engine • /withdraw to receive your funds instantly")
+
+        await interaction.followup.send(content=f"Viewing balance as {user.mention}", embed=embed, ephemeral=True)
+
     @app_commands.command(name="withdraw", description="Withdraw check-in balance to a Roobet username (minimum $1.00)")
     @app_commands.describe(
         roobet_id="Your Roobet username/ID to receive the tip",
