@@ -2034,6 +2034,27 @@ def get_checkin_account_summary(discord_user_id):
         with conn.cursor() as cur:
             _ensure_checkin_tables(cur)
             row = _get_or_create_checkin_row(cur, discord_user_id)
+
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(claimed_amount), 0)
+                FROM checkin_random_drop_claims
+                WHERE discord_user_id = %s;
+                """,
+                (str(discord_user_id),),
+            )
+            flash_drop_earnings = float(Decimal(cur.fetchone()[0] or 0))
+
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(net_amount), 0)
+                FROM checkin_coinflip_logs
+                WHERE discord_user_id = %s;
+                """,
+                (str(discord_user_id),),
+            )
+            gamble_earnings = float(Decimal(cur.fetchone()[0] or 0))
+
             conn.commit()
 
             stored_streak_days = int(row[0] or 0)
@@ -2041,6 +2062,8 @@ def get_checkin_account_summary(discord_user_id):
             last_checkin_date = row[2]
             total_earned = float(Decimal(row[5] or 0))
             total_withdrawn = float(Decimal(row[6] or 0))
+            checkin_earnings = total_earned - flash_drop_earnings
+            total_earnings = checkin_earnings + flash_drop_earnings + gamble_earnings
 
             today = datetime.now(dt.UTC).date()
             claimed_today = (last_checkin_date == today)
@@ -2055,6 +2078,10 @@ def get_checkin_account_summary(discord_user_id):
                 "next_reward": next_reward,
                 "total_earned": total_earned,
                 "total_withdrawn": total_withdrawn,
+                "checkin_earnings": round(checkin_earnings, 2),
+                "gamble_earnings": round(gamble_earnings, 2),
+                "flash_drop_earnings": round(flash_drop_earnings, 2),
+                "total_earnings": round(total_earnings, 2),
             }
     except Exception as e:
         conn.rollback()
