@@ -60,6 +60,8 @@ BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "0"))
 CHECKIN_MIN_WITHDRAW_AMOUNT = float(os.getenv("CHECKIN_MIN_WITHDRAW_AMOUNT", "1.0"))
 CHECKIN_DAILY_WITHDRAW_LIMIT = float(os.getenv("CHECKIN_DAILY_WITHDRAW_LIMIT", "25.0"))
 CHECKIN_WITHDRAW_HOLD_TIMEOUT_MINUTES = int(os.getenv("CHECKIN_WITHDRAW_HOLD_TIMEOUT_MINUTES", "20"))
+CHECKIN_MIN_7D_WITHDRAW_WAGER = float(os.getenv("CHECKIN_MIN_7D_WITHDRAW_WAGER", "100.0"))
+CHECKIN_WITHDRAW_WAGER_LOOKBACK_DAYS = int(os.getenv("CHECKIN_WITHDRAW_WAGER_LOOKBACK_DAYS", "7"))
 CHECKIN_MIN_ACCOUNT_AGE_DAYS = int(os.getenv("CHECKIN_MIN_ACCOUNT_AGE_DAYS", "7"))
 CHECKIN_MIN_GUILD_MEMBER_AGE_DAYS = int(os.getenv("CHECKIN_MIN_GUILD_MEMBER_AGE_DAYS", "3"))
 COINFLIP_MIN_BET = float(os.getenv("COINFLIP_MIN_BET", "0.10"))
@@ -1061,6 +1063,7 @@ class User(commands.Cog):
                 "• Daily vault reward starts at **$0.01** and increases by **$0.01** per streak day.\n"
                 "• Daily vault reward is capped at **$1.00**.\n"
                 "• Withdrawals require minimum **$1.00** balance.\n\n"
+                f"• Withdrawals require at least **${CHECKIN_MIN_7D_WITHDRAW_WAGER:,.2f}** weighted wager in the past **{CHECKIN_WITHDRAW_WAGER_LOOKBACK_DAYS} days**.\n\n"
                 "👤 **User Commands:**\n"
                 f"• **/checkin** (must be used in <#{CHECKIN_COMMAND_CHANNEL_ID}>)\n"
                 "• **/balance** (view your FTS Vault stats)\n"
@@ -1862,7 +1865,100 @@ class User(commands.Cog):
 
         withdrawal_id = reserve_result.get("withdrawal_id")
         withdraw_amount = float(reserve_result.get("withdraw_amount", 0.0))
+
+        lookback_end = datetime.now(dt.UTC)
+        lookback_start = lookback_end - dt.timedelta(days=CHECKIN_WITHDRAW_WAGER_LOOKBACK_DAYS)
+        lookback_data = []
+        try:
+            lookback_data = await asyncio.to_thread(
+                fetch_weighted_wager,
+                lookback_start.isoformat(),
+                lookback_end.isoformat(),
+            )
+        except Exception as e:
+            finalize_checkin_withdrawal(
+                interaction.user.id,
+                outcome="failed",
+                withdrawal_id=withdrawal_id,
+                error_message=f"7-day wager lookup failed: {e}",
+            )
+            await interaction.followup.send(
+                "❌ Failed to verify withdrawal eligibility right now. Your balance was restored.",
+                ephemeral=True,
+            )
+            await self._send_withdraw_staff_log(
+                interaction,
+                status="FAILED",
+                roobet_id=roobet_id,
+                amount=withdraw_amount,
+                reason=f"7-day wager lookup failed: {e}",
+            )
+            logger.warning(f"Failed 7-day wager lookup for {roobet_id}: {e}")
+            return
+
+        matched_lookback_entry = None
+        roobet_id_lower = roobet_id.lower()
+        for entry in lookback_data:
+            entry_username = str(entry.get("username", "")).lower()
+            if roobet_id_lower == entry_username:
+                matched_lookback_entry = entry
+                break
+
+        lookback_wager_value = 0.0
+        if matched_lookback_entry:
+            try:
+                lookback_wager_value = float(matched_lookback_entry.get("weightedWagered", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                lookback_wager_value = 0.0
+
+        required_wager = max(0.0, float(CHECKIN_MIN_7D_WITHDRAW_WAGER))
+        progress_ratio = (lookback_wager_value / required_wager) if required_wager > 0 else 1.0
+        progress_ratio = max(0.0, min(progress_ratio, 1.0))
+        bar_length = 10
+        filled_blocks = round(progress_ratio * bar_length)
+        progress_bar = "█" * filled_blocks + "░" * (bar_length - filled_blocks)
+        progress_percent = progress_ratio * 100.0
+        remaining_wager = max(0.0, required_wager - lookback_wager_value)
+
+        if lookback_wager_value < required_wager:
+            finalize_checkin_withdrawal(
+                interaction.user.id,
+                outcome="failed",
+                withdrawal_id=withdrawal_id,
+                error_message=(
+                    f"7-day wager requirement not met: {lookback_wager_value:.2f}/{required_wager:.2f}"
+                ),
+            )
+            await interaction.followup.send(
+                f"❌ Withdrawal blocked: minimum 7-day wager requirement not met for {roobet_id}.\n"
+                f"📈 7-Day Wager Progress: ${lookback_wager_value:,.2f} / ${required_wager:,.2f}\n"
+                f"🧱 Progress Bar: {progress_bar} {progress_percent:.1f}%\n"
+                f"💵 Remaining: ${remaining_wager:,.2f} to unlock withdrawals\n"
+                "Your balance was restored.",
+                ephemeral=True,
+            )
+            await self._send_withdraw_staff_log(
+                interaction,
+                status="BLOCKED",
+                roobet_id=roobet_id,
+                amount=withdraw_amount,
+                reason=(
+                    f"7-day wager below minimum ({lookback_wager_value:.2f}/{required_wager:.2f})"
+                ),
+            )
+            return
+
+        lookback_uid_hint = None
+        lookback_username_hint = roobet_id
+        if matched_lookback_entry:
+            lookback_uid_hint = matched_lookback_entry.get("uid")
+            lookback_username_hint = matched_lookback_entry.get("username", roobet_id)
+
         roobet_uid, canonical_username = await self._resolve_roobet_uid_by_username(roobet_id)
+        if not roobet_uid and lookback_uid_hint:
+            roobet_uid = lookback_uid_hint
+            canonical_username = lookback_username_hint
+
         if not roobet_uid:
             finalize_checkin_withdrawal(
                 interaction.user.id,
@@ -1871,7 +1967,9 @@ class User(commands.Cog):
                 error_message=f"Roobet ID not found: {roobet_id}",
             )
             await interaction.followup.send(
-                f"❌ No user found with Roobet ID '{roobet_id}' in current data. Your balance was restored.",
+                f"❌ No user found with Roobet ID '{roobet_id}' in current data.\n"
+                "You must have at least $1.00 wagered this year for the AutoTip Engine to recognize your account.\n"
+                "Your balance was restored.",
                 ephemeral=True,
             )
             await self._send_withdraw_staff_log(
