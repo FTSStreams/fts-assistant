@@ -21,6 +21,12 @@ GUILD_ID = int(os.getenv("GUILD_ID", "1008041420738789536"))
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "0"))
 GTB_COMMAND_CHANNEL_ID = int(os.getenv("GTB_COMMAND_CHANNEL_ID", "1527380205759500369"))
 GTB_WINNER_LOG_CHANNEL_ID = int(os.getenv("GTB_WINNER_LOG_CHANNEL_ID", "1527380252672659467"))
+GTB_ADMIN_LOG_CHANNEL_ID = int(
+    os.getenv(
+        "GTB_ADMIN_LOG_CHANNEL_ID",
+        os.getenv("CHECKIN_ADMIN_LOG_CHANNEL_ID", "1008041424941498445"),
+    )
+)
 GTB_ROLE_CLAIM_CHANNEL_ID = int(os.getenv("GTB_ROLE_CLAIM_CHANNEL_ID", "1440843895360590028"))
 GTB_NOTIFY_ROLE_ID = int(os.getenv("GTB_NOTIFY_ROLE_ID", "1527669193799893002"))
 GTB_ROLE_LABEL = f"<@&{GTB_NOTIFY_ROLE_ID}>"
@@ -46,6 +52,22 @@ class GuessTheBalance(commands.Cog):
         if not isinstance(channel, (discord.TextChannel, discord.Thread)):
             return None
         return channel
+
+    async def _send_admin_log(self, message: str):
+        if GTB_ADMIN_LOG_CHANNEL_ID <= 0:
+            return
+
+        channel = await self._get_text_channel(GTB_ADMIN_LOG_CHANNEL_ID)
+        if channel is None:
+            return
+
+        try:
+            await channel.send(
+                message,
+                allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+            )
+        except Exception as e:
+            logger.error(f"[GTB] Failed to send admin log message: {e}")
 
     def _build_gtb_game_embed(self, status: str, guesses_dict: dict = None):
         if guesses_dict is None:
@@ -159,6 +181,7 @@ class GuessTheBalance(commands.Cog):
 
         guesses = get_gtb_guesses()
         embed = self._build_gtb_game_embed("open", guesses)
+        participant_count = len(guesses)
 
         if self.game_message_id:
             try:
@@ -170,6 +193,10 @@ class GuessTheBalance(commands.Cog):
                 logger.error(f"[GTB] Failed to update game message: {e}")
 
         await interaction.followup.send(f"✅ Your guess of **${amount:,}** has been recorded!", ephemeral=True)
+        await self._send_admin_log(
+            f"🔮 <@{interaction.user.id}> guessed: ${float(amount):,.2f} "
+            f"(Total Participants: {participant_count})"
+        )
         logger.info(f"[GTB] {username} (ID: {interaction.user.id}) guessed ${amount}")
 
     @app_commands.command(name="gtbclose", description="Close the game (owner only)")
@@ -230,6 +257,7 @@ class GuessTheBalance(commands.Cog):
         winners = guess_data[:3]
 
         results_lines = []
+        payout_log_lines = ["***GTB PAYOUTS***"]
         medals = ["🥇", "🥈", "🥉"]
         base_prizes = [GTB_FIRST_PRIZE, GTB_SECOND_PRIZE, GTB_THIRD_PRIZE]
         winner_mention_ids = []
@@ -242,6 +270,11 @@ class GuessTheBalance(commands.Cog):
             results_lines.append(
                 f"{medal} **{placement}{['st', 'nd', 'rd'][idx]} Place:** {username} (Guessed ${guess_amount:,}) - "
                 f"Difference: ${difference} - {multiplier}x Multiplier - Wins ${final_prize:,.2f}"
+            )
+            payout_log_lines.append(
+                f"{medal} {placement}{['st', 'nd', 'rd'][idx]} Place: <@{user_id}> "
+                f"(Guessed ${guess_amount:,}) - Difference: ${difference:,} - "
+                f"{multiplier:.1f}x Multiplier - Won ${final_prize:,.2f}"
             )
             winner_mention_ids.append(user_id)
             add_funds_to_vault(user_id, final_prize, gtb_placement=placement, gtb_display_name=username)
@@ -268,6 +301,8 @@ class GuessTheBalance(commands.Cog):
             mentions = " ".join([f"<@{uid}>" for uid in winner_mention_ids])
             winner_message = f"🎉 Congratulations {mentions}!\n"
             await log_channel.send(winner_message, embed=embed)
+
+        await self._send_admin_log("\n".join(payout_log_lines))
 
         clear_gtb_game()
         self.game_message_id = None
