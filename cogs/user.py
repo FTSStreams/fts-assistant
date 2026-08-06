@@ -649,6 +649,42 @@ class User(commands.Cog):
         except Exception as e:
             logger.warning(f"Failed to send check-in staff log: {e}")
 
+    async def _send_withdraw_staff_log(
+        self,
+        interaction: discord.Interaction,
+        *,
+        status: str,
+        amount: float = None,
+        roobet_id: str = None,
+        reason: str = None,
+        remaining_balance: float = None,
+    ):
+        if CHECKIN_ADMIN_LOG_CHANNEL_ID <= 0:
+            return
+
+        channel = await self._get_text_channel(CHECKIN_ADMIN_LOG_CHANNEL_ID)
+        if channel is None:
+            return
+
+        parts = [
+            f"🏦 /withdraw | {interaction.user.mention}",
+            f"Status: **{status}**",
+        ]
+
+        if amount is not None:
+            parts.append(f"Amount: **${float(amount):,.2f}**")
+        if roobet_id:
+            parts.append(f"Roobet ID: **{roobet_id}**")
+        if remaining_balance is not None:
+            parts.append(f"Remaining: **${float(remaining_balance):,.2f}**")
+        if reason:
+            parts.append(f"Reason: {reason}")
+
+        try:
+            await channel.send(" | ".join(parts))
+        except Exception as e:
+            logger.warning(f"Failed to send withdraw staff log: {e}")
+
     async def _generate_monthtomonth_embed_file(self):
         import matplotlib.pyplot as plt
         import io
@@ -1549,6 +1585,12 @@ class User(commands.Cog):
         )
         if reserve_result is None:
             await interaction.followup.send("❌ Failed to reserve withdrawal. Please try again shortly.", ephemeral=True)
+            await self._send_withdraw_staff_log(
+                interaction,
+                status="RESERVE_ERROR",
+                roobet_id=roobet_id,
+                reason="reserve_checkin_withdrawal returned None",
+            )
             return
 
         reserve_status = reserve_result.get("status")
@@ -1556,6 +1598,12 @@ class User(commands.Cog):
             await interaction.followup.send(
                 "⏳ A withdrawal is already processing for your account. Please wait a moment and try again.",
                 ephemeral=True,
+            )
+            await self._send_withdraw_staff_log(
+                interaction,
+                status="BLOCKED",
+                roobet_id=roobet_id,
+                reason="withdrawal already in progress",
             )
             return
 
@@ -1566,6 +1614,12 @@ class User(commands.Cog):
                 f"❌ Minimum withdrawal is **${minimum:,.2f}**. Your current check-in balance is **${balance:,.2f}**.",
                 ephemeral=True,
             )
+            await self._send_withdraw_staff_log(
+                interaction,
+                status="BLOCKED",
+                roobet_id=roobet_id,
+                reason=f"below minimum balance ({balance:,.2f} < {minimum:,.2f})",
+            )
             return
 
         if reserve_status == "below_minimum_request":
@@ -1573,6 +1627,12 @@ class User(commands.Cog):
             await interaction.followup.send(
                 f"❌ Minimum withdrawal amount is **${minimum:,.2f}**.",
                 ephemeral=True,
+            )
+            await self._send_withdraw_staff_log(
+                interaction,
+                status="BLOCKED",
+                roobet_id=roobet_id,
+                reason=f"requested amount below minimum ({minimum:,.2f})",
             )
             return
 
@@ -1583,10 +1643,23 @@ class User(commands.Cog):
                 f"❌ Insufficient balance. You requested **${requested:,.2f}**, but only have **${balance:,.2f}**.",
                 ephemeral=True,
             )
+            await self._send_withdraw_staff_log(
+                interaction,
+                status="BLOCKED",
+                amount=requested,
+                roobet_id=roobet_id,
+                reason=f"insufficient funds ({balance:,.2f} available)",
+            )
             return
 
         if reserve_status == "invalid_amount":
             await interaction.followup.send("❌ Invalid withdrawal amount.", ephemeral=True)
+            await self._send_withdraw_staff_log(
+                interaction,
+                status="BLOCKED",
+                roobet_id=roobet_id,
+                reason="invalid withdrawal amount",
+            )
             return
 
         if reserve_status == "daily_limit_reached":
@@ -1597,6 +1670,12 @@ class User(commands.Cog):
                 f"Already withdrawn today: **${withdrawn_today:,.2f}**.",
                 ephemeral=True,
             )
+            await self._send_withdraw_staff_log(
+                interaction,
+                status="BLOCKED",
+                roobet_id=roobet_id,
+                reason=f"daily cap reached ({withdrawn_today:,.2f}/{daily_limit:,.2f})",
+            )
             return
 
         if reserve_status == "manual_review_required":
@@ -1605,6 +1684,13 @@ class User(commands.Cog):
                 f"⚠️ Your previous withdrawal is pending manual review (held: **${hold_amount:,.2f}**). "
                 "Please ask staff to review before retrying.",
                 ephemeral=True,
+            )
+            await self._send_withdraw_staff_log(
+                interaction,
+                status="PENDING_REVIEW",
+                roobet_id=roobet_id,
+                amount=hold_amount,
+                reason="existing hold requires manual review",
             )
             return
 
@@ -1621,6 +1707,13 @@ class User(commands.Cog):
             await interaction.followup.send(
                 f"❌ No user found with Roobet ID '{roobet_id}' in current data. Your balance was restored.",
                 ephemeral=True,
+            )
+            await self._send_withdraw_staff_log(
+                interaction,
+                status="FAILED",
+                roobet_id=roobet_id,
+                amount=withdraw_amount,
+                reason="roobet id not found in current data",
             )
             return
 
@@ -1646,6 +1739,13 @@ class User(commands.Cog):
                 "⚠️ Withdrawal status is uncertain due to a payout transport error. "
                 "Funds are locked for manual review to prevent double-payout abuse.",
                 ephemeral=True,
+            )
+            await self._send_withdraw_staff_log(
+                interaction,
+                status="PENDING_REVIEW",
+                roobet_id=canonical_username,
+                amount=withdraw_amount,
+                reason=f"send_tip exception: {e}",
             )
             logger.error(
                 f"[check_in] Withdrawal uncertain for discord_user_id={interaction.user.id}, "
@@ -1681,6 +1781,13 @@ class User(commands.Cog):
             embed.add_field(name="💼 Remaining Check-In Balance", value=f"**${remaining_balance:,.2f}**", inline=False)
             embed.set_footer(text=f"Processed on {datetime.now(dt.UTC).strftime('%Y-%m-%d %H:%M:%S')} GMT")
             await interaction.followup.send(embed=embed, ephemeral=True)
+            await self._send_withdraw_staff_log(
+                interaction,
+                status="SUCCESS",
+                roobet_id=canonical_username,
+                amount=withdraw_amount,
+                remaining_balance=remaining_balance,
+            )
             await self._send_vault_withdraw_log(
                 roobet_id=canonical_username,
                 amount=withdraw_amount,
@@ -1703,6 +1810,13 @@ class User(commands.Cog):
             await interaction.followup.send(
                 f"❌ Withdrawal failed: {error_message}. Your check-in balance was restored.",
                 ephemeral=True,
+            )
+            await self._send_withdraw_staff_log(
+                interaction,
+                status="FAILED",
+                roobet_id=canonical_username,
+                amount=withdraw_amount,
+                reason=error_message,
             )
             logger.error(
                 f"[check_in] Withdrawal failed for discord_user_id={interaction.user.id}, roobet_id={roobet_id}: {error_message}"
