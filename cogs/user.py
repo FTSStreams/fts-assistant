@@ -336,6 +336,22 @@ class User(commands.Cog):
                     ),
                     ephemeral=True,
                 )
+                await self.cog._send_flashdrop_staff_log(
+                    event="CLAIM",
+                    drop=drop,
+                    user_mention=interaction.user.mention,
+                    estimated_share=estimated_share,
+                    claim_position=claim_position,
+                )
+
+                if drop is not None and drop.get("status") == "completed":
+                    claims = list(drop.get("claims", []))
+                    split_amount = float(claims[0].get("claimed_amount", 0.0)) if claims else 0.0
+                    await self.cog._send_flashdrop_staff_log(
+                        event="SETTLED",
+                        drop=drop,
+                        reason=f"Split: ${split_amount:,.2f} each",
+                    )
                 return
 
             drop = result.get("drop")
@@ -346,17 +362,40 @@ class User(commands.Cog):
                 )
                 followup_message = "⚠️ This vault drop is already closed."
                 await interaction.followup.send(followup_message, ephemeral=True)
+                await self.cog._send_flashdrop_staff_log(
+                    event="CLAIM BLOCKED",
+                    drop=drop,
+                    user_mention=interaction.user.mention,
+                    reason=f"drop already {status}",
+                )
                 return
 
             if status == "already_claimed":
                 await interaction.response.send_message("⚠️ You already claimed this vault drop.", ephemeral=True)
+                await self.cog._send_flashdrop_staff_log(
+                    event="CLAIM BLOCKED",
+                    drop=result.get("drop"),
+                    user_mention=interaction.user.mention,
+                    reason="already claimed",
+                )
                 return
 
             if status == "not_found":
                 await interaction.response.send_message("❌ This vault drop could not be found.", ephemeral=True)
+                await self.cog._send_flashdrop_staff_log(
+                    event="CLAIM BLOCKED",
+                    user_mention=interaction.user.mention,
+                    reason="drop not found",
+                )
                 return
 
             await interaction.response.send_message("⚠️ This vault drop is no longer active.", ephemeral=True)
+            await self.cog._send_flashdrop_staff_log(
+                event="CLAIM BLOCKED",
+                drop=result.get("drop"),
+                user_mention=interaction.user.mention,
+                reason="drop not active",
+            )
 
     async def _get_cached_external_json(self, cache_key: str, url: str):
         now_ts = datetime.now(dt.UTC).timestamp()
@@ -594,6 +633,12 @@ class User(commands.Cog):
         if updated_drop is None:
             logger.error(f"[vault_drop] Failed to persist posted state for drop {drop['id']}")
             return None
+
+        await self._send_flashdrop_staff_log(
+            event="OPEN",
+            drop=updated_drop,
+            reason=f"Window: {VAULT_RANDOM_DROP_EXPIRY_MINUTES}m",
+        )
         return updated_drop
 
     async def _send_mywager_staff_notification(self, interaction: discord.Interaction, username: str, embed: discord.Embed):
@@ -684,6 +729,58 @@ class User(commands.Cog):
             await channel.send(" | ".join(parts))
         except Exception as e:
             logger.warning(f"Failed to send withdraw staff log: {e}")
+
+    async def _send_flashdrop_staff_log(
+        self,
+        *,
+        event: str,
+        drop=None,
+        user_mention: str = None,
+        reason: str = None,
+        estimated_share: float = None,
+        claim_position: int = None,
+    ):
+        if CHECKIN_ADMIN_LOG_CHANNEL_ID <= 0:
+            return
+
+        channel = await self._get_text_channel(CHECKIN_ADMIN_LOG_CHANNEL_ID)
+        if channel is None:
+            return
+
+        parts = [f"🎁 FLASH DROP {event}"]
+
+        if drop is not None:
+            drop_id = drop.get("id")
+            if drop_id is not None:
+                parts.append(f"Drop #{drop_id}")
+
+            pool_amount = float(drop.get("reward_amount", 0.0))
+            parts.append(f"Pool: **${pool_amount:,.2f}**")
+
+            claims = list(drop.get("claims", []))
+            claims_count = int(drop.get("claims_count", len(claims)))
+            max_claims = int(drop.get("max_claims", 0))
+            if max_claims > 0:
+                parts.append(f"Entrants: **{claims_count}/{max_claims}**")
+            else:
+                parts.append(f"Entrants: **{claims_count}**")
+
+        if user_mention:
+            parts.append(f"User: {user_mention}")
+
+        if claim_position is not None:
+            parts.append(f"Spot: **#{int(claim_position)}**")
+
+        if estimated_share is not None:
+            parts.append(f"Est Split: **${float(estimated_share):,.2f}**")
+
+        if reason:
+            parts.append(f"Reason: {reason}")
+
+        try:
+            await channel.send(" | ".join(parts))
+        except Exception as e:
+            logger.warning(f"Failed to send flash drop staff log: {e}")
 
     async def _generate_monthtomonth_embed_file(self):
         import matplotlib.pyplot as plt
@@ -1029,6 +1126,16 @@ class User(commands.Cog):
         )
         for expired_drop in expired_drops:
             await self._finalize_vault_random_drop_message(expired_drop)
+            if expired_drop.get("status") == "expired":
+                await self._send_flashdrop_staff_log(event="EXPIRED", drop=expired_drop)
+            elif expired_drop.get("status") == "completed":
+                claims = list(expired_drop.get("claims", []))
+                split_amount = float(claims[0].get("claimed_amount", 0.0)) if claims else 0.0
+                await self._send_flashdrop_staff_log(
+                    event="SETTLED",
+                    drop=expired_drop,
+                    reason=f"Split: ${split_amount:,.2f} each",
+                )
 
         drop = get_or_create_daily_checkin_random_drop(
             now=now_utc,
@@ -1073,6 +1180,16 @@ class User(commands.Cog):
         )
         for expired_drop in expired_drops:
             await self._finalize_vault_random_drop_message(expired_drop)
+            if expired_drop.get("status") == "expired":
+                await self._send_flashdrop_staff_log(event="EXPIRED", drop=expired_drop)
+            elif expired_drop.get("status") == "completed":
+                claims = list(expired_drop.get("claims", []))
+                split_amount = float(claims[0].get("claimed_amount", 0.0)) if claims else 0.0
+                await self._send_flashdrop_staff_log(
+                    event="SETTLED",
+                    drop=expired_drop,
+                    reason=f"Split: ${split_amount:,.2f} each",
+                )
 
         drop = get_or_create_daily_checkin_random_drop(
             now=now_utc,
