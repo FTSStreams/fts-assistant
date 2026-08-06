@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from discord import ui
-from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager, get_month_range
+from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager, fetch_total_wager, get_month_range
 from db import (
     get_db_connection,
     release_db_connection,
@@ -1667,6 +1667,55 @@ class User(commands.Cog):
         embed.set_footer(text="AutoTip Engine • /withdraw to receive your funds instantly")
 
         await interaction.followup.send(content=f"Viewing balance as {user.mention}", embed=embed, ephemeral=True)
+
+    @app_commands.command(name="expose", description="Show a RooID's total wager from the past 30 days")
+    @app_commands.describe(rooid="Roobet username/ID to expose")
+    async def expose(self, interaction: discord.Interaction, rooid: str):
+        await interaction.response.defer()
+
+        cleaned_rooid = str(rooid or "").strip()
+        if cleaned_rooid.startswith("@"):
+            cleaned_rooid = cleaned_rooid[1:]
+
+        if not cleaned_rooid:
+            await interaction.followup.send("❌ Please provide a valid RooID.")
+            return
+
+        now_utc = datetime.now(dt.UTC)
+        start_utc = now_utc - dt.timedelta(days=30)
+
+        try:
+            wager_data = await asyncio.to_thread(fetch_total_wager, start_utc.isoformat(), now_utc.isoformat())
+        except Exception as e:
+            logger.error(f"Failed to load 30-day wager data for /expose {cleaned_rooid}: {e}")
+            await interaction.followup.send("❌ Failed to load wager data right now. Please try again shortly.")
+            return
+
+        matched_entry = None
+        cleaned_rooid_lower = cleaned_rooid.lower()
+        for entry in wager_data:
+            username = str(entry.get("username", "")).strip().lower()
+            if username == cleaned_rooid_lower:
+                matched_entry = entry
+                break
+
+        wagered_amount = 0.0
+        display_rooid = cleaned_rooid
+        if matched_entry is not None:
+            raw_wagered = matched_entry.get("wagered", 0)
+            if isinstance(raw_wagered, (int, float)):
+                wagered_amount = float(raw_wagered)
+            display_rooid = str(matched_entry.get("username") or cleaned_rooid)
+
+        embed = discord.Embed(
+            title="🕵️ Exposed Wager",
+            color=discord.Color.gold(),
+        )
+        embed.add_field(name="ID", value=f"**{display_rooid}**", inline=False)
+        embed.add_field(name="Amount Wagered (Past 30 Days)", value=f"**${wagered_amount:,.2f}**", inline=False)
+        embed.set_footer(text="AutoTip Engine • 30-day wager lookup")
+
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="withdraw", description="Withdraw check-in balance to a Roobet username (minimum $1.00)")
     @app_commands.describe(
