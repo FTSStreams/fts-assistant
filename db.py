@@ -2337,6 +2337,49 @@ def process_coinflip_bet(discord_user_id, wager_amount, player_choice):
         release_db_connection(conn)
 
 
+def get_coinflip_pnl_summary(discord_user_id):
+    """Return aggregate coinflip totals for a user."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_bets,
+                    COALESCE(SUM(net_amount), 0) AS total_net_amount,
+                    COALESCE(SUM(wager_amount), 0) AS total_wagered,
+                    COALESCE(SUM(CASE WHEN net_amount > 0 THEN 1 ELSE 0 END), 0) AS total_wins,
+                    COALESCE(SUM(CASE WHEN net_amount < 0 THEN 1 ELSE 0 END), 0) AS total_losses
+                FROM checkin_coinflip_logs
+                WHERE discord_user_id = %s;
+                """,
+                (str(discord_user_id),),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return {
+                    "total_bets": 0,
+                    "total_net_amount": 0.0,
+                    "total_wagered": 0.0,
+                    "total_wins": 0,
+                    "total_losses": 0,
+                }
+
+            return {
+                "total_bets": int(row[0] or 0),
+                "total_net_amount": float(Decimal(row[1] or 0)),
+                "total_wagered": float(Decimal(row[2] or 0)),
+                "total_wins": int(row[3] or 0),
+                "total_losses": int(row[4] or 0),
+            }
+    except Exception as e:
+        logger.error(f"Error loading coinflip pnl summary for {discord_user_id}: {e}")
+        return None
+    finally:
+        release_db_connection(conn)
+
+
 def get_top_checkin_balances(limit=10):
     conn = get_db_connection()
     try:

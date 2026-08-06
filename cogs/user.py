@@ -20,6 +20,7 @@ from db import (
     get_leaderboard_message_id,
     save_leaderboard_message_id,
     process_coinflip_bet,
+    get_coinflip_pnl_summary,
     get_or_create_daily_checkin_random_drop,
     mark_checkin_random_drop_posted,
     expire_stale_checkin_random_drops,
@@ -163,6 +164,63 @@ class User(commands.Cog):
         embed.add_field(name="💼 New Balance", value=f"**${balance_after:,.2f}**", inline=False)
         embed.set_footer(text="Win payout is wager × 1.95")
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+        await self._send_coinflip_staff_log(
+            interaction=interaction,
+            choice=choice,
+            outcome=outcome,
+            wager=wager,
+            net=net,
+            balance_after=balance_after,
+        )
+
+    async def _send_coinflip_staff_log(
+        self,
+        interaction: discord.Interaction,
+        choice: str,
+        outcome: str,
+        wager: float,
+        net: float,
+        balance_after: float,
+    ):
+        if CHECKIN_ADMIN_LOG_CHANNEL_ID <= 0:
+            return
+
+        channel = await self._get_text_channel(CHECKIN_ADMIN_LOG_CHANNEL_ID)
+        if channel is None:
+            return
+
+        pnl_summary = get_coinflip_pnl_summary(interaction.user.id)
+        if pnl_summary is None:
+            logger.warning(f"Failed to load coinflip PNL summary for user {interaction.user.id}")
+            return
+
+        total_net = float(pnl_summary.get("total_net_amount", 0.0))
+        total_bets = int(pnl_summary.get("total_bets", 0))
+        total_wins = int(pnl_summary.get("total_wins", 0))
+        total_losses = int(pnl_summary.get("total_losses", 0))
+        total_wagered = float(pnl_summary.get("total_wagered", 0.0))
+
+        if net > 0:
+            hand_result = "Win"
+        elif net < 0:
+            hand_result = "Loss"
+        else:
+            hand_result = "Even"
+
+        hand_net = f"+${net:,.2f}" if net >= 0 else f"-${abs(net):,.2f}"
+        total_net_text = f"+${total_net:,.2f}" if total_net >= 0 else f"-${abs(total_net):,.2f}"
+
+        try:
+            await channel.send(
+                f"🎲 {interaction.user.mention} coinflip | "
+                f"Bet: **${wager:,.2f}** | Pick: **{choice}** | Outcome: **{outcome}** | "
+                f"Result: **{hand_result} ({hand_net})** | Balance: **${balance_after:,.2f}**\n"
+                f"📊 Coinflip PNL | Net: **{total_net_text}** | Bets: **{total_bets}** "
+                f"(W: **{total_wins}** / L: **{total_losses}**) | Total Wagered: **${total_wagered:,.2f}**"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send coinflip staff log: {e}")
 
     def _check_checkin_eligibility(self, interaction: discord.Interaction):
         if interaction.user.bot:
