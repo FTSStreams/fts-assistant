@@ -406,8 +406,7 @@ class Milestones(commands.Cog):
                 if not username:
                     username = "Unknown"
 
-                embed = self._build_milestone_embed(username, milestone, milestone['tip'], footer_text="Restored from milestone history")
-                embed.description += f"\n📅 **Month:** {month}/{year}\n🕒 **Logged:** {tipped_at.strftime('%Y-%m-%d %H:%M:%S UTC') if tipped_at else 'Unknown'}"
+                embed = self._build_milestone_embed(username, milestone, milestone['tip'])
                 await channel.send(embed=embed)
                 restored += 1
             except Exception as e:
