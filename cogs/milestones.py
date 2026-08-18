@@ -293,21 +293,21 @@ class Milestones(commands.Cog):
         
         # Build Bronze Tier field
         bronze_tiers = [
-            f"{MILESTONES[i]['emoji']} **Rank {i+1}**: `${MILESTONES[i]['threshold']:,}` → **`${MILESTONES[i]['tip']:.2f} USD`**"
+            f"{MILESTONES[i]['emoji']} **Rank {i+1}**: **Wager:** `${MILESTONES[i]['threshold']:,}` → **Prize:** `${MILESTONES[i]['tip']:.2f} USD`"
             for i in range(15)
         ]
         bronze_field = "\n".join(bronze_tiers)
         
         # Build Silver Tier field
         silver_tiers = [
-            f"{MILESTONES[i]['emoji']} **Rank {i+1}**: `${MILESTONES[i]['threshold']:,}` → **`${MILESTONES[i]['tip']:.2f} USD`**"
+            f"{MILESTONES[i]['emoji']} **Rank {i+1}**: **Wager:** `${MILESTONES[i]['threshold']:,}` → **Prize:** `${MILESTONES[i]['tip']:.2f} USD`"
             for i in range(15, 30)
         ]
         silver_field = "\n".join(silver_tiers)
         
         # Build Gold Tier field
         gold_tiers = [
-            f"{MILESTONES[i]['emoji']} **Rank {i+1}**: `${MILESTONES[i]['threshold']:,}` → **`${MILESTONES[i]['tip']:.2f} USD`**"
+            f"{MILESTONES[i]['emoji']} **Rank {i+1}**: **Wager:** `${MILESTONES[i]['threshold']:,}` → **Prize:** `${MILESTONES[i]['tip']:.2f} USD`"
             for i in range(30, 45)
         ]
         gold_field = "\n".join(gold_tiers)
