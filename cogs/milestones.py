@@ -143,13 +143,13 @@ class Milestones(commands.Cog):
         username_match = self._normalize_roobet_username(username) in blocked_usernames if username else False
         return uid_match or username_match
 
-    def _find_milestone_by_tip_amount(self, amount_value):
-        """Match a milestone by tip amount. This is an approximation used for restore jobs, since the original milestone tier is not stored in manualtips."""
-        amount_value = float(amount_value)
-        matches = [milestone for milestone in MILESTONES if abs(float(milestone["tip"]) - amount_value) < 0.0001]
-        if matches:
-            return matches[0]
-        return min(MILESTONES, key=lambda milestone: abs(float(milestone["tip"]) - amount_value))
+    def _find_milestone_by_tier(self, tier_name):
+        """Return the milestone definition for a stored tier name, such as 'Rank 7'."""
+        tier_name = str(tier_name).strip()
+        for milestone in MILESTONES:
+            if milestone.get("tier") == tier_name:
+                return milestone
+        return None
 
     def _build_milestone_embed(self, username, milestone, tip_amount, footer_text="AutoTip Engine Live • Payout Sent Successfully"):
         display_username = username
@@ -357,9 +357,8 @@ class Milestones(commands.Cog):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT user_id, username, amount, month, year, tipped_at
-                    FROM manualtips
-                    WHERE tip_type = 'milestone'
+                    SELECT user_id, tier, month, year, tipped_at
+                    FROM milestonetips
                     ORDER BY tipped_at DESC NULLS LAST, year DESC, month DESC
                     LIMIT %s;
                     """,
@@ -367,28 +366,52 @@ class Milestones(commands.Cog):
                 )
                 rows = cur.fetchall()
         except Exception as e:
-            logger.error(f"[Milestones] Failed to load milestone logs for restore: {e}")
-            await interaction.followup.send("❌ Failed to load recent milestone logs from the database.", ephemeral=True)
+            logger.error(f"[Milestones] Failed to load milestone rows for restore: {e}")
+            await interaction.followup.send("❌ Failed to load recent milestone records from the database.", ephemeral=True)
             return
         finally:
             release_db_connection(conn)
 
         if not rows:
-            await interaction.followup.send("ℹ️ No milestone log entries were found to restore.", ephemeral=True)
+            await interaction.followup.send("ℹ️ No milestone records were found to restore.", ephemeral=True)
             return
 
         restored = 0
         failed = 0
         for row in reversed(rows):
-            user_id, username, amount_value, month, year, tipped_at = row
+            user_id, tier_name, month, year, tipped_at = row
             try:
-                milestone = self._find_milestone_by_tip_amount(amount_value)
-                embed = self._build_milestone_embed(username, milestone, amount_value, footer_text="Restored from milestone history")
+                milestone = self._find_milestone_by_tier(tier_name)
+                if milestone is None:
+                    logger.warning(f"[Milestones] Could not match stored milestone tier '{tier_name}' to a known milestone definition; skipping restore for user_id={user_id}")
+                    failed += 1
+                    continue
+
+                username = None
+                conn2 = get_db_connection()
+                try:
+                    with conn2.cursor() as cur2:
+                        cur2.execute(
+                            "SELECT username FROM manualtips WHERE user_id = %s AND tip_type = 'milestone' AND month = %s AND year = %s AND amount = %s ORDER BY tipped_at DESC LIMIT 1;",
+                            (user_id, month, year, milestone['tip'])
+                        )
+                        result = cur2.fetchone()
+                        if result:
+                            username = result[0]
+                except Exception as e:
+                    logger.error(f"[Milestones] Failed to resolve username for restore row user_id={user_id}: {e}")
+                finally:
+                    release_db_connection(conn2)
+
+                if not username:
+                    username = "Unknown"
+
+                embed = self._build_milestone_embed(username, milestone, milestone['tip'], footer_text="Restored from milestone history")
                 embed.description += f"\n📅 **Month:** {month}/{year}\n🕒 **Logged:** {tipped_at.strftime('%Y-%m-%d %H:%M:%S UTC') if tipped_at else 'Unknown'}"
                 await channel.send(embed=embed)
                 restored += 1
             except Exception as e:
-                logger.error(f"[Milestones] Failed to restore milestone log for {username}: {e}")
+                logger.error(f"[Milestones] Failed to restore milestone log for user_id={user_id}, tier={tier_name}: {e}")
                 failed += 1
 
         await interaction.followup.send(
