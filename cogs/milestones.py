@@ -281,63 +281,50 @@ class Milestones(commands.Cog):
 
     @app_commands.command(name="milestonerules", description="Display milestone reward tiers and rules")
     async def milestonerules(self, interaction: discord.Interaction):
-        """Post the 4 milestone rules/tier embeds"""
-        # Embed 1: Rules
-        rules_embed = discord.Embed(
-            title="🎯 WAGER MILESTONES - AUTOMATIC TIPS! 🎯",
-            description="**Climb 45 ranks and earn instant cash rewards!** 💰\n",
-            color=discord.Color.blue()
+        """Post the milestone rules and all tiers in a single embed"""
+        # Build rules field
+        rules_field = (
+            "✅ **Fully Automated** - Hit a milestone, receive a tip through our automated tipping API.\n"
+            "✅ **Weighted Wager System** - See leaderboard or use `/mywager [Username]`\n"
+            "✅ **Full Transparency** - All payouts logged in `#milestone-logs`\n"
+            "✅ **Monthly Reset** - Fresh start every month\n"
+            "💵 **All amounts displayed are in USD.**"
         )
-        rules_embed.add_field(
-            name="⚡ **HOW IT WORKS**",
-            value=(
-                "✅ **Fully Automated** - Hit a milestone, receive a tip through our automated tipping API.\n"
-                "✅ **Weighted Wager System** - See leaderboard or use `/mywager [Username]` for up to date wager stats.\n"
-                "✅ **Full Transparency** - All payouts logged in `#milestone-logs`\n"
-                "✅ **Monthly Reset** - Fresh start every month"
-            ),
-            inline=False
-        )
-        rules_embed.add_field(name="💵", value="**All amounts displayed are in USD.**", inline=False)
         
-        # Embed 2: Bronze Tier
+        # Build Bronze Tier field
         bronze_tiers = [
             f"{MILESTONES[i]['emoji']} **Rank {i+1}**: `${MILESTONES[i]['threshold']:,}` → **`${MILESTONES[i]['tip']:.2f} USD`**"
             for i in range(15)
         ]
-        bronze_embed = discord.Embed(
-            title="🥉 **BRONZE TIER (Ranks 1-15)**",
-            description="\n".join(bronze_tiers),
-            color=discord.Color.from_rgb(205, 127, 50)
-        )
+        bronze_field = "\n".join(bronze_tiers)
         
-        # Embed 3: Silver Tier
+        # Build Silver Tier field
         silver_tiers = [
             f"{MILESTONES[i]['emoji']} **Rank {i+1}**: `${MILESTONES[i]['threshold']:,}` → **`${MILESTONES[i]['tip']:.2f} USD`**"
             for i in range(15, 30)
         ]
-        silver_embed = discord.Embed(
-            title="🥈 **SILVER TIER (Ranks 16-30)**",
-            description="\n".join(silver_tiers),
-            color=discord.Color.from_rgb(192, 192, 192)
-        )
+        silver_field = "\n".join(silver_tiers)
         
-        # Embed 4: Gold Tier
+        # Build Gold Tier field
         gold_tiers = [
             f"{MILESTONES[i]['emoji']} **Rank {i+1}**: `${MILESTONES[i]['threshold']:,}` → **`${MILESTONES[i]['tip']:.2f} USD`**"
             for i in range(30, 45)
         ]
-        gold_embed = discord.Embed(
-            title="🥇 **GOLD TIER (Ranks 31-45)**",
-            description="\n".join(gold_tiers),
-            color=discord.Color.from_rgb(255, 215, 0)
-        )
+        gold_field = "\n".join(gold_tiers)
         
-        await interaction.response.send_message(embed=rules_embed)
-        await interaction.followup.send(embed=bronze_embed)
-        await interaction.followup.send(embed=silver_embed)
-        await interaction.followup.send(embed=gold_embed)
-        logger.info("[Milestones] Posted milestone rules embeds")
+        # Create single embed with 4 fields
+        embed = discord.Embed(
+            title="🎯 **WAGER MILESTONES - AUTOMATIC TIPS!** 🎯",
+            description="**Climb 45 ranks and earn instant cash rewards!** 💰",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="⚡ **HOW IT WORKS**", value=rules_field, inline=False)
+        embed.add_field(name="🥉 **BRONZE TIER (Ranks 1-15)**", value=bronze_field, inline=False)
+        embed.add_field(name="🥈 **SILVER TIER (Ranks 16-30)**", value=silver_field, inline=False)
+        embed.add_field(name="🥇 **GOLD TIER (Ranks 31-45)**", value=gold_field, inline=False)
+        
+        await interaction.response.send_message(embed=embed)
+        logger.info("[Milestones] Posted milestone rules embed")
 
 async def setup(bot):
     await bot.add_cog(Milestones(bot))
