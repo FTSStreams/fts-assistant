@@ -284,11 +284,12 @@ class Milestones(commands.Cog):
         """Post the milestone rules and all tiers in a single embed"""
         # Build rules field
         rules_field = (
-            "✅ **Fully Automated** - Hit a milestone, receive a tip through our automated tipping API.\n"
-            "✅ **Weighted Wager System** - See leaderboard or use `/mywager [Username]`\n"
-            "✅ **Full Transparency** - All payouts logged in `#milestone-logs`\n"
-            "✅ **Monthly Reset** - Fresh start every month\n"
-            "💵 **All amounts displayed are in USD.**"
+            ":white_check_mark: **AutoTip Engine**\n"
+            "*Reach a Wager Milestone -> Get Paid Instantly!*\n\n"
+            ":bar_chart: Track your progress with **`/mywager [Username]`**\n"
+            ":moneybag: View payout records in <#1339413771000614982>\n"
+            ":arrows_counterclockwise: Progress resets every month.\n"
+            ":dollar: All rewards are displayed in USD."
         )
         
         # Build Bronze Tier field
@@ -322,6 +323,7 @@ class Milestones(commands.Cog):
         embed.add_field(name="🥉 **BRONZE TIER (Ranks 1-15)**", value=bronze_field, inline=False)
         embed.add_field(name="🥈 **SILVER TIER (Ranks 16-30)**", value=silver_field, inline=False)
         embed.add_field(name="🥇 **GOLD TIER (Ranks 31-45)**", value=gold_field, inline=False)
+        embed.set_footer(text="AutoTip Engine is Live")
         
         await interaction.response.send_message(embed=embed)
         logger.info("[Milestones] Posted milestone rules embed")
