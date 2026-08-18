@@ -294,27 +294,23 @@ class Milestones(commands.Cog):
         
         def build_tier_lines(start, end):
             return [
-                f"{MILESTONES[i]['emoji']} **Rank {i+1}**: `${MILESTONES[i]['threshold']:,}` → **`${MILESTONES[i]['tip']:.2f} USD`**"
+                f"{MILESTONES[i]['emoji']} **Rank {i+1}**: `${MILESTONES[i]['threshold']:,}` → `${MILESTONES[i]['tip']:.2f} USD`"
                 for i in range(start, end)
             ]
 
         def add_tier_fields(embed, tier_name, tier_lines):
             field_lines = []
             field_length = 0
-            field_number = 1
             for line in tier_lines:
                 line_length = len(line) + (1 if field_lines else 0)
                 if field_lines and field_length + line_length > 1024:
-                    field_name = tier_name if field_number == 1 else f"{tier_name} (continued)"
-                    embed.add_field(name=field_name, value="\n".join(field_lines), inline=False)
+                    embed.add_field(name="\u200b", value="\n".join(field_lines), inline=False)
                     field_lines = []
                     field_length = 0
-                    field_number += 1
                 field_lines.append(line)
                 field_length += len(line) + (1 if len(field_lines) > 1 else 0)
             if field_lines:
-                field_name = tier_name if field_number == 1 else f"{tier_name} (continued)"
-                embed.add_field(name=field_name, value="\n".join(field_lines), inline=False)
+                embed.add_field(name="\u200b", value="\n".join(field_lines), inline=False)
 
         rules_embed = discord.Embed(
             title="🎯 **WAGER MILESTONES - AUTOMATIC TIPS!** 🎯",
