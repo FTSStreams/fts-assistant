@@ -264,7 +264,6 @@ class Leaderboard(commands.Cog):
                         f"{position_marker} — ***__{username}__*** — {rank_emoji}\n"
                         f"⚖️ **Weighted Wagered:** `${weighted_wagered:,.2f}`\n"
                         f"💰 **Total Wagered:** `${total_wagered:,.2f}`\n"
-                        f"💸 **Milestone Tips Earned ({current_year}-{current_month:02d}):** `${monthly_tips:.2f}`\n"
                         f"🎁 **Prize:** `${prize:.2f}`"
                     )
                 else:
@@ -272,7 +271,6 @@ class Leaderboard(commands.Cog):
                         f"{position_marker} — ***__{username}__***\n"
                         f"⚖️ **Weighted Wagered:** `${weighted_wagered:,.2f}`\n"
                         f"💰 **Total Wagered:** `${total_wagered:,.2f}`\n"
-                        f"💸 **Milestone Tips Earned ({current_year}-{current_month:02d}):** `$0.00`\n"
                         f"🎁 **Prize:** `${prize:.2f}`"
                     )
             else:
@@ -280,7 +278,6 @@ class Leaderboard(commands.Cog):
                     f"{position_marker} — ***__N/A__***\n"
                     f"⚖️ **Weighted Wagered:** `$0.00`\n"
                     f"💰 **Total Wagered:** `$0.00`\n"
-                    f"💸 **Milestone Tips Earned ({current_year}-{current_month:02d}):** `$0.00`\n"
                     f"🎁 **Prize:** `${PRIZE_DISTRIBUTION[i] if i < len(PRIZE_DISTRIBUTION) else 0:.2f}`"
                 )
         leaderboard_block = '\n\n'.join(leaderboard_lines)

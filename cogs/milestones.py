@@ -185,7 +185,15 @@ class Milestones(commands.Cog):
                         ),
                         color=milestone["color"]
                     )
-                    embed.set_thumbnail(url="https://play.mfam.gg/img/roobet_logo.png")
+                    # Extract badge name from emoji (e.g., "b1", "s5", "g15" from "<:b1:1389367229417656543>")
+                    emoji_text = milestone['emoji']
+                    badge_name = emoji_text.split(':')[1] if ':' in emoji_text else None
+                    if badge_name:
+                        # Construct path to rank PNG: assets/images/MilestoneRanks/{badge_name}.png
+                        rank_icon_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets', 'images', 'MilestoneRanks', f'{badge_name}.png')
+                        # Convert to file:// URL for Discord embed
+                        file_url = f"file:///{rank_icon_path.replace(chr(92), '/')}"
+                        embed.set_thumbnail(url=file_url)
                     embed.set_footer(text="AutoTip Engine Live • Payout Sent Successfully")
                     await channel.send(embed=embed)
                 else:
