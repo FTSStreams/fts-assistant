@@ -14,6 +14,53 @@ from collections import deque
 logger = logging.getLogger(__name__)
 MILESTONE_PRIZES_CHANNEL_ID = 1362517492651790416
 MILESTONE_BLOCKED_USER_IDS_KEY = "milestone_blocked_user_ids"
+MILESTONE_BADGE_URLS = {
+    "g15": "https://i.ibb.co/hpW74hK/g15.png",
+    "g14": "https://i.ibb.co/99wbzFBH/g14.png",
+    "g13": "https://i.ibb.co/Q3kTDJhX/g13.png",
+    "g12": "https://i.ibb.co/kgwYqH09/g12.png",
+    "g11": "https://i.ibb.co/CKpwc80P/g11.png",
+    "g10": "https://i.ibb.co/7NYgxBSt/g10.png",
+    "g9": "https://i.ibb.co/zVrrSGtm/g9.png",
+    "g8": "https://i.ibb.co/7JRPFZ8Z/g8.png",
+    "g7": "https://i.ibb.co/zVK8sPSJ/g7.png",
+    "g6": "https://i.ibb.co/V0716WtC/g6.png",
+    "g5": "https://i.ibb.co/wVJYnCZ/g5.png",
+    "g4": "https://i.ibb.co/k24fjNS0/g4.png",
+    "g3": "https://i.ibb.co/b8YKqQ5/g3.png",
+    "g2": "https://i.ibb.co/1Jz6XQkz/g2.png",
+    "g1": "https://i.ibb.co/DDpyypsY/g1.png",
+    "s15": "https://i.ibb.co/Lz6B82Bp/s15.png",
+    "s14": "https://i.ibb.co/KxP0jVnT/s14.png",
+    "s13": "https://i.ibb.co/0y209tXS/s13.png",
+    "s12": "https://i.ibb.co/99g9qL06/s12.png",
+    "s11": "https://i.ibb.co/1G045VG4/s11.png",
+    "s10": "https://i.ibb.co/KzcrVXHL/s10.png",
+    "s9": "https://i.ibb.co/Y77bzT8C/s9.png",
+    "s8": "https://i.ibb.co/KpPXKqjX/s8.png",
+    "s7": "https://i.ibb.co/jv2PNvTH/s7.png",
+    "s6": "https://i.ibb.co/LdMLxHSh/s6.png",
+    "s5": "https://i.ibb.co/jPkDyCpV/s5.png",
+    "s4": "https://i.ibb.co/wr0c6Ztg/s4.png",
+    "s3": "https://i.ibb.co/mCwPpSd9/s3.png",
+    "s2": "https://i.ibb.co/VcYkzKDt/s2.png",
+    "s1": "https://i.ibb.co/39sNqWq7/s1.png",
+    "b15": "https://i.ibb.co/M5fD4JcR/b15.png",
+    "b14": "https://i.ibb.co/h5WGMJp/b14.png",
+    "b13": "https://i.ibb.co/6JDZt0w9/b13.png",
+    "b12": "https://i.ibb.co/V0VYMYBJ/b12.png",
+    "b11": "https://i.ibb.co/bg509GnW/b11.png",
+    "b10": "https://i.ibb.co/8LRtvSdG/b10.png",
+    "b9": "https://i.ibb.co/4wG0YsjX/b9.png",
+    "b8": "https://i.ibb.co/cK2Q0JHK/b8.png",
+    "b7": "https://i.ibb.co/ZRTLX5JH/b7.png",
+    "b6": "https://i.ibb.co/d0tTBWwZ/b6.png",
+    "b5": "https://i.ibb.co/ksVCSzVr/b5.png",
+    "b4": "https://i.ibb.co/G4FmKGzH/b4.png",
+    "b3": "https://i.ibb.co/mF0184L5/b3.png",
+    "b2": "https://i.ibb.co/4bf4Sc9/b2.png",
+    "b1": "https://i.ibb.co/r209DDGQ/b1.png",
+}
 
 # Environment variable validation with proper error handling
 try:
@@ -188,12 +235,11 @@ class Milestones(commands.Cog):
                     # Extract badge name from emoji (e.g., "b1", "s5", "g15" from "<:b1:1389367229417656543>")
                     emoji_text = milestone['emoji']
                     badge_name = emoji_text.split(':')[1] if ':' in emoji_text else None
-                    if badge_name:
-                        # Construct path to rank PNG: assets/images/MilestoneRanks/{badge_name}.png
-                        rank_icon_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets', 'images', 'MilestoneRanks', f'{badge_name}.png')
-                        # Convert to file:// URL for Discord embed
-                        file_url = f"file:///{rank_icon_path.replace(chr(92), '/')}"
-                        embed.set_thumbnail(url=file_url)
+                    thumbnail_url = MILESTONE_BADGE_URLS.get(badge_name) if badge_name else None
+                    if thumbnail_url:
+                        embed.set_thumbnail(url=thumbnail_url)
+                    else:
+                        logger.info(f"[Milestones] No badge URL configured for {badge_name}; skipping thumbnail.")
                     embed.set_footer(text="AutoTip Engine Live • Payout Sent Successfully")
                     await channel.send(embed=embed)
                 else:
@@ -278,6 +324,78 @@ class Milestones(commands.Cog):
         for i in range(current_rank_index + 1):  # Include the current rank
             total += MILESTONES[i]["tip"]
         return total
+
+    @app_commands.command(name="restoremilestones", description="Restore recent milestone log posts to the milestone channel")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(amount="Number of recent milestone logs to restore")
+    async def restore_milestones(self, interaction: discord.Interaction, amount: int):
+        """Replay recent milestone payouts into the milestone channel."""
+        if amount <= 0:
+            await interaction.response.send_message("❌ Amount must be greater than 0.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        channel = self.bot.get_channel(MILESTONE_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(MILESTONE_CHANNEL_ID)
+            except Exception as e:
+                logger.error(f"[Milestones] Failed to fetch milestone channel for restore: {e}")
+                await interaction.followup.send("❌ Could not find the milestone channel.", ephemeral=True)
+                return
+
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT user_id, username, amount, month, year, tipped_at
+                    FROM manualtips
+                    WHERE tip_type = 'milestone'
+                    ORDER BY tipped_at DESC NULLS LAST, year DESC, month DESC
+                    LIMIT %s;
+                    """,
+                    (amount,),
+                )
+                rows = cur.fetchall()
+        except Exception as e:
+            logger.error(f"[Milestones] Failed to load milestone logs for restore: {e}")
+            await interaction.followup.send("❌ Failed to load recent milestone logs from the database.", ephemeral=True)
+            return
+        finally:
+            release_db_connection(conn)
+
+        if not rows:
+            await interaction.followup.send("ℹ️ No milestone log entries were found to restore.", ephemeral=True)
+            return
+
+        restored = 0
+        failed = 0
+        for row in reversed(rows):
+            user_id, username, amount_value, month, year, tipped_at = row
+            try:
+                embed = discord.Embed(
+                    title="📜 Milestone Log Restore",
+                    description=(
+                        f"🆔 **ID:** {username}\n"
+                        f"💸 **Tip Received:** ${float(amount_value):.2f} USD\n"
+                        f"📅 **Month:** {month}/{year}\n"
+                        f"🕒 **Logged:** {tipped_at.strftime('%Y-%m-%d %H:%M:%S UTC') if tipped_at else 'Unknown'}"
+                    ),
+                    color=discord.Color.orange(),
+                )
+                embed.set_footer(text="Restored from milestone history")
+                await channel.send(embed=embed)
+                restored += 1
+            except Exception as e:
+                logger.error(f"[Milestones] Failed to restore milestone log for {username}: {e}")
+                failed += 1
+
+        await interaction.followup.send(
+            f"✅ Restored **{restored}** milestone log(s) to <#{MILESTONE_CHANNEL_ID}>. Failed: **{failed}**.",
+            ephemeral=True,
+        )
 
     @app_commands.command(name="milestonerules", description="Display milestone reward tiers and rules")
     async def milestonerules(self, interaction: discord.Interaction):
