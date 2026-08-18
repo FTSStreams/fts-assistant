@@ -281,7 +281,7 @@ class Milestones(commands.Cog):
 
     @app_commands.command(name="milestonerules", description="Display milestone reward tiers and rules")
     async def milestonerules(self, interaction: discord.Interaction):
-        """Post the milestone rules and all tiers in a single embed"""
+        """Post the milestone rules and all tiers in four embeds"""
         # Build rules field
         rules_field = (
             ":white_check_mark: **AutoTip Engine**\n"
@@ -292,40 +292,51 @@ class Milestones(commands.Cog):
             ":dollar: All rewards are displayed in USD."
         )
         
-        # Build Bronze Tier field
-        bronze_tiers = [
-            f"{MILESTONES[i]['emoji']} **Rank {i+1}**: `${MILESTONES[i]['threshold']:,}` → **`${MILESTONES[i]['tip']:.2f} USD`**"
-            for i in range(15)
-        ]
-        bronze_field = "\n".join(bronze_tiers)
-        
-        # Build Silver Tier field
-        silver_tiers = [
-            f"{MILESTONES[i]['emoji']} **Rank {i+1}**: `${MILESTONES[i]['threshold']:,}` → **`${MILESTONES[i]['tip']:.2f} USD`**"
-            for i in range(15, 30)
-        ]
-        silver_field = "\n".join(silver_tiers)
-        
-        # Build Gold Tier field
-        gold_tiers = [
-            f"{MILESTONES[i]['emoji']} **Rank {i+1}**: `${MILESTONES[i]['threshold']:,}` → **`${MILESTONES[i]['tip']:.2f} USD`**"
-            for i in range(30, 45)
-        ]
-        gold_field = "\n".join(gold_tiers)
-        
-        # Create single embed with 4 fields
-        embed = discord.Embed(
+        def build_tier_lines(start, end):
+            return [
+                f"{MILESTONES[i]['emoji']} **Rank {i+1}**: `${MILESTONES[i]['threshold']:,}` → **`${MILESTONES[i]['tip']:.2f} USD`**"
+                for i in range(start, end)
+            ]
+
+        def add_tier_fields(embed, tier_name, tier_lines):
+            field_lines = []
+            field_length = 0
+            field_number = 1
+            for line in tier_lines:
+                line_length = len(line) + (1 if field_lines else 0)
+                if field_lines and field_length + line_length > 1024:
+                    field_name = tier_name if field_number == 1 else f"{tier_name} (continued)"
+                    embed.add_field(name=field_name, value="\n".join(field_lines), inline=False)
+                    field_lines = []
+                    field_length = 0
+                    field_number += 1
+                field_lines.append(line)
+                field_length += len(line) + (1 if len(field_lines) > 1 else 0)
+            if field_lines:
+                field_name = tier_name if field_number == 1 else f"{tier_name} (continued)"
+                embed.add_field(name=field_name, value="\n".join(field_lines), inline=False)
+
+        rules_embed = discord.Embed(
             title="🎯 **WAGER MILESTONES - AUTOMATIC TIPS!** 🎯",
             description="**Climb 45 ranks and earn instant cash rewards!** 💰",
             color=discord.Color.blue()
         )
-        embed.add_field(name="⚡ **HOW IT WORKS**", value=rules_field, inline=False)
-        embed.add_field(name="🥉 **BRONZE TIER (Ranks 1-15)**", value=bronze_field, inline=False)
-        embed.add_field(name="🥈 **SILVER TIER (Ranks 16-30)**", value=silver_field, inline=False)
-        embed.add_field(name="🥇 **GOLD TIER (Ranks 31-45)**", value=gold_field, inline=False)
-        embed.set_footer(text="AutoTip Engine is Live")
-        
-        await interaction.response.send_message(embed=embed)
+        rules_embed.add_field(name="⚡ **HOW IT WORKS**", value=rules_field, inline=False)
+        rules_embed.set_footer(text="AutoTip Engine is Live")
+
+        bronze_embed = discord.Embed(title="🥉 **BRONZE TIER (Ranks 1-15)**", color=discord.Color.from_rgb(205, 127, 50))
+        add_tier_fields(bronze_embed, "🥉 **BRONZE TIER (Ranks 1-15)**", build_tier_lines(0, 15))
+        bronze_embed.set_footer(text="AutoTip Engine is Live")
+
+        silver_embed = discord.Embed(title="🥈 **SILVER TIER (Ranks 16-30)**", color=discord.Color.from_rgb(192, 192, 192))
+        add_tier_fields(silver_embed, "🥈 **SILVER TIER (Ranks 16-30)**", build_tier_lines(15, 30))
+        silver_embed.set_footer(text="AutoTip Engine is Live")
+
+        gold_embed = discord.Embed(title="🥇 **GOLD TIER (Ranks 31-45)**", color=discord.Color.from_rgb(255, 215, 0))
+        add_tier_fields(gold_embed, "🥇 **GOLD TIER (Ranks 31-45)**", build_tier_lines(30, 45))
+        gold_embed.set_footer(text="AutoTip Engine is Live")
+
+        await interaction.response.send_message(embeds=[rules_embed, bronze_embed, silver_embed, gold_embed])
         logger.info("[Milestones] Posted milestone rules embed")
 
 async def setup(bot):
