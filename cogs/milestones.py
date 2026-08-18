@@ -143,6 +143,38 @@ class Milestones(commands.Cog):
         username_match = self._normalize_roobet_username(username) in blocked_usernames if username else False
         return uid_match or username_match
 
+    def _find_milestone_by_tip_amount(self, amount_value):
+        """Match a milestone by tip amount. This is an approximation used for restore jobs, since the original milestone tier is not stored in manualtips."""
+        amount_value = float(amount_value)
+        matches = [milestone for milestone in MILESTONES if abs(float(milestone["tip"]) - amount_value) < 0.0001]
+        if matches:
+            return matches[0]
+        return min(MILESTONES, key=lambda milestone: abs(float(milestone["tip"]) - amount_value))
+
+    def _build_milestone_embed(self, username, milestone, tip_amount, footer_text="AutoTip Engine Live • Payout Sent Successfully"):
+        display_username = username
+        if len(username) > 3:
+            display_username = username[:-3] + "•••"
+        else:
+            display_username = "•••"
+
+        embed = discord.Embed(
+            title=f"{milestone['emoji']} {milestone['tier']} Wager Milestone Achieved! {milestone['emoji']}",
+            description=(
+                f"🆔 **ID:** {display_username}\n"
+                f"✨ **Weighted Wager:** ${milestone['threshold']:,.2f}\n"
+                f"💸 **Tip Received:** ${float(tip_amount):.2f} USD\n"
+                f"See Milestone Prizes -> <#{MILESTONE_PRIZES_CHANNEL_ID}>"
+            ),
+            color=milestone["color"]
+        )
+        badge_name = milestone['emoji'].split(':')[1] if ':' in milestone['emoji'] else None
+        thumbnail_url = MILESTONE_BADGE_URLS.get(badge_name) if badge_name else None
+        if thumbnail_url:
+            embed.set_thumbnail(url=thumbnail_url)
+        embed.set_footer(text=footer_text)
+        return embed
+
     def purge_user_from_tip_queue(self, roobet_username=None, roobet_uid=None):
         """Remove queued milestone tips for a specific Roobet user and return removed count."""
         username_key = self._normalize_roobet_username(roobet_username)
@@ -215,32 +247,7 @@ class Milestones(commands.Cog):
                     save_tip(user_id, milestone["tier"], month, year)
                     save_tip_log(user_id, username, milestone["tip"], "milestone", month, year)
                     logger.info(f"[Milestones] Successfully saved tip for {username} - {milestone['tier']} in database (month={month}, year={year})")
-                    # Censor username for public display using bullet characters for consistency.
-                    display_username = username
-                    if len(username) > 3:
-                        display_username = username[:-3] + "•••"
-                    else:
-                        display_username = "•••"
-                    
-                    embed = discord.Embed(
-                        title=f"{milestone['emoji']} {milestone['tier']} Wager Milestone Achieved! {milestone['emoji']}",
-                        description=(
-                            f"🆔 **ID:** {display_username}\n"
-                            f"✨ **Weighted Wager:** ${milestone['threshold']:,.2f}\n"
-                            f"💸 **Tip Received:** ${milestone['tip']:.2f} USD\n"
-                            f"See Milestone Prizes -> <#{MILESTONE_PRIZES_CHANNEL_ID}>"
-                        ),
-                        color=milestone["color"]
-                    )
-                    # Extract badge name from emoji (e.g., "b1", "s5", "g15" from "<:b1:1389367229417656543>")
-                    emoji_text = milestone['emoji']
-                    badge_name = emoji_text.split(':')[1] if ':' in emoji_text else None
-                    thumbnail_url = MILESTONE_BADGE_URLS.get(badge_name) if badge_name else None
-                    if thumbnail_url:
-                        embed.set_thumbnail(url=thumbnail_url)
-                    else:
-                        logger.info(f"[Milestones] No badge URL configured for {badge_name}; skipping thumbnail.")
-                    embed.set_footer(text="AutoTip Engine Live • Payout Sent Successfully")
+                    embed = self._build_milestone_embed(username, milestone, milestone['tip'])
                     await channel.send(embed=embed)
                 else:
                     logger.error(f"Failed to send milestone tip to {username}: {tip_response.get('message')}")
@@ -375,17 +382,9 @@ class Milestones(commands.Cog):
         for row in reversed(rows):
             user_id, username, amount_value, month, year, tipped_at = row
             try:
-                embed = discord.Embed(
-                    title="📜 Milestone Log Restore",
-                    description=(
-                        f"🆔 **ID:** {username}\n"
-                        f"💸 **Tip Received:** ${float(amount_value):.2f} USD\n"
-                        f"📅 **Month:** {month}/{year}\n"
-                        f"🕒 **Logged:** {tipped_at.strftime('%Y-%m-%d %H:%M:%S UTC') if tipped_at else 'Unknown'}"
-                    ),
-                    color=discord.Color.orange(),
-                )
-                embed.set_footer(text="Restored from milestone history")
+                milestone = self._find_milestone_by_tip_amount(amount_value)
+                embed = self._build_milestone_embed(username, milestone, amount_value, footer_text="Restored from milestone history")
+                embed.description += f"\n📅 **Month:** {month}/{year}\n🕒 **Logged:** {tipped_at.strftime('%Y-%m-%d %H:%M:%S UTC') if tipped_at else 'Unknown'}"
                 await channel.send(embed=embed)
                 restored += 1
             except Exception as e:
