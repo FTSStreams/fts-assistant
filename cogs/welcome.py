@@ -2,7 +2,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from utils import fetch_weighted_wager, fetch_total_wager, get_current_month_range, get_current_week_range
-from db import get_roovsflip_queue, get_roovsflip_event_start
 import os
 import logging
 import asyncio
@@ -18,11 +17,9 @@ ROLES_CHANNEL_ID = int(os.getenv("ROLES_CHANNEL_ID", "1440843895360590028"))
 WAGER_LB_CHANNEL_ID = int(os.getenv("WAGER_LEADERBOARD_CHANNEL_ID", "1324462489404051487"))
 MULTI_LB_CHANNEL_ID = int(os.getenv("MULTI_LEADERBOARD_CHANNEL_ID", "1352322188102991932"))
 SLOT_CHALLENGES_CHANNEL_ID = int(os.getenv("SLOT_CHALLENGES_CHANNEL_ID", "1385820512529158226"))
-ROO_VS_FLIP_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_CHANNEL_ID", "1486202172378189925"))
 MILESTONE_CHANNEL_ID = int(os.getenv("MILESTONE_PRIZES_CHANNEL_ID", "1362517492651790416"))
 FTS_VAULT_CHANNEL_ID = int(os.getenv("CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID", "1501283696928362497"))
 GTB_CHANNEL_ID = int(os.getenv("GTB_CHANNEL_ID", "1527380205759500369"))
-ROO_VS_FLIP_CYCLE_DAYS = int(os.getenv("ROO_VS_FLIP_CYCLE_DAYS", "7"))
 
 
 async def _fetch_live_stats():
@@ -30,9 +27,8 @@ async def _fetch_live_stats():
     Returns a dict with:
       - wager_10th: float  (10th place weighted wager this month, 0 if unavailable)
       - multi_3rd:  float  (3rd place highest multiplier this week, 0 if unavailable)
-      - rvf_eligible: int  (number of participants eligible in current RVF cycle)
     """
-    stats = {"wager_10th": 0.0, "multi_3rd": 0.0, "rvf_eligible": 0}
+    stats = {"wager_10th": 0.0, "multi_3rd": 0.0}
 
     # ── Monthly wager 10th place ──────────────────────────────────────────────
     try:
@@ -66,48 +62,15 @@ async def _fetch_live_stats():
     except Exception as e:
         logger.warning(f"[Welcome] Failed to fetch multi 3rd: {e}")
 
-    # ── RVF eligible participants ─────────────────────────────────────────────
-    try:
-        queue = get_roovsflip_queue()
-        event_start = get_roovsflip_event_start()
-        if queue and event_start:
-            player_map: dict = {}
-            for game in queue:
-                gid = game["game_identifier"]
-                req = float(game["req_multi"])
-                entries = await asyncio.to_thread(fetch_weighted_wager, event_start, None, gid)
-                for entry in entries:
-                    uid = entry.get("uid")
-                    hm = entry.get("highestMultiplier")
-                    if not (uid and hm):
-                        continue
-                    if hm.get("gameId") != gid:
-                        continue
-                    multi = float(hm.get("multiplier", 0))
-                    if uid not in player_map:
-                        player_map[uid] = {}
-                    player_map[uid][gid] = multi >= req
-                await asyncio.sleep(1)
-
-            total_games = len(queue)
-            stats["rvf_eligible"] = sum(
-                1 for games in player_map.values()
-                if sum(1 for met in games.values() if met) == total_games
-            )
-    except Exception as e:
-        logger.warning(f"[Welcome] Failed to fetch RVF eligible: {e}")
-
     return stats
 
 
 def _build_welcome_embed(stats: dict) -> discord.Embed:
     wager_10th = stats["wager_10th"]
     multi_3rd = stats["multi_3rd"]
-    rvf_eligible = stats["rvf_eligible"]
 
     wager_line = f"Current 10th place cutoff: **${wager_10th:,.2f}** wagered this month" if wager_10th else "No data yet this month"
     multi_line = f"Current 3rd place cutoff: **x{multi_3rd:,.2f}**" if multi_3rd else "No data yet this week"
-    rvf_line = f"Current eligible participants: **{rvf_eligible}**"
 
     description = (
         "Here's a quick guide to get you started!\n\n"
@@ -121,7 +84,6 @@ def _build_welcome_embed(stats: dict) -> discord.Embed:
         f"🏆 **Monthly Wager Leaderboard**\n<#{WAGER_LB_CHANNEL_ID}>\n{wager_line}\n\n"
         f"⚡ **Weekly Multi Leaderboard**\n<#{MULTI_LB_CHANNEL_ID}>\n{multi_line}\n\n"
         f"🎰 **Slot Challenges**\n<#{SLOT_CHALLENGES_CHANNEL_ID}>\n\n"
-        f"🆚 **Roo Vs Flip**\n<#{ROO_VS_FLIP_CHANNEL_ID}>\n{rvf_line}\n\n"
         f"🎯 **Milestone Prizes**\n<#{MILESTONE_CHANNEL_ID}>\n\n"
         f"🏦 **FTS Vault**\n<#{FTS_VAULT_CHANNEL_ID}>\n\n"
         f"🎲 **Guess the Balance**\n<#{GTB_CHANNEL_ID}>"

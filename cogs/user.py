@@ -9,8 +9,6 @@ from db import (
     save_tip_log,
     get_monthly_totals,
     get_user_slot_challenge_stats,
-    get_roovsflip_queue,
-    get_roovsflip_event_start,
     process_daily_checkin,
     reserve_checkin_withdrawal,
     finalize_checkin_withdrawal,
@@ -66,9 +64,6 @@ CHECKIN_MIN_ACCOUNT_AGE_DAYS = int(os.getenv("CHECKIN_MIN_ACCOUNT_AGE_DAYS", "7"
 CHECKIN_MIN_GUILD_MEMBER_AGE_DAYS = int(os.getenv("CHECKIN_MIN_GUILD_MEMBER_AGE_DAYS", "3"))
 COINFLIP_MIN_BET = float(os.getenv("COINFLIP_MIN_BET", "0.10"))
 COINFLIP_MAX_BET = float(os.getenv("COINFLIP_MAX_BET", "100.00"))
-ROO_VS_FLIP_CHANNEL_ID = int(os.getenv("ROO_VS_FLIP_CHANNEL_ID", "1486202172378189925"))
-ROO_VS_FLIP_PRIZE_POOL = float(os.getenv("ROO_VS_FLIP_PRIZE_POOL", "50.00"))
-ROO_VS_FLIP_CYCLE_DAYS = int(os.getenv("ROO_VS_FLIP_CYCLE_DAYS", "7"))
 MULTI_LEADERBOARD_PRIZES = [25, 15, 10]
 LEADERBOARD_HISTORY_URL = os.getenv(
     "LEADERBOARD_HISTORY_URL",
@@ -85,7 +80,6 @@ TIP_TYPE_DISPLAY_ORDER = [
     "milestone",
     "weekly_multiplier",
     "slot_challenge",
-    "roo_vs_flip",
     "manual",
 ]
 
@@ -95,7 +89,6 @@ TIP_TYPE_DISPLAY_NAMES = {
     "milestone": "Milestones",
     "weekly_multiplier": "Weekly Multi Leaderboard",
     "slot_challenge": "Slot Challenges",
-    "roo_vs_flip": "Roo vs Flip",
     "manual": "Manual",
 }
 
@@ -2485,72 +2478,9 @@ class User(commands.Cog):
         weekly_multi_lines.append(f"📣 **Multi Leaderboard**: <#{MULTI_LEADERBOARD_CHANNEL_ID}>")
         weekly_multi_block = "\n".join(weekly_multi_lines)
 
-        # Roo vs Flip progress for current event.
-        rvf_block = (
-            "🆚 **Roo vs Flip Status**: **No active event**\n"
-            f"💰 **Current Prize Pool**: **${ROO_VS_FLIP_PRIZE_POOL:,.2f} USD**\n"
-            f"📣 **Roo vs Flip**: <#{ROO_VS_FLIP_CHANNEL_ID}>"
-        )
-        rvf_completed = False
-        rvf_estimated_prize = 0.0
-        rvf_period_end = None
-        try:
-            rvf_queue = get_roovsflip_queue()
-            if rvf_queue:
-                event_start = get_roovsflip_event_start()
-                completed_games = 0
-                total_games = len(rvf_queue)
-                participant_completion_counts = {}
-
-                event_start_dt = datetime.fromisoformat(str(event_start).replace("Z", "+00:00"))
-                rvf_period_end = event_start_dt + dt.timedelta(days=ROO_VS_FLIP_CYCLE_DAYS)
-
-                for game in rvf_queue:
-                    game_identifier = game.get("game_identifier")
-                    game_entries = await asyncio.to_thread(fetch_weighted_wager, event_start, None, game_identifier)
-
-                    req_multi = float(game.get("req_multi", 0)) if isinstance(game.get("req_multi"), (int, float)) else 0.0
-                    if req_multi <= 0:
-                        continue
-
-                    for entry in game_entries:
-                        uid = str(entry.get("uid"))
-                        highest = entry.get("highestMultiplier") if isinstance(entry, dict) else None
-                        multi_value = 0.0
-                        if isinstance(highest, dict) and isinstance(highest.get("multiplier"), (int, float)):
-                            multi_value = float(highest.get("multiplier", 0))
-                        if multi_value >= req_multi:
-                            participant_completion_counts[uid] = participant_completion_counts.get(uid, 0) + 1
-
-                    user_game_entry = next(
-                        (entry for entry in game_entries if str(entry.get("uid")) == str(roobet_uid)),
-                        None
-                    )
-                    highest = user_game_entry.get("highestMultiplier") if isinstance(user_game_entry, dict) else None
-                    multi_value = 0.0
-                    if isinstance(highest, dict) and isinstance(highest.get("multiplier"), (int, float)):
-                        multi_value = float(highest.get("multiplier", 0))
-                    if multi_value >= req_multi and req_multi > 0:
-                        completed_games += 1
-
-                rvf_completed = completed_games == total_games and total_games > 0
-                winner_count = sum(1 for count in participant_completion_counts.values() if count == total_games)
-                if rvf_completed and winner_count > 0:
-                    rvf_estimated_prize = round(ROO_VS_FLIP_PRIZE_POOL / winner_count, 2)
-                rvf_status = "✅ Completed" if rvf_completed else "❌ Not completed"
-                rvf_block = (
-                    f"🆚 **Roo vs Flip Status**: **{rvf_status}**\n"
-                    f"💰 **Current Prize Pool**: **${ROO_VS_FLIP_PRIZE_POOL:,.2f} USD**\n"
-                    f"🎯 **Progress**: **{completed_games}/{total_games}** games completed\n"
-                    f"📣 **Roo vs Flip**: <#{ROO_VS_FLIP_CHANNEL_ID}>"
-                )
-        except Exception as e:
-            logger.warning(f"Error loading Roo vs Flip status for /mywager: {e}")
-
         # Payout summary (paid + pending).
         milestone_paid_all_time = 0.0
         milestone_paid_current_month = 0.0
-        rvf_paid_for_cycle = False
         wager_lb_paid_all_time = 0.0
         try:
             conn = get_db_connection()
@@ -2578,21 +2508,6 @@ class User(commands.Cog):
                         (str(roobet_uid), now_utc.month, now_utc.year)
                     )
                     milestone_paid_current_month = float((cur.fetchone() or [0])[0] or 0)
-
-                    if rvf_period_end:
-                        payout_year = rvf_period_end.year
-                        payout_month = rvf_period_end.month
-                        payout_period_key = rvf_period_end.strftime("%Y-%m-%d")
-
-                        cur.execute(
-                            """
-                            SELECT COUNT(*)
-                            FROM roovsflip_payouts
-                            WHERE period_key = %s AND winner_uid = %s;
-                            """,
-                            (payout_period_key, str(roobet_uid))
-                        )
-                        rvf_paid_for_cycle = int((cur.fetchone() or [0])[0] or 0) > 0
             finally:
                 release_db_connection(conn)
         except Exception as e:
@@ -2617,7 +2532,6 @@ class User(commands.Cog):
         wager_expected = current_lb_prize if (leaderboard_rank is not None and leaderboard_rank <= 10) else 0.0
         wager_pending = wager_expected  # Current month's LB prize is always pending; it pays out on the 1st of next month
         multi_pending = current_multi_prize if (weekly_rank is not None and weekly_rank <= 3) else 0.0
-        rvf_pending = rvf_estimated_prize if (rvf_completed and not rvf_paid_for_cycle) else 0.0
 
         if now_utc.month == 12:
             next_month_payout = datetime(now_utc.year + 1, 1, 1, 0, 15, 0, tzinfo=dt.UTC)
@@ -2630,7 +2544,7 @@ class User(commands.Cog):
             next_multi_payout = next_multi_payout + dt.timedelta(days=7)
 
         current_month_paid = milestone_paid_current_month + float(slot_stats['earned_current_month'])
-        current_month_pending = wager_pending + multi_pending + rvf_pending
+        current_month_pending = wager_pending + multi_pending
         current_month_total = current_month_paid + current_month_pending
 
         all_time_paid = milestone_paid_all_time + float(slot_stats['earned_all_time']) + wager_lb_paid_all_time
@@ -2646,13 +2560,6 @@ class User(commands.Cog):
             f"• Wager Leaderboard: **${wager_pending:,.2f}** (Expected <t:{int(next_month_payout.timestamp())}:R>)",
             f"• Multi Leaderboard: **${multi_pending:,.2f}** (Expected <t:{int(next_multi_payout.timestamp())}:R>)",
         ]
-
-        if rvf_period_end:
-            payout_lines.append(
-                f"• Roo vs Flip: **${rvf_pending:,.2f}** (Expected <t:{int(rvf_period_end.timestamp())}:R>)"
-            )
-        else:
-            payout_lines.append("• Roo vs Flip: **$0.00** (Expected N/A)")
 
         payout_lines.extend([
             f"▸ Month Paid: **${current_month_paid:,.2f}** | Pending: **${current_month_pending:,.2f}** | Month Total: **${current_month_total:,.2f}**",
@@ -2685,8 +2592,6 @@ class User(commands.Cog):
                 f"\n{weekly_multi_block}\n"
                 f"\n{divider}\n"
                 f"\n{slot_challenge_status_block}\n"
-                f"\n{divider}\n"
-                f"\n{rvf_block}\n"
                 f"\n{divider}\n"
                 f"\n{payout_summary_block}"
             ),
