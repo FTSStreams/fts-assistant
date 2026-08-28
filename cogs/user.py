@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from discord import ui
-from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager, fetch_total_wager, get_month_range
+from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager, fetch_total_wager, filter_weekly_multiplier_entries, get_month_range
 from db import (
     get_db_connection,
     release_db_connection,
@@ -2393,17 +2393,7 @@ class User(commands.Cog):
         try:
             week_start, week_end = get_current_week_range()
             weekly_weighted_data = await asyncio.to_thread(fetch_weighted_wager, week_start, week_end)
-            weekly_candidates = []
-            for entry in weekly_weighted_data:
-                if not isinstance(entry, dict):
-                    continue
-                highest = entry.get("highestMultiplier")
-                if not isinstance(highest, dict):
-                    continue
-                multiplier = highest.get("multiplier")
-                if isinstance(multiplier, (int, float)) and multiplier > 0:
-                    weekly_candidates.append(entry)
-
+            weekly_candidates = filter_weekly_multiplier_entries(weekly_weighted_data)
             weekly_candidates.sort(
                 key=lambda entry: entry.get("highestMultiplier", {}).get("multiplier", 0),
                 reverse=True

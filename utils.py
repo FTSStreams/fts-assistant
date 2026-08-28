@@ -12,8 +12,34 @@ TIPPING_API_TOKEN = os.getenv("TIPPING_API_TOKEN")
 ROOBET_USER_ID = os.getenv("ROOBET_USER_ID")
 AFFILIATE_API_URL = "https://roobetconnect.com/affiliate/v2/stats"
 TIPPING_API_URL = "https://roobet.com/_api/tipping/send"
+WEEKLY_MULTIPLIER_MIN_BET = 0.10
 
 logger = logging.getLogger(__name__)
+
+
+def filter_weekly_multiplier_entries(entries):
+    eligible_entries = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+
+        highest_multiplier = entry.get("highestMultiplier")
+        if not isinstance(highest_multiplier, dict):
+            continue
+
+        multiplier = highest_multiplier.get("multiplier")
+        wagered = highest_multiplier.get("wagered")
+        if (
+            isinstance(multiplier, (int, float))
+            and not isinstance(multiplier, bool)
+            and multiplier > 0
+            and isinstance(wagered, (int, float))
+            and not isinstance(wagered, bool)
+            and wagered >= WEEKLY_MULTIPLIER_MIN_BET
+        ):
+            eligible_entries.append(entry)
+
+    return eligible_entries
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def fetch_total_wager(start_date, end_date):

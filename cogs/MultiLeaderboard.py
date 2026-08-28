@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from utils import get_current_week_range, fetch_weighted_wager, send_tip
+from utils import filter_weekly_multiplier_entries, get_current_week_range, fetch_weighted_wager, send_tip
 from db import get_leaderboard_message_id, save_leaderboard_message_id, save_tip_log, get_db_connection, release_db_connection, get_setting_value, save_setting_value
 import os
 import logging
@@ -293,7 +293,7 @@ class MultiLeaderboard(commands.Cog):
             return
         
         # Filter and sort by highestMultiplier
-        multi_data = [entry for entry in weekly_weighted_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
+        multi_data = filter_weekly_multiplier_entries(weekly_weighted_data)
         multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
         current_snapshot = self._build_leaderboard_snapshot(multi_data)
         alert_state = self._load_leaderboard_alert_state(week_key)
@@ -306,6 +306,7 @@ class MultiLeaderboard(commands.Cog):
                 f"To: <t:{week_end_ts}:F>\n\n"
                 f"⏰ **Last Updated:** <t:{int(datetime.now(dt.UTC).timestamp())}:R>\n\n"
                 "This leaderboard ranks users by their highest single multiplier hit this week.\n"
+                "🪙 **Minimum Base Bet:** **$0.10 USD**\n"
                 "💵 **All amounts displayed are in USD.**\n\n"
             ),
             color=discord.Color.purple()
@@ -358,7 +359,7 @@ class MultiLeaderboard(commands.Cog):
         if channel_lines:
             embed.add_field(name="\u200b", value="\n".join(channel_lines), inline=False)
 
-        embed.set_footer(text="AutoTip Engine • Auto-pays at midnight UTC every Friday.")
+        embed.set_footer(text="AutoTip Engine • Auto-pays ~45 minutes after week completion.")
         
         # Prepare JSON data for export (weekly format)
         leaderboard_json = {
@@ -583,7 +584,7 @@ class MultiLeaderboard(commands.Cog):
             logger.info(f"[MultiLeaderboard] 📊 Received {len(weekly_weighted_data)} entries from API")
 
             # Filter and sort by highest multiplier
-            multi_data = [entry for entry in weekly_weighted_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
+            multi_data = filter_weekly_multiplier_entries(weekly_weighted_data)
             multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
             logger.info(f"[MultiLeaderboard] 📊 Filtered to {len(multi_data)} entries with valid multipliers")
 

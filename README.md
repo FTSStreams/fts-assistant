@@ -284,20 +284,13 @@ graph TD
    pip install -r requirements.txt
    ```
 
-3. **Database Setup**
-   ```bash
-   # Run SQL setup files in your PostgreSQL client
-   psql -f setup_monthly_totals.sql
-   psql -f add_total_wager_column.sql
-   ```
-
-4. **Environment Configuration**
+3. **Environment Configuration**
    ```bash
    cp .env.example .env
    # Edit .env with your credentials
    ```
 
-5. **Start Bot**
+4. **Start Bot**
    ```bash
    python bot.py
    ```

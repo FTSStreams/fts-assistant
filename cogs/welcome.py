@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils import fetch_weighted_wager, fetch_total_wager, get_current_month_range, get_current_week_range
+from utils import fetch_weighted_wager, fetch_total_wager, filter_weekly_multiplier_entries, get_current_month_range, get_current_week_range
 import os
 import logging
 import asyncio
@@ -51,7 +51,7 @@ async def _fetch_live_stats():
         week_start, week_end = get_current_week_range()
         weekly_data = await asyncio.to_thread(fetch_weighted_wager, week_start, week_end)
         multi_data = sorted(
-            [e for e in weekly_data if e.get("highestMultiplier") and float(e["highestMultiplier"].get("multiplier", 0)) > 0],
+            filter_weekly_multiplier_entries(weekly_data),
             key=lambda x: float(x["highestMultiplier"]["multiplier"]),
             reverse=True,
         )

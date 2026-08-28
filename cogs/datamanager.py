@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands, tasks
-from utils import fetch_total_wager, fetch_weighted_wager, get_current_month_range, fetch_user_game_stats, get_month_range, generate_backfill_months, get_current_week_range
+from utils import fetch_total_wager, fetch_weighted_wager, filter_weekly_multiplier_entries, get_current_month_range, fetch_user_game_stats, get_month_range, generate_backfill_months, get_current_week_range
 from db import get_all_active_slot_challenges, get_all_completed_slot_challenges, get_db_connection, release_db_connection, save_monthly_totals, backfill_monthly_totals_for_date
 import os
 import logging
@@ -299,7 +299,7 @@ class DataManager(commands.Cog):
             weekly_weighted_data = []
         
         # Filter and sort by highestMultiplier
-        multi_data = [entry for entry in weekly_weighted_data if entry.get("highestMultiplier") and entry["highestMultiplier"].get("multiplier", 0) > 0]
+        multi_data = filter_weekly_multiplier_entries(weekly_weighted_data)
         multi_data.sort(key=lambda x: x["highestMultiplier"]["multiplier"], reverse=True)
         
         PRIZE_DISTRIBUTION = [25, 15, 10]  # Weekly prizes
