@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 from utils import send_tip, get_current_month_range
-from db import get_db_connection, release_db_connection, save_tip_log, load_sent_tips, save_tip, get_leaderboard_message_id, save_leaderboard_message_id, get_setting_value
+from db import get_db_connection, release_db_connection, save_tip_log, load_sent_tips, save_tip, get_leaderboard_message_id, save_leaderboard_message_id, get_setting_value, credit_finder_fee
 import os
 import logging
 from datetime import datetime
@@ -14,6 +14,9 @@ from collections import deque
 logger = logging.getLogger(__name__)
 MILESTONE_PRIZES_CHANNEL_ID = 1362517492651790416
 MILESTONE_BLOCKED_USER_IDS_KEY = "milestone_blocked_user_ids"
+FINDER_FEE_PUBLIC_CHANNEL_ID = int(os.getenv("FINDER_FEE_PUBLIC_CHANNEL_ID", "1036310766300700752"))
+FINDER_FEE_LOG_CHANNEL_ID = int(os.getenv("FINDER_FEE_LOG_CHANNEL_ID", "1008041424941498445"))
+FTS_VAULT_CHANNEL_ID = int(os.getenv("CHECKIN_BALANCE_LEADERBOARD_CHANNEL_ID", "1501283696928362497"))
 MILESTONE_BADGE_URLS = {
     "g15": "https://raw.githubusercontent.com/FTSStreams/fts-assistant/main/assets/images/MilestoneRanks/g15.png",
     "g14": "https://raw.githubusercontent.com/FTSStreams/fts-assistant/main/assets/images/MilestoneRanks/g14.png",
@@ -217,6 +220,69 @@ class Milestones(commands.Cog):
         if hasattr(self, 'process_tip_queue_task'):
             self.process_tip_queue_task.cancel()
 
+    async def _get_message_channel(self, channel_id):
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(channel_id)
+            except Exception as e:
+                logger.error(f"[finder_fee] Failed to fetch channel {channel_id}: {e}")
+                return None
+        return channel if hasattr(channel, "send") else None
+
+    async def _send_finder_fee_notifications(self, result, referred_username, referred_uid, milestone, month, year):
+        inviter_id = int(result["inviter_discord_user_id"])
+        credited_amount = float(result["credited_amount"])
+
+        public_channel = await self._get_message_channel(FINDER_FEE_PUBLIC_CHANNEL_ID)
+        if public_channel is not None:
+            try:
+                await public_channel.send(
+                    f"<@{inviter_id}>\n\n"
+                    f"A Finder Fee of **${credited_amount:,.2f}** has been added to your <#{FTS_VAULT_CHANNEL_ID}>.",
+                    allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+                )
+            except Exception as e:
+                logger.error(f"[finder_fee] Failed to send public notification for Discord user {inviter_id}: {e}")
+
+        log_channel = await self._get_message_channel(FINDER_FEE_LOG_CHANNEL_ID)
+        if log_channel is not None:
+            embed = discord.Embed(title="Finder Fee Credited", color=discord.Color.green())
+            embed.add_field(name="Inviter", value=f"<@{inviter_id}> (`{inviter_id}`)", inline=False)
+            embed.add_field(name="Referred Roobet User", value=f"{referred_username} (`{referred_uid}`)", inline=False)
+            embed.add_field(name="Source Milestone", value=f"{milestone['tier']} ({year}-{month:02d})", inline=True)
+            embed.add_field(name="Milestone Prize", value=f"${float(result['milestone_prize']):,.2f}", inline=True)
+            embed.add_field(name="Finder Fee", value=f"20% = ${credited_amount:,.2f}", inline=True)
+            embed.add_field(name="New Vault Balance", value=f"${float(result['balance']):,.2f}", inline=True)
+            embed.set_footer(text="Credit type: finderFee")
+            try:
+                await log_channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            except Exception as e:
+                logger.error(f"[finder_fee] Failed to send private audit for Discord user {inviter_id}: {e}")
+
+    async def _credit_milestone_finder_fee(self, user_id, username, milestone, month, year):
+        result = credit_finder_fee(
+            user_id,
+            username,
+            milestone["tier"],
+            month,
+            year,
+            milestone["tip"],
+        )
+        if result is None:
+            logger.error(f"[finder_fee] Database credit failed for {username} ({user_id}) {milestone['tier']}")
+            return
+        if result.get("status") != "credited":
+            if result.get("status") not in {"not_linked", "already_credited"}:
+                logger.warning(f"[finder_fee] Credit skipped for {username} ({user_id}): {result.get('status')}")
+            return
+
+        logger.info(
+            f"[finder_fee] Credited ${result['credited_amount']:.2f} to Discord user "
+            f"{result['inviter_discord_user_id']} for {username} {milestone['tier']}"
+        )
+        await self._send_finder_fee_notifications(result, username, user_id, milestone, month, year)
+
     async def process_tip_queue(self):
         while True:
             # Always get or fetch the channel each time
@@ -244,11 +310,15 @@ class Milestones(commands.Cog):
                 bot_user_id = os.getenv("ROOBET_USER_ID")
                 tip_response = await send_tip(bot_user_id, username, user_id, milestone["tip"])
                 if tip_response.get("success"):
-                    save_tip(user_id, milestone["tier"], month, year)
-                    save_tip_log(user_id, username, milestone["tip"], "milestone", month, year)
-                    logger.info(f"[Milestones] Successfully saved tip for {username} - {milestone['tier']} in database (month={month}, year={year})")
-                    embed = self._build_milestone_embed(username, milestone, milestone['tip'])
-                    await channel.send(embed=embed)
+                    milestone_saved = save_tip(user_id, milestone["tier"], month, year)
+                    if milestone_saved:
+                        save_tip_log(user_id, username, milestone["tip"], "milestone", month, year)
+                        logger.info(f"[Milestones] Successfully saved tip for {username} - {milestone['tier']} in database (month={month}, year={year})")
+                        embed = self._build_milestone_embed(username, milestone, milestone['tip'])
+                        await channel.send(embed=embed)
+                        await self._credit_milestone_finder_fee(user_id, username, milestone, month, year)
+                    else:
+                        logger.error(f"[Milestones] Tip sent but milestone record was not saved for {username} - {milestone['tier']}")
                 else:
                     logger.error(f"Failed to send milestone tip to {username}: {tip_response.get('message')}")
                     

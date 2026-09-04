@@ -603,6 +603,241 @@ def _ensure_checkin_tables(cur):
         );
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS affiliate_links (
+            referred_roobet_uid TEXT PRIMARY KEY,
+            referred_roobet_username TEXT NOT NULL,
+            inviter_discord_user_id BIGINT NOT NULL,
+            linked_by_discord_user_id BIGINT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS finder_fee_credits (
+            id BIGSERIAL PRIMARY KEY,
+            referred_roobet_uid TEXT NOT NULL,
+            referred_roobet_username TEXT NOT NULL,
+            inviter_discord_user_id BIGINT NOT NULL,
+            milestone_tier TEXT NOT NULL,
+            milestone_month INTEGER NOT NULL,
+            milestone_year INTEGER NOT NULL,
+            milestone_prize NUMERIC(12, 2) NOT NULL,
+            fee_rate NUMERIC(6, 4) NOT NULL,
+            credited_amount NUMERIC(12, 2) NOT NULL,
+            credit_type TEXT NOT NULL DEFAULT 'finderFee',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE(referred_roobet_uid, milestone_tier, milestone_month, milestone_year)
+        );
+        """
+    )
+
+
+def create_affiliate_link(referred_roobet_uid, referred_roobet_username, inviter_discord_user_id, linked_by_discord_user_id):
+    conn = get_db_connection()
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            cur.execute(
+                """
+                INSERT INTO affiliate_links (
+                    referred_roobet_uid,
+                    referred_roobet_username,
+                    inviter_discord_user_id,
+                    linked_by_discord_user_id
+                )
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (referred_roobet_uid) DO NOTHING
+                RETURNING referred_roobet_uid;
+                """,
+                (
+                    str(referred_roobet_uid),
+                    str(referred_roobet_username),
+                    str(inviter_discord_user_id),
+                    str(linked_by_discord_user_id),
+                ),
+            )
+            created = cur.fetchone() is not None
+            conn.commit()
+            return created
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error creating affiliate link for Roobet UID {referred_roobet_uid}: {e}")
+        return None
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
+
+
+def get_affiliate_link(referred_roobet_uid=None, referred_roobet_username=None):
+    conn = get_db_connection()
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            if referred_roobet_uid is not None:
+                cur.execute(
+                    """
+                    SELECT referred_roobet_uid, referred_roobet_username, inviter_discord_user_id, created_at
+                    FROM affiliate_links
+                    WHERE referred_roobet_uid = %s;
+                    """,
+                    (str(referred_roobet_uid),),
+                )
+            elif referred_roobet_username:
+                cur.execute(
+                    """
+                    SELECT referred_roobet_uid, referred_roobet_username, inviter_discord_user_id, created_at
+                    FROM affiliate_links
+                    WHERE LOWER(referred_roobet_username) = LOWER(%s);
+                    """,
+                    (str(referred_roobet_username),),
+                )
+            else:
+                conn.commit()
+                return None
+
+            row = cur.fetchone()
+            conn.commit()
+            if row is None:
+                return None
+            return {
+                "referred_roobet_uid": str(row[0]),
+                "referred_roobet_username": row[1],
+                "inviter_discord_user_id": int(row[2]),
+                "created_at": row[3],
+            }
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error loading affiliate link: {e}")
+        return None
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
+
+
+def unlink_affiliate(referred_roobet_uid=None, referred_roobet_username=None):
+    conn = get_db_connection()
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            if referred_roobet_uid is not None:
+                cur.execute(
+                    "DELETE FROM affiliate_links WHERE referred_roobet_uid = %s RETURNING referred_roobet_username, inviter_discord_user_id;",
+                    (str(referred_roobet_uid),),
+                )
+            elif referred_roobet_username:
+                cur.execute(
+                    "DELETE FROM affiliate_links WHERE LOWER(referred_roobet_username) = LOWER(%s) RETURNING referred_roobet_username, inviter_discord_user_id;",
+                    (str(referred_roobet_username),),
+                )
+            else:
+                return None
+
+            row = cur.fetchone()
+            conn.commit()
+            if row is None:
+                return None
+            return {"referred_roobet_username": row[0], "inviter_discord_user_id": int(row[1])}
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error unlinking affiliate: {e}")
+        return None
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
+
+
+def credit_finder_fee(referred_roobet_uid, referred_roobet_username, milestone_tier, month, year, milestone_prize, fee_rate=Decimal("0.20")):
+    conn = get_db_connection()
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            _ensure_checkin_tables(cur)
+            cur.execute(
+                "SELECT inviter_discord_user_id FROM affiliate_links WHERE referred_roobet_uid = %s FOR UPDATE;",
+                (str(referred_roobet_uid),),
+            )
+            link_row = cur.fetchone()
+            if link_row is None:
+                conn.commit()
+                return {"status": "not_linked"}
+
+            inviter_discord_user_id = int(link_row[0])
+            prize_dec = Decimal(str(milestone_prize)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            rate_dec = Decimal(str(fee_rate)).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+            credited_amount = (prize_dec * rate_dec).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            if credited_amount <= 0:
+                conn.commit()
+                return {"status": "invalid_amount"}
+
+            cur.execute(
+                """
+                INSERT INTO finder_fee_credits (
+                    referred_roobet_uid,
+                    referred_roobet_username,
+                    inviter_discord_user_id,
+                    milestone_tier,
+                    milestone_month,
+                    milestone_year,
+                    milestone_prize,
+                    fee_rate,
+                    credited_amount
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (referred_roobet_uid, milestone_tier, milestone_month, milestone_year) DO NOTHING
+                RETURNING id;
+                """,
+                (
+                    str(referred_roobet_uid),
+                    str(referred_roobet_username),
+                    str(inviter_discord_user_id),
+                    str(milestone_tier),
+                    int(month),
+                    int(year),
+                    prize_dec,
+                    rate_dec,
+                    credited_amount,
+                ),
+            )
+            if cur.fetchone() is None:
+                conn.commit()
+                return {"status": "already_credited"}
+
+            row = _get_or_create_checkin_row(cur, inviter_discord_user_id)
+            balance = Decimal(row[1] or 0)
+            total_earned = Decimal(row[5] or 0)
+            new_balance = (balance + credited_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            new_total_earned = (total_earned + credited_amount).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            cur.execute(
+                """
+                UPDATE user_checkins
+                SET balance = %s, total_earned = %s, updated_at = NOW()
+                WHERE discord_user_id = %s;
+                """,
+                (new_balance, new_total_earned, str(inviter_discord_user_id)),
+            )
+            conn.commit()
+            return {
+                "status": "credited",
+                "inviter_discord_user_id": inviter_discord_user_id,
+                "credited_amount": float(credited_amount),
+                "milestone_prize": float(prize_dec),
+                "fee_rate": float(rate_dec),
+                "balance": float(new_balance),
+            }
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error crediting finder fee for Roobet UID {referred_roobet_uid}: {e}")
+        return None
+    finally:
+        conn.autocommit = True
+        release_db_connection(conn)
 
 
 def _get_checkin_random_drop_claims(cur, drop_id):
@@ -1622,6 +1857,16 @@ def get_checkin_account_summary(discord_user_id):
             )
             gamble_earnings = float(Decimal(cur.fetchone()[0] or 0))
 
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(credited_amount), 0)
+                FROM finder_fee_credits
+                WHERE inviter_discord_user_id = %s;
+                """,
+                (str(discord_user_id),),
+            )
+            finder_fee_earnings = float(Decimal(cur.fetchone()[0] or 0))
+
             gtb_earnings = get_gtb_earnings(discord_user_id)
 
             conn.commit()
@@ -1631,8 +1876,8 @@ def get_checkin_account_summary(discord_user_id):
             last_checkin_date = row[2]
             total_earned = float(Decimal(row[5] or 0))
             total_withdrawn = float(Decimal(row[6] or 0))
-            checkin_earnings = total_earned - flash_drop_earnings
-            total_earnings = checkin_earnings + flash_drop_earnings + gamble_earnings + gtb_earnings
+            checkin_earnings = total_earned - flash_drop_earnings - finder_fee_earnings
+            total_earnings = checkin_earnings + flash_drop_earnings + finder_fee_earnings + gamble_earnings + gtb_earnings
 
             today = datetime.now(dt.UTC).date()
             claimed_today = (last_checkin_date == today)
@@ -1650,6 +1895,7 @@ def get_checkin_account_summary(discord_user_id):
                 "checkin_earnings": round(checkin_earnings, 2),
                 "gamble_earnings": round(gamble_earnings, 2),
                 "flash_drop_earnings": round(flash_drop_earnings, 2),
+                "finder_fee_earnings": round(finder_fee_earnings, 2),
                 "gtb_earnings": round(gtb_earnings, 2),
                 "total_earnings": round(total_earnings, 2),
             }
@@ -1937,8 +2183,18 @@ def get_top_checkin_balances(limit=10):
                 )
                 gtb_earnings = float(Decimal(cur.fetchone()[0] or 0))
 
-                checkin_earnings = checkin_total_earned - flash_drop_earnings
-                total_earnings = checkin_earnings + flash_drop_earnings + gamble_earnings + gtb_earnings
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(credited_amount), 0)
+                    FROM finder_fee_credits
+                    WHERE inviter_discord_user_id = %s;
+                    """,
+                    (str(discord_user_id),),
+                )
+                finder_fee_earnings = float(Decimal(cur.fetchone()[0] or 0))
+
+                checkin_earnings = checkin_total_earned - flash_drop_earnings - finder_fee_earnings
+                total_earnings = checkin_earnings + flash_drop_earnings + finder_fee_earnings + gamble_earnings + gtb_earnings
 
                 result.append(
                     {
@@ -1948,6 +2204,7 @@ def get_top_checkin_balances(limit=10):
                         "checkin_earnings": round(checkin_earnings, 2),
                         "gamble_earnings": round(gamble_earnings, 2),
                         "flash_drop_earnings": round(flash_drop_earnings, 2),
+                        "finder_fee_earnings": round(finder_fee_earnings, 2),
                         "gtb_earnings": round(gtb_earnings, 2),
                         "total_earnings": round(total_earnings, 2),
                         "total_withdrawn": total_withdrawn,

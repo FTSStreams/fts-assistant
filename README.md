@@ -110,6 +110,8 @@ FTS Assistant is a **professional-grade Discord bot** designed for gambling comm
 | `/cancelchallenge <id>` | Remove active challenge | Admin Only |
 | `/clear_tips` | Reset milestone database | Admin Only |
 | `/status` | Check bot health | Admin Only |
+| `/linkaffiliate <Roobet username> <Discord user>` | Link a referred player to an inviter for future finder fees | Admin Only |
+| `/unlinkaffiliate <Roobet username>` | Remove an affiliate link while preserving credit history | Admin Only |
 
 ### 🔍 Challenge Commands
 
@@ -242,10 +244,14 @@ Challenge Parameters:
 |-------|---------|------------|
 | **milestonetips** | Milestone tracking | `user_id`, `tier`, `month`, `year` |
 | **manualtips** | All tip transactions | `user_id`, `amount`, `tip_type`, `tipped_at` |
+| **affiliate_links** | Active Roobet referral links | `referred_roobet_uid`, `inviter_discord_user_id` |
+| **finder_fee_credits** | Idempotent FTS Vault finder-fee history | `referred_roobet_uid`, `milestone_tier`, `credited_amount`, `credit_type` |
 | **active_slot_challenges** | Live challenges | `challenge_id`, `game_identifier`, `required_multi` |
 | **slot_challenge_logs** | Challenge history | `winner_uid`, `multiplier`, `prize`, `challenge_start` |
 | **monthly_totals** | Historical aggregates | `year`, `month`, `total_wager`, `weighted_wager` |
 | **settings** | Configuration | `key`, `value` |
+
+Affiliate links apply only to milestones awarded after the link is created. Each successful referred milestone credits 20% of its prize to the inviter's existing FTS Vault balance. The credit is categorized as `finderFee` in `finder_fee_credits`; when the inviter later uses `/withdraw`, the completed Roobet payment continues to be recorded in `manualtips` as `check_in`.
 
 ### Data Flow
 

@@ -8,6 +8,9 @@ from db import (
     save_setting_value,
     edit_checkin_balance,
     resolve_checkin_withdrawal_hold,
+    create_affiliate_link,
+    get_affiliate_link,
+    unlink_affiliate,
 )
 import logging
 import os
@@ -241,6 +244,101 @@ class Admin(commands.Cog):
         save_setting_value(
             MILESTONE_BLOCKED_USER_IDS_KEY,
             json.dumps({"usernames": usernames, "uids": uids}),
+        )
+
+    def _resolve_current_roobet_user(self, roobet_username):
+        normalized_username = self._normalize_roobet_username(roobet_username)
+        data_manager = self.bot.get_cog("DataManager")
+        if not normalized_username or data_manager is None:
+            return None
+
+        cached_data = data_manager.get_cached_data() or {}
+        for entry in cached_data.get("weighted_wager", []):
+            if self._normalize_roobet_username(entry.get("username")) == normalized_username:
+                roobet_uid = entry.get("uid")
+                if roobet_uid is not None:
+                    return str(roobet_uid), str(entry.get("username") or roobet_username).strip()
+        return None
+
+    @app_commands.command(name="linkaffiliate", description="Link a referred Roobet account to a Discord inviter (admin only)")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        referred_roobet_username="Roobet username of the referred player",
+        inviter="Discord user who invited the player",
+    )
+    async def link_affiliate(
+        self,
+        interaction: discord.Interaction,
+        referred_roobet_username: str,
+        inviter: discord.User,
+    ):
+        await interaction.response.defer(ephemeral=True)
+
+        resolved_user = self._resolve_current_roobet_user(referred_roobet_username)
+        if resolved_user is None:
+            await interaction.followup.send(
+                "❌ That Roobet username was not found in the current wager data.",
+                ephemeral=True,
+            )
+            return
+
+        referred_roobet_uid, canonical_username = resolved_user
+        existing_link = get_affiliate_link(referred_roobet_uid=referred_roobet_uid)
+        if existing_link is not None:
+            await interaction.followup.send(
+                f"❌ **{canonical_username}** is already linked to <@{existing_link['inviter_discord_user_id']}>. "
+                "Use `/unlinkaffiliate` before assigning a different inviter.",
+                ephemeral=True,
+            )
+            return
+
+        created = create_affiliate_link(
+            referred_roobet_uid,
+            canonical_username,
+            inviter.id,
+            interaction.user.id,
+        )
+        if created is None:
+            await interaction.followup.send("❌ Failed to save the affiliate link.", ephemeral=True)
+            return
+        if not created:
+            await interaction.followup.send("❌ That Roobet account was linked by another request.", ephemeral=True)
+            return
+
+        await interaction.followup.send(
+            f"✅ Linked Roobet user **{canonical_username}** (`{referred_roobet_uid}`) to inviter {inviter.mention}. "
+            "Future successful milestones will credit a 20% finder fee to their FTS Vault.",
+            ephemeral=True,
+        )
+        logger.info(
+            f"[finder_fee] Admin {interaction.user} linked Roobet user {canonical_username} "
+            f"({referred_roobet_uid}) to Discord user {inviter.id}"
+        )
+
+    @app_commands.command(name="unlinkaffiliate", description="Remove a Roobet account's affiliate link (admin only)")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(referred_roobet_username="Roobet username to unlink")
+    async def unlink_affiliate_cmd(self, interaction: discord.Interaction, referred_roobet_username: str):
+        await interaction.response.defer(ephemeral=True)
+
+        existing_link = get_affiliate_link(referred_roobet_username=referred_roobet_username.strip())
+        if existing_link is None:
+            await interaction.followup.send("ℹ️ No affiliate link was found for that Roobet username.", ephemeral=True)
+            return
+
+        removed = unlink_affiliate(referred_roobet_uid=existing_link["referred_roobet_uid"])
+        if removed is None:
+            await interaction.followup.send("❌ Failed to remove the affiliate link.", ephemeral=True)
+            return
+
+        await interaction.followup.send(
+            f"✅ Unlinked Roobet user **{removed['referred_roobet_username']}** from "
+            f"<@{removed['inviter_discord_user_id']}>. Historical finder fees were preserved.",
+            ephemeral=True,
+        )
+        logger.info(
+            f"[finder_fee] Admin {interaction.user} unlinked Roobet user "
+            f"{existing_link['referred_roobet_username']} ({existing_link['referred_roobet_uid']})"
         )
 
     @app_commands.command(
