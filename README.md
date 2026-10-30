@@ -313,7 +313,8 @@ graph TD
 | `DATABASE_URL` | PostgreSQL connection | `postgresql://user:pass@host:5432/db` |
 | `ROOBET_API_TOKEN` | Affiliate API access | `your_roobet_affiliate_token` |
 | `TIPPING_API_TOKEN` | Tipping API access | `your_roobet_tipping_token` |
-| `ROOBET_USER_ID` | Bot's Roobet account ID | `12345678` |
+| `ROOBET_USER_ID` | Bot's Roobet account ID (affiliate stats) | `12345678` |
+| `TIPPING_USER_ID` | Sender account ID owning `TIPPING_API_TOKEN` (optional, defaults to `ROOBET_USER_ID`) | `12345678` |
 | `GITHUB_TOKEN` | Data export access | `your_github_token` |
 | `GUILD_ID` | Discord server ID | `1234567890` |
 | `LEADERBOARD_CHANNEL_ID` | Main leaderboard channel | `1234567890` |

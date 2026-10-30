@@ -17,6 +17,12 @@ WEEKLY_MULTIPLIER_MIN_BET = 0.10
 logger = logging.getLogger(__name__)
 
 
+def get_tipping_user_id():
+    """Sender account for the tipping API; must match the account that owns TIPPING_API_TOKEN."""
+    value = os.getenv("TIPPING_USER_ID") or os.getenv("ROOBET_USER_ID") or ""
+    return value.strip()
+
+
 def filter_weekly_multiplier_entries(entries):
     eligible_entries = []
     for entry in entries:
@@ -103,7 +109,16 @@ def fetch_weighted_wager(start_date, end_date, game_identifier=None):
     retry=retry_if_exception(lambda e: isinstance(e, requests.HTTPError) and e.response.status_code == 429)
 )
 async def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, balance_type="crypto"):
-    headers = {"Authorization": f"Bearer {TIPPING_API_TOKEN}"}
+    token = (TIPPING_API_TOKEN or "").strip()
+    headers = {"Authorization": f"Bearer {token}"}
+    user_id = (user_id or get_tipping_user_id() or "").strip()
+    to_user_id = (to_user_id or "").strip()
+    if not user_id:
+        logger.error("Cannot send tip: TIPPING_USER_ID/ROOBET_USER_ID is not configured")
+        return {"success": False, "message": "Tipping sender user ID is not configured"}
+    if not token:
+        logger.error("Cannot send tip: TIPPING_API_TOKEN is not configured")
+        return {"success": False, "message": "Tipping API token is not configured"}
     nonce = str(int(time.time() * 1000))  # Use current timestamp in ms as a simple nonce
     payload = {
         "userId": user_id,
@@ -126,7 +141,10 @@ async def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, 
                 else:
                     try:
                         error_response = await response.json()
-                        logger.error(f"Tipping API Request Failed for {to_username}: {response.status}, Response: {error_response}")
+                        logger.error(
+                            f"Tipping API Request Failed for {to_username}: {response.status}, Response: {error_response} "
+                            f"(sender userId={user_id!r}, toUserId={to_user_id!r})"
+                        )
                     except Exception:
                         logger.error(f"Tipping API Request Failed for {to_username}: {response.status}")
                     return {"success": False, "message": f"HTTP {response.status}"}

@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from discord import ui
-from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager, fetch_total_wager, filter_weekly_multiplier_entries, get_month_range
+from utils import send_tip, get_current_month_range, get_current_week_range, fetch_weighted_wager, fetch_total_wager, filter_weekly_multiplier_entries, get_month_range, get_tipping_user_id
 from db import (
     get_db_connection,
     release_db_connection,
@@ -1463,7 +1463,7 @@ class User(commands.Cog):
 
         logger.info(f"Attempting to send {tip_type} tip of ${amount} to {username} (UID: {roobet_uid})")
         response = await send_tip(
-            user_id=os.getenv("ROOBET_USER_ID"),
+            user_id=get_tipping_user_id(),
             to_username=username,
             to_user_id=roobet_uid,
             amount=amount,
@@ -1982,7 +1982,7 @@ class User(commands.Cog):
 
         try:
             response = await send_tip(
-                user_id=os.getenv("ROOBET_USER_ID"),
+                user_id=get_tipping_user_id(),
                 to_username=canonical_username,
                 to_user_id=roobet_uid,
                 amount=withdraw_amount,

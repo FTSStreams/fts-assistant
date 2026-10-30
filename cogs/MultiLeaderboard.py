@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from utils import filter_weekly_multiplier_entries, get_current_week_range, fetch_weighted_wager, send_tip
+from utils import filter_weekly_multiplier_entries, get_current_week_range, fetch_weighted_wager, send_tip, get_tipping_user_id
 from db import get_leaderboard_message_id, save_leaderboard_message_id, save_tip_log, get_db_connection, release_db_connection, get_setting_value, save_setting_value
 import os
 import logging
@@ -653,7 +653,7 @@ class MultiLeaderboard(commands.Cog):
                 # Send the tip
                 logger.info(f"[MultiLeaderboard] 💸 Sending weekly prize: ${prize_amount} to {username} (Rank #{i+1}, x{multiplier:.2f})")
                 tip_response = await send_tip(
-                    user_id=os.getenv("ROOBET_USER_ID"),
+                    user_id=get_tipping_user_id(),
                     to_username=username,
                     to_user_id=user_id,
                     amount=prize_amount

@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from utils import send_tip
+from utils import send_tip, get_tipping_user_id
 from db import (
     get_all_active_slot_challenges, add_active_slot_challenge, remove_active_slot_challenge, log_slot_challenge,
     get_leaderboard_message_id, save_leaderboard_message_id, save_tip_log
@@ -37,7 +37,7 @@ class SlotChallenge(commands.Cog):
         while True:
             challenge, winner, second, history_channel = await self.payout_queue.get()
             tip_response = await send_tip(
-                user_id=os.getenv("ROOBET_USER_ID"),
+                user_id=get_tipping_user_id(),
                 to_username=winner["username"],
                 to_user_id=winner["uid"],
                 amount=challenge["prize"]
