@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
-from utils import send_tip, get_current_month_range, get_tipping_user_id
+from utils import send_tip, get_current_month_range
 from db import get_db_connection, release_db_connection, save_tip_log, load_sent_tips, save_tip, get_leaderboard_message_id, save_leaderboard_message_id, get_setting_value, credit_finder_fee
 import os
 import logging
@@ -307,7 +307,7 @@ class Milestones(commands.Cog):
                     )
                     continue
                 logger.info(f"[Milestones] Processing tip for {username} - {milestone['tier']} (month={month}, year={year})")
-                bot_user_id = get_tipping_user_id()
+                bot_user_id = os.getenv("ROOBET_USER_ID")
                 tip_response = await send_tip(bot_user_id, username, user_id, milestone["tip"])
                 if tip_response.get("success"):
                     milestone_saved = save_tip(user_id, milestone["tier"], month, year)
