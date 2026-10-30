@@ -4,6 +4,7 @@ from datetime import datetime
 import datetime as dt
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 import os
+import time
 import aiohttp
 
 ROOBET_API_TOKEN = os.getenv("ROOBET_API_TOKEN")
@@ -118,6 +119,7 @@ async def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, 
     if not token:
         logger.error("Cannot send tip: TIPPING_API_TOKEN is not configured")
         return {"success": False, "message": "Tipping API token is not configured"}
+    nonce = str(int(time.time() * 1000))  # Use current timestamp in ms as a simple nonce
     payload = {
         "userId": user_id,
         "toUserName": to_username,
@@ -125,8 +127,11 @@ async def send_tip(user_id, to_username, to_user_id, amount, show_in_chat=True, 
         "amount": amount,
         "showInChat": show_in_chat,
         "balanceType": balance_type,
+        "nonce": nonce
     }
     logger.debug(f"Sending tip request for {to_username}: Payload={payload}")
+    logger.debug(f"[DEBUG] Tip payload for {to_username}: {payload}")
+    logger.debug(f"[DEBUG] Tip headers: {headers}")
     async with aiohttp.ClientSession() as session:
         try:
             async with session.post(TIPPING_API_URL, json=payload, headers=headers, timeout=10) as response:
